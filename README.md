@@ -11,9 +11,8 @@ copy of the game, on your computer.
 
 ## What you need
 
-- The European release of the game (title ID `000400000009F100`), dumped
+- The European release of the game (title ID `000400000009F100` revision 0), dumped
   from your cartridge as a decrypted `.3ds` or `.cci` file.
-- The game's original code, revision 0.
 - Optionally, the DLC, dumped as a decrypted `.cia` file.
 
 ## Playing
