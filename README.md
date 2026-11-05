@@ -14,9 +14,7 @@ copy of the game, on your computer.
 
 - The European release of the game (title ID `000400000009F100`), dumped
   from your cartridge as a decrypted `.3ds` or `.cci` file.
-- The game's original code, revision 0. The widescreen mode, the other
-  built-in tweaks and the feet are written for that code. With an update
-  that changes the code, the game still runs, but without them.
+- The game's original code, revision 0.
 - Optionally, the DLC, dumped as a decrypted `.cia` file.
 
 ## Playing
