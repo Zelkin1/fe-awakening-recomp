@@ -79,8 +79,7 @@ python tools/licenses.py metadata.json THIRD_PARTY_LICENSES.txt
 ### A standalone program
 
 The game can also be built into a program of its own, `fe-awakening.exe`,
-which `Play-FireEmblemAwakening.bat` starts (or
-`Play-FireEmblemAwakening-16x9.bat` for widescreen):
+which `Play-FireEmblemAwakening.bat` starts:
 
 ```bash
 source tools/env.sh

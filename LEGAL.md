@@ -9,7 +9,7 @@ any other company.
 
 The project's own files, the only ones a repository of it holds, are
 `.gitignore`, `README.md`, `LEGAL.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`,
-the two `.bat` launchers, the patches (`patches/*.patch`), the scripts
+the `.bat` launcher, the patches (`patches/*.patch`), the scripts
 (`tools/*.py`, `tools/*.sh`) and the feet mod's patch, scripts and README
 (`mods/feet/zakuro-feet.patch`, `mods/feet/*.py`, `mods/feet/README.md`).
 `.gitignore` leaves everything else out and lets these in by name. They hold no code, data,
