@@ -10,8 +10,8 @@ any other company.
 The project's own files, the only ones a repository of it holds, are
 `.gitignore`, `README.md`, `LEGAL.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`,
 the two `.bat` launchers, the patches (`patches/*.patch`), the scripts
-(`tools/*.py`, `tools/*.sh`) and the feet mod's builder, patch and README
-(`mods/feet/*.py`, `mods/feet/zakuro-feet.patch`, `mods/feet/README.md`).
+(`tools/*.py`, `tools/*.sh`) and the feet mod's patch, scripts and README
+(`mods/feet/zakuro-feet.patch`, `mods/feet/*.py`, `mods/feet/README.md`).
 `.gitignore` leaves everything else out and lets these in by name. They hold no code, data,
 assets, text, shaders, keys or firmware from the game or the console, and no
 decompiled or recompiled game code.
@@ -60,10 +60,14 @@ game's code or data, changed or not. Don't share or upload any of it:
   game's code, its objects, the library and `fe-awakening.exe`.
 - `_runs/`: the test harness's screen dumps, memory, texture and uniform
   dumps, save states, saves, and the mods it builds.
-- The feet mod's models: `mods/feet/foot_build.py` reads a body model from
-  your dump and writes a changed copy into the mod's own folder in a data
-  folder, `_runs/...` or `%APPDATA%\zakuro\mods\000400000009F100\feet\`. The
-  builder is the project's; the model it writes is the game's, changed.
+- What the launcher's Build button makes:
+  - The feet mod's models. The launcher (or `mods/feet/foot_build.py`)
+    reads a body model from your dump and writes a changed copy into the
+    mod's own folder, `%APPDATA%\zakuro\mods\000400000009F100\feet\` (or a
+    folder in `_runs/` for the scripts). The builder is the project's; the
+    model it writes is the game's, changed.
+  - The game's code converted to native code, a library in
+    `%APPDATA%\3dsrecomp\`.
 - Zakuro's own folder, `%APPDATA%\zakuro`, and `userdata/`, where the
   launchers keep theirs: your saves, states, settings and mods.
 

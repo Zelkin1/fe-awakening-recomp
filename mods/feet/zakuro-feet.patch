@@ -245,7 +245,7 @@ index 0000000..e1c2953
 +    }
 +}
 diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
-index dc073f1..a1e3cfd 100644
+index 36b49cd..0f94050 100644
 --- a/crates/zakuro-core/src/lib.rs
 +++ b/crates/zakuro-core/src/lib.rs
 @@ -4,6 +4,7 @@
@@ -257,10 +257,10 @@ index dc073f1..a1e3cfd 100644
  pub mod download_play;
  pub mod hints;
 diff --git a/crates/zakuro-core/src/loader.rs b/crates/zakuro-core/src/loader.rs
-index 002e738..cfbb8c5 100644
+index 1a7863e..a2b6c99 100644
 --- a/crates/zakuro-core/src/loader.rs
 +++ b/crates/zakuro-core/src/loader.rs
-@@ -486,6 +486,10 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
+@@ -568,6 +568,10 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
          }
      }
  
@@ -271,7 +271,7 @@ index 002e738..cfbb8c5 100644
      let mut on_gpu = false;
      if system.config.hardware_renderer {
          match system.gpu.enable_hardware_renderer(system.config.resolution, system.config.device.clone(), Some(title.program_id())) {
-@@ -558,10 +562,22 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
+@@ -643,10 +647,22 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
          library.place(&module.name, module.base, &mut system.memory);
      }
      system.hints = Some(crate::hints::Hints::new(path, text));
@@ -373,3 +373,1969 @@ index 830127f..c87b298 100644
                  slot.set((address, code));
                  code
              }
+diff --git a/crates/zakuro/src/feet/foot.rs b/crates/zakuro/src/feet/foot.rs
+new file mode 100644
+index 0000000..37a09d5
+--- /dev/null
++++ b/crates/zakuro/src/feet/foot.rs
+@@ -0,0 +1,1246 @@
++//! gives a body model feet of our own: a foot shape lofted from
++//! cross-sections in front of each leg's end, fitted to the leg's shaft, and
++//! written into the model's CGFX as a primitive set of its own, skinned to
++//! two bones added to the skeleton for it, a foot bone under each shin: the
++//! vertices appended to the shape's vertex buffer, the triangles, the set,
++//! the bones and the skeleton's dictionary with them at the end of the file.
++//! each foot bone is marked for Zakuro's feet hook (zakuro-core feet.rs),
++//! which turns it every frame so that the foot meets the floor: its flags
++//! have the game compute it a skinning matrix, and its inverse bind matrix,
++//! which only that would read, holds the foot's points instead, the ankle it
++//! turns about, the toe and the heel, then "FEET".
++//!
++//! the feet take the plainest rectangles of the shins' own texels, at the
++//! shins' texel density, from the body's colour texture; without one they
++//! take the nearest boot vertex's coordinates.
++
++use std::collections::{BTreeMap, BTreeSet, HashMap};
++
++use super::formats::{self, Blob, Image};
++use super::model::{self, Attr, FLOAT};
++
++type V3 = [f64; 3];
++
++fn add(a: V3, b: V3) -> V3 {
++    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
++}
++
++fn sub(a: V3, b: V3) -> V3 {
++    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
++}
++
++fn mul(a: V3, s: f64) -> V3 {
++    [a[0] * s, a[1] * s, a[2] * s]
++}
++
++fn dot(a: V3, b: V3) -> f64 {
++    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
++}
++
++fn cross(a: V3, b: V3) -> V3 {
++    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
++}
++
++fn norm(a: V3) -> f64 {
++    dot(a, a).sqrt()
++}
++
++/// the smallest and the largest of points, each coordinate apart.
++fn bounds(points: impl Iterator<Item = V3>) -> (V3, V3) {
++    points.fold(([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]), |(lo, hi), p| {
++        ([lo[0].min(p[0]), lo[1].min(p[1]), lo[2].min(p[2])], [hi[0].max(p[0]), hi[1].max(p[1]), hi[2].max(p[2])])
++    })
++}
++
++fn median(values: &mut [f64]) -> f64 {
++    values.sort_by(f64::total_cmp);
++    let n = values.len();
++    if n % 2 == 1 { values[n / 2] } else { (values[n / 2 - 1] + values[n / 2]) / 2.0 }
++}
++
++/// the q-th percentile, between the two nearest values as numpy's is.
++fn percentile(values: &mut [f64], q: f64) -> f64 {
++    values.sort_by(f64::total_cmp);
++    let at = (values.len() - 1) as f64 * q / 100.0;
++    let (low, share) = (at.floor() as usize, at - at.floor());
++    match values.get(low + 1) {
++        Some(&next) => values[low] + (next - values[low]) * share,
++        None => values[low],
++    }
++}
++
++// how far behind the leg's back the heel goes, as a share of the foot's
++// length, a real heel's, and the foot's length: Robin's for the depth of his
++// shaft, within shares of the knee's height, so that a thin leg doesn't get
++// a doll's foot nor a thick greave a clown's
++const HEEL: f64 = 0.03;
++const LENGTH_PER_DEPTH: f64 = 2.35;
++const LENGTH: (f64, f64) = (0.42, 0.60);
++const AHEAD_LEAST: f64 = 0.40;
++// the shaft a foot is fitted to, as shares of the knee's height above the
++// floor, where Robin's boots are straight; how much of a vertex's weight is
++// the shin's for it to be the leg's own, which leaves out robes, whose
++// vertices go with several bones
++const BAND: (f64, f64) = (0.234, 0.338);
++const OWN: f64 = 0.85;
++// below this share of the knee's height a leg's vertices are its end, whose
++// footprint tells the leg from a robe's hem hanging on the shin
++const END: f64 = 0.12;
++// above this share of the ankle's height the leg shows above the shoe
++const SHOWN: f64 = 0.85;
++// the widest a foot's shaft is taken to be, as a share of the knee's
++// height; Robin's is 0.19
++const WIDEST: f64 = 0.21;
++// how many texels each of a foot's vertices is nudged by at most, a noise
++// that mottles the leg's grain across the foot
++const NOISE: f64 = 1.5;
++// the boot's own end, below LOW of the ankle's height, made a straight boot
++// inside the foot, up to TUCK of the ankle's height
++const LOW: f64 = 0.25;
++const TUCK: f64 = 0.40;
++// how far above the floor a sole stands where it meets it, so that the
++// floor doesn't flicker through it
++const LIFT: f64 = 0.01;
++// the bone flags the game computes a skinning matrix for, the inverse bind
++// matrix in a bone's record, and the tag after the foot's points there
++const SKINNED: u32 = 0x240;
++const INVERSE_BIND: usize = 0xA4;
++const TAG: &[u8; 4] = b"FEET";
++
++/// a style of foot, fitting the legs it goes on: a shoe for boots of leather
++/// or cloth, a sabaton for plate, wider, its top in steps like plates over a
++/// thin sole, and a sandal for bare and strapped legs, a low bare foot on a
++/// thin sole. each is its cross-sections from heel to toe in two runs:
++/// behind the leg's front, where along the foot as a share of its length
++/// from the heel, and ahead of it, as a share of the way from the leg's
++/// front to the toe, so that the instep is always where the leg comes down
++/// into the foot. for each, the half-width as a share of the shaft's, as
++/// shares of the ankle's height the top of the upper, the top of the sole
++/// and its bottom, which rises at the toe, and where the upper's sides turn
++/// to its top, as a share of the half-width. then the angle in degrees under
++/// which faces share their normals, so that the foot is lit smoothly between
++/// its edges and its edges stay sharp.
++pub struct Style {
++    pub name: &'static str,
++    behind: &'static [[f64; 6]],
++    ahead: &'static [[f64; 6]],
++    smooth: f64,
++}
++
++const STYLES: [Style; 3] = [
++    Style {
++        name: "shoe",
++        behind: &[[0.00, 0.86, 0.56, 0.18, 0.00, 0.85], [0.14, 1.00, 0.68, 0.16, 0.00, 0.85]],
++        ahead: &[[0.00, 1.04, 0.70, 0.14, 0.00, 0.78], [0.42, 1.06, 0.49, 0.13, 0.00, 0.66], [0.78, 0.98, 0.39, 0.12, 0.01, 0.62], [1.00, 0.76, 0.31, 0.12, 0.05, 0.62]],
++        smooth: 30.0,
++    },
++    Style {
++        name: "sabaton",
++        behind: &[[0.00, 0.88, 0.60, 0.07, 0.00, 0.82], [0.14, 1.02, 0.74, 0.07, 0.00, 0.80]],
++        ahead: &[[0.00, 1.06, 0.78, 0.07, 0.00, 0.72], [0.40, 1.02, 0.54, 0.07, 0.00, 0.62], [0.76, 0.86, 0.42, 0.07, 0.01, 0.56], [1.00, 0.58, 0.32, 0.07, 0.05, 0.56]],
++        smooth: 20.0,
++    },
++    Style {
++        name: "sandal",
++        behind: &[[0.00, 0.80, 0.48, 0.06, 0.00, 0.82], [0.14, 0.95, 0.62, 0.06, 0.00, 0.80]],
++        ahead: &[[0.00, 1.00, 0.66, 0.06, 0.00, 0.70], [0.45, 0.98, 0.42, 0.06, 0.00, 0.62], [0.80, 0.86, 0.33, 0.06, 0.01, 0.62], [1.00, 0.64, 0.27, 0.06, 0.03, 0.64]],
++        smooth: 30.0,
++    },
++];
++
++/// the plate classes and those whose legs end bare or strapped, by the code
++/// in their bodies' names, uBody_<sex>_<class>_<n>; the rest wear shoes.
++const SABATONS: [&str; 13] = ["karm", "gene", "kgre", "kgri", "kpal", "kdar", "kdr1", "kdr2", "lod2", "snyp", "war2", "ksoc", "merc"];
++const SANDALS: [&str; 5] = ["dmag", "sorc", "lagz", "baba", "swd2"];
++
++pub fn style_of(path: &str) -> &'static Style {
++    let class = path.split('_').nth(2).unwrap_or("");
++    let name = if SABATONS.contains(&class) {
++        "sabaton"
++    } else if SANDALS.contains(&class) {
++        "sandal"
++    } else {
++        "shoe"
++    };
++    STYLES.iter().find(|style| style.name == name).unwrap()
++}
++
++/// what a face is made of: the dark sole or the upper.
++#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
++enum Material {
++    Sole,
++    Upper,
++}
++
++/// which edges of a cross-section, from each point to the next, are the
++/// sole's.
++const SOLE_EDGES: [usize; 3] = [0, 1, 5];
++
++/// the noise each vertex's texels are nudged by, from -NOISE to NOISE: a
++/// xorshift, the same on both feet, so that they stay mirror images.
++struct Noise(u64);
++
++impl Noise {
++    fn new() -> Noise {
++        Noise(0x9E37_79B9_7F4A_7C15)
++    }
++
++    fn next(&mut self) -> f64 {
++        let mut s = self.0;
++        s ^= s << 13;
++        s ^= s >> 7;
++        s ^= s << 17;
++        self.0 = s;
++        ((s >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) * NOISE
++    }
++}
++
++/// a rectangle of texels: its corner and size.
++#[derive(Clone, Copy, Debug, PartialEq)]
++struct Rect {
++    x: usize,
++    y: usize,
++    w: usize,
++    h: usize,
++}
++
++/// a rectangle a search found, with its mean colour and the spread of its
++/// brightness.
++struct Found {
++    x: usize,
++    y: usize,
++    colour: [f64; 3],
++    spread: f64,
++}
++
++fn farthest(a: [f64; 3], b: [f64; 3]) -> f64 {
++    (a[0] - b[0]).abs().max((a[1] - b[1]).abs()).max((a[2] - b[2]).abs())
++}
++
++/// skin: orange, from fair to dark.
++fn skin(c: [f64; 3]) -> bool {
++    let warm = (c[0] - c[2]) / (c[0] + 1.0);
++    c[0] >= c[1] && c[1] >= c[2] && warm > 0.12 && warm < 0.55 && c[0] > 70.0
++}
++
++/// the least of keys, by its value then its corner, as Python's tuples go.
++fn least(keys: impl Iterator<Item = (f64, usize, usize)>) -> Option<(usize, usize)> {
++    keys.min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2))).map(|(_, x, y)| (x, y))
++}
++
++/// sums over rectangles of a picture, in constant time each.
++struct Sums {
++    wide: usize,
++    table: Vec<f64>,
++}
++
++impl Sums {
++    fn new(wide: usize, high: usize, value: impl Fn(usize, usize) -> f64) -> Sums {
++        let mut table = vec![0.0; (wide + 1) * (high + 1)];
++        for y in 0..high {
++            let mut row = 0.0;
++            for x in 0..wide {
++                row += value(x, y);
++                table[(y + 1) * (wide + 1) + x + 1] = table[y * (wide + 1) + x + 1] + row;
++            }
++        }
++        Sums { wide, table }
++    }
++
++    fn sum(&self, x: usize, y: usize, w: usize, h: usize) -> f64 {
++        let at = |x: usize, y: usize| self.table[y * (self.wide + 1) + x];
++        at(x + w, y + h) - at(x, y + h) - at(x + w, y) + at(x, y)
++    }
++}
++
++/// the body's colour texture with the shins' texels marked on it, searched
++/// for rectangles.
++struct Texels<'a> {
++    tex: &'a Image,
++    mask: Vec<bool>,
++    inside: Sums,
++    colour: [Sums; 3],
++    lum: Sums,
++    lum2: Sums,
++}
++
++fn lum(c: [f64; 3]) -> f64 {
++    c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114
++}
++
++impl<'a> Texels<'a> {
++    fn new(tex: &'a Image, mask: Vec<bool>) -> Texels<'a> {
++        let (w, h) = (tex.width, tex.height);
++        let channel = |c: usize| Sums::new(w, h, |x, y| tex.at(x, y)[c]);
++        Texels {
++            inside: Sums::new(w, h, |x, y| mask[y * w + x] as u8 as f64),
++            colour: [channel(0), channel(1), channel(2)],
++            lum: Sums::new(w, h, |x, y| lum(tex.at(x, y))),
++            lum2: Sums::new(w, h, |x, y| lum(tex.at(x, y)).powi(2)),
++            tex,
++            mask,
++        }
++    }
++
++    /// the rectangle of the shins' own texels, a texel to spare all round
++    /// for the filtering, that pick chooses from the candidates of the first
++    /// size that has any.
++    fn plain(&self, sizes: &[(usize, usize)], pick: &dyn Fn(&[Found], (usize, usize)) -> Option<(usize, usize)>) -> Result<Rect, String> {
++        let wide = self.tex.width;
++        let (mut rows, mut columns) = ((usize::MAX, 0), (usize::MAX, 0));
++        for (i, _) in self.mask.iter().enumerate().filter(|(_, &m)| m) {
++            let (x, y) = (i % wide, i / wide);
++            rows = (rows.0.min(y), rows.1.max(y));
++            columns = (columns.0.min(x), columns.1.max(x));
++        }
++        if rows.0 == usize::MAX {
++            return Err("no texels on the shins".into());
++        }
++        for &(w, h) in sizes {
++            let mut found = Vec::new();
++            for y in rows.0.max(1)..rows.1.saturating_sub(h) {
++                for x in columns.0.max(1)..columns.1.saturating_sub(w) {
++                    if self.inside.sum(x - 1, y - 1, w + 2, h + 2) < ((w + 2) * (h + 2)) as f64 - 0.5 {
++                        continue;
++                    }
++                    let n = (w * h) as f64;
++                    let colour = [0, 1, 2].map(|c| self.colour[c].sum(x, y, w, h) / n);
++                    let mean = self.lum.sum(x, y, w, h) / n;
++                    let spread = (self.lum2.sum(x, y, w, h) / n - mean * mean).max(0.0).sqrt();
++                    found.push(Found { x, y, colour, spread });
++                }
++            }
++            if let Some((x, y)) = pick(&found, (w, h)) {
++                return Ok(Rect { x, y, w, h });
++            }
++        }
++        Err("no plain rectangle on the shins".into())
++    }
++
++    fn mean(&self, r: Rect) -> [f64; 3] {
++        let n = (r.w * r.h) as f64;
++        [0, 1, 2].map(|c| self.colour[c].sum(r.x, r.y, r.w, r.h) / n)
++    }
++
++    /// how far the row or the column of a stretch that stands out most is
++    /// from the stretch's own colour, in any channel, so that a purple
++    /// stripe on brown leather of the same brightness counts too.
++    fn stripe(&self, x: usize, y: usize, (w, h): (usize, usize)) -> f64 {
++        let whole = self.mean(Rect { x, y, w, h });
++        let columns = (x..x + w).map(|cx| [0, 1, 2].map(|c| (y..y + h).map(|ry| self.tex.at(cx, ry)[c]).sum::<f64>() / h as f64));
++        let rows = (y..y + h).map(|ry| [0, 1, 2].map(|c| (x..x + w).map(|cx| self.tex.at(cx, ry)[c]).sum::<f64>() / w as f64));
++        columns.chain(rows).map(|line| farthest(line, whole)).fold(0.0, f64::max)
++    }
++}
++
++/// those found near the colour, the most even first; none near enough, the
++/// nearest even one, evenness counting thrice, so that a stretch across a
++/// pattern isn't taken.
++fn near(colour: [f64; 3]) -> impl Fn(&[Found], (usize, usize)) -> Option<(usize, usize)> {
++    move |found, _| {
++        let close: Vec<_> = found.iter().filter(|f| farthest(f.colour, colour) < 16.0).map(|f| (f.spread, f.x, f.y)).collect();
++        match close.is_empty() {
++            false => least(close.into_iter()),
++            true => least(found.iter().map(|f| (farthest(f.colour, colour) + 3.0 * f.spread, f.x, f.y))),
++        }
++    }
++}
++
++/// the darkest even stretch.
++fn darkest(found: &[Found], _: (usize, usize)) -> Option<(usize, usize)> {
++    least(found.iter().filter(|f| f.spread < 3.0).map(|f| (f.colour.iter().sum::<f64>() / 3.0, f.x, f.y)))
++}
++
++/// where the upper and the sole take their texels in the texture, in the
++/// leg's own materials: the foot carries on the leg's faces right above it,
++/// the ones seen where they meet. for a shoe or a sabaton the upper is the
++/// plainest rectangle of the shins' texels near those faces' usual colour
++/// and the sole the darkest even one; for a sandal the foot is the plainest
++/// rectangle of the shins' skin, when they show some, and the sole the
++/// lowest faces' colour. with the texture's size and the shins' texels per
++/// unit.
++struct Patch {
++    rects: [(Material, Rect); 2],
++    wide: usize,
++    high: usize,
++    density: f64,
++}
++
++struct Frame {
++    on_leg: Vec<bool>,
++    /// the leg's outline at the shaft's bottom.
++    outline: Vec<V3>,
++    cx: f64,
++    cz: f64,
++    half: f64,
++    depth: f64,
++    ankle: f64,
++    height: f64,
++    back: f64,
++    front: f64,
++}
++
++/// the shoe a foot is, to put the leg inside it: its middle across, where it
++/// is along, and at each of those its half-width, top, sole, bottom and
++/// shoulder.
++struct Fit {
++    cx: f64,
++    cz: f64,
++    along: Vec<f64>,
++    sections: Vec<[f64; 5]>,
++}
++
++struct Foot {
++    verts: Vec<V3>,
++    normals: Vec<V3>,
++    uvs: Vec<[f64; 2]>,
++    tris: Vec<[usize; 3]>,
++    /// the ankle the hook turns it about, its toe and its heel.
++    contact: [V3; 3],
++    fit: Fit,
++}
++
++struct Body<'a> {
++    b: Blob<'a>,
++    pos: Vec<V3>,
++    uv: Option<Vec<[f64; 2]>>,
++    weights: Vec<Vec<f64>>,
++    /// each vertex's bones, by their joint index, -1 for none.
++    joint: Vec<Vec<i64>>,
++    /// the bone of each vertex's greatest weight.
++    main: Vec<i64>,
++    names: Vec<(i64, String)>,
++    records: HashMap<String, usize>,
++    triangles: Vec<[usize; 3]>,
++}
++
++/// an edge of a polygon being filled: its first corner, its slope in x
++/// for each row, and the rows it spans.
++struct Edge {
++    x0: i64,
++    y0: i64,
++    dx: f32,
++    top: i64,
++    bottom: i64,
++}
++
++impl Edge {
++    fn x(&self, y: i64) -> f32 {
++        (y - self.y0) as f32 * self.dx + self.x0 as f32
++    }
++}
++
++/// the polygon of points filled into a mask of wide by high, the pixels
++/// Pillow 10.3 fills, which the Python builder's masks are: its corners cut
++/// to whole pixels, a horizontal edge drawn whole, and each row filled
++/// between the edges crossing it, from the first pixel whose middle is in
++/// it to the last, two edges that leave a corner the same way taking the
++/// pixels to where they are on the next row.
++fn fill(mask: &mut [bool], wide: usize, high: usize, points: [(f64, f64); 3]) {
++    let round_up = |v: f32| {
++        let v = v as f64;
++        (if v >= 0.0 { (v + 0.5).floor() } else { -(v.abs() + 0.5).floor() }) as i64
++    };
++    let round_down = |v: f32| {
++        let v = v as f64;
++        (if v >= 0.0 { (v - 0.5).ceil() } else { -(v.abs() - 0.5).ceil() }) as i64
++    };
++    let (wide_i, high_i) = (wide as i64, high as i64);
++    let mut hline = |x0: i64, y: i64, x1: i64| {
++        if y < 0 || y >= high_i || x1 < 0 || x0 >= wide_i {
++            return;
++        }
++        for x in x0.max(0)..=x1.min(wide_i - 1) {
++            mask[y as usize * wide + x as usize] = true;
++        }
++    };
++    let corners = points.map(|(x, y)| (x as i64, y as i64));
++    let (mut top, mut bottom) = (high_i - 1, 0);
++    let mut slanted = Vec::new();
++    for i in 0..3 {
++        let ((x0, y0), (x1, y1)) = (corners[i], corners[(i + 1) % 3]);
++        if i == 2 && corners[2] == corners[0] {
++            continue;
++        }
++        let (lo, hi) = (y0.min(y1), y0.max(y1));
++        (top, bottom) = (top.min(lo), bottom.max(hi));
++        if y0 == y1 {
++            hline(x0.min(x1), y0, x0.max(x1));
++        } else {
++            slanted.push(Edge { x0, y0, dx: (x1 - x0) as f32 / (y1 - y0) as f32, top: lo, bottom: hi });
++        }
++    }
++    let (top, bottom) = (top.max(0), bottom.min(high_i));
++    for y in top..=bottom {
++        let mut xs: Vec<f32> = Vec::with_capacity(2 * slanted.len());
++        for (i, edge) in slanted.iter().enumerate() {
++            if y < edge.top || y > edge.bottom {
++                continue;
++            }
++            let x = edge.x(y);
++            xs.push(x);
++            if y == edge.bottom && y < bottom {
++                xs.push(x);
++            } else if edge.dx != 0.0 && x.round() == x {
++                // a corner two edges leave the same way
++                for (k, other) in slanted[..i].iter().enumerate() {
++                    if (edge.dx > 0.0 && other.dx <= 0.0) || (edge.dx < 0.0 && other.dx >= 0.0) {
++                        continue;
++                    }
++                    let meet = (y == edge.top && y == other.top) || (y == edge.bottom && y == other.bottom);
++                    if meet && x == other.x(y) {
++                        let next = if y == bottom { y - 1 } else { y + 1 };
++                        let (here, there) = (edge.x(next), other.x(next));
++                        xs[k] = match (y == edge.bottom, edge.dx > 0.0) {
++                            (true, true) => here.max(there) + 1.0,
++                            (true, false) => here.min(there) - 1.0,
++                            (false, true) => here.min(there),
++                            (false, false) => here.max(there) + 1.0,
++                        };
++                        break;
++                    }
++                }
++            }
++        }
++        xs.sort_by(f32::total_cmp);
++        for pair in xs.chunks_exact(2) {
++            hline(round_up(pair[0]), y, round_down(pair[1]));
++        }
++    }
++}
++
++impl Body<'_> {
++    fn joints(&self, wanted: &[String]) -> Vec<i64> {
++        self.names.iter().filter(|(_, name)| wanted.contains(name)).map(|(joint, _)| *joint).collect()
++    }
++
++    /// how high the shin's bone, at the knee, is in the bind pose.
++    fn knee(&self, leg: char) -> Result<f64, String> {
++        let at = *self.records.get(&format!("{leg}_leg2")).ok_or("no shin")? + INVERSE_BIND;
++        let m = |r: usize, c: usize| self.b.f32(at + 4 * (4 * r + c));
++        Ok(-(0..3).map(|r| m(r, 1) * m(r, 3)).sum::<f64>())
++    }
++
++    /// the leg's own vertices, its outline at the shaft's bottom, the centre
++    /// a foot goes under, its half-width, the shaft's depth, the ankle's
++    /// height, the knee's, and how far back and forward the leg reaches
++    /// there. the shaft is where the leg's surface crosses heights through
++    /// BAND, or, under a robe, between its end and BAND; its extent is the
++    /// median of those heights' own, so that a fin or a spike at one height
++    /// doesn't count, and the centre is the middle of it.
++    fn frame(&self, leg: char) -> Result<Frame, String> {
++        let bones = self.joints(&[format!("{leg}_leg2"), format!("{leg}_leg3")]);
++        let n = self.pos.len();
++        let mut on_leg: Vec<bool> = (0..n)
++            .map(|i| {
++                let own: f64 = self.joint[i].iter().zip(&self.weights[i]).filter(|(j, _)| bones.contains(j)).map(|(_, w)| w).sum();
++                bones.contains(&self.main[i]) && own >= OWN * self.weights[i].iter().sum::<f64>()
++            })
++            .collect();
++        let height = self.knee(leg)?;
++        let (lo, hi) = (BAND.0 * height, BAND.1 * height);
++        // and near the leg's end: within its footprint on the floor grown by
++        // half its size each way, which leaves out a robe's hem hanging on
++        // the shin
++        let end: Vec<usize> = (0..n).filter(|&i| on_leg[i] && self.pos[i][1] < END * height).collect();
++        if end.len() >= 3 {
++            let (first, last) = bounds(end.iter().map(|&i| self.pos[i]));
++            let grown = mul(sub(last, first), 0.5);
++            for (i, on) in on_leg.iter_mut().enumerate() {
++                let p = self.pos[i];
++                *on &= p[0] >= first[0] - grown[0] && p[0] <= last[0] + grown[0] && p[2] >= first[2] - grown[2] && p[2] <= last[2] + grown[2];
++            }
++        }
++        let tris: Vec<[usize; 3]> = self.triangles.iter().copied().filter(|t| t.iter().all(|&i| on_leg[i])).collect();
++        let crossings = |y: f64| {
++            let mut found = Vec::new();
++            for (i, j) in [(0, 1), (1, 2), (2, 0)] {
++                for t in &tris {
++                    let (a, c) = (self.pos[t[i]], self.pos[t[j]]);
++                    if (a[1] - y) * (c[1] - y) < 0.0 {
++                        found.push(add(a, mul(sub(c, a), (y - a[1]) / (c[1] - a[1]))));
++                    }
++                }
++            }
++            found
++        };
++        let sections = |bottom: f64, top: f64| -> Vec<Vec<V3>> {
++            (0..7).map(|k| if k == 6 { top } else { bottom + (top - bottom) / 6.0 * k as f64 }).map(crossings).filter(|cut| cut.len() >= 4).collect()
++        };
++        let (mut cuts, mut robed) = (sections(lo, hi), false);
++        if cuts.len() < 2 {
++            // nothing of the leg there, under a robe say: what of it there
++            // is between its end and the band
++            (cuts, robed) = (sections(END * height, lo), true);
++        }
++        if cuts.len() < 2 {
++            return Err(format!("the {leg} shin has no shaft between {:.2} and {hi:.2}", END * height));
++        }
++        let extents: Vec<(V3, V3)> = cuts.iter().map(|cut| bounds(cut.iter().copied())).collect();
++        let first: V3 = [0, 1, 2].map(|c| median(&mut extents.iter().map(|e| e.0[c]).collect::<Vec<_>>()));
++        let last: V3 = [0, 1, 2].map(|c| median(&mut extents.iter().map(|e| e.1[c]).collect::<Vec<_>>()));
++        let (cx, cz) = ((first[0] + last[0]) / 2.0, (first[2] + last[2]) / 2.0);
++        let (half, depth) = ((last[0] - first[0]) / 2.0, last[2] - first[2]);
++        // the back and the front are the shaft's, or the leg's under it
++        // where that shows above the shoe, a boot's heel or a greave's flare
++        // say; lower, the leg goes inside the shoe
++        let heights = cuts.iter().map(|cut| cut[0][1]);
++        let ankle = 0.9 * if robed { heights.fold(f64::NEG_INFINITY, f64::max) } else { heights.fold(f64::INFINITY, f64::min) };
++        let mut shown: Vec<f64> =
++            (0..n).filter(|&i| on_leg[i] && self.pos[i][1] > SHOWN * ankle && self.pos[i][1] < hi).map(|i| self.pos[i][2]).collect();
++        let (back, front) = match shown.len() >= 4 {
++            true => (first[2].min(percentile(&mut shown, 5.0)), last[2].max(percentile(&mut shown, 95.0))),
++            false => (first[2], last[2]),
++        };
++        // a massive greave doesn't make a wide foot: no wider than WIDEST of
++        // the knee's height across
++        let half = (half * 0.95).min(WIDEST * height / 2.0);
++        Ok(Frame { on_leg, outline: cuts.swap_remove(0), cx, cz, half, depth, ankle, height, back, front })
++    }
++
++    /// the shins' texels in the texture of wide by high, of the triangles
++    /// chosen.
++    fn texels<'t>(&self, chosen: impl Iterator<Item = &'t [usize; 3]>, wide: usize, high: usize) -> Vec<bool> {
++        let uv = self.uv.as_ref().unwrap();
++        let mut mask = vec![false; wide * high];
++        for t in chosen {
++            fill(&mut mask, wide, high, t.map(|i| (uv[i][0] * wide as f64, (1.0 - uv[i][1]) * high as f64)));
++        }
++        mask
++    }
++
++    fn materials(&self, tex: &Image, frames: &[Frame; 2], style: &Style) -> Result<Patch, String> {
++        let uv = self.uv.as_ref().ok_or("no texture coordinates")?;
++        let (wide, high) = (tex.width, tex.height);
++        let shins = self.joints(&["l_leg2", "l_leg3", "r_leg2", "r_leg3"].map(String::from));
++        let tris: Vec<[usize; 3]> = self.triangles.iter().copied().filter(|t| t.iter().all(|&i| shins.contains(&self.main[i]))).collect();
++        let (mut area3, mut area2) = (0.0, 0.0);
++        for t in &tris {
++            let p = t.map(|i| self.pos[i]);
++            area3 += norm(cross(sub(p[1], p[0]), sub(p[2], p[0])));
++            let q = t.map(|i| [uv[i][0] * wide as f64, uv[i][1] * high as f64]);
++            let (e1, e2) = ([q[1][0] - q[0][0], q[1][1] - q[0][1]], [q[2][0] - q[0][0], q[2][1] - q[0][1]]);
++            area2 += (e1[0] * e2[1] - e1[1] * e2[0]).abs();
++        }
++        let density = (area2 / area3).sqrt();
++        let mask = self.texels(tris.iter(), wide, high);
++        let ankle = frames[0].ankle.min(frames[1].ankle);
++        // the faces right above the foot, the ones seen where leg and foot
++        // meet
++        let middle = |t: &[usize; 3]| t.iter().map(|&i| self.pos[i][1]).sum::<f64>() / 3.0;
++        let mut lowest = self.texels(tris.iter().filter(|t| middle(t) > 0.35 * ankle && middle(t) < 1.1 * ankle), wide, high);
++        if !lowest.contains(&true) {
++            lowest = self.texels(tris.iter().filter(|t| t.iter().any(|&i| self.pos[i][1] < ankle)), wide, high);
++        }
++        let low_texels: Vec<[f64; 3]> = match lowest.contains(&true) {
++            true => (0..wide * high).filter(|&i| lowest[i]).map(|i| tex.rgb[i]).collect(),
++            false => (0..wide * high).filter(|&i| mask[i]).map(|i| tex.rgb[i]).collect(),
++        };
++        if low_texels.is_empty() {
++            return Err("no texels on the shins".into());
++        }
++        let usual = [0, 1, 2].map(|c| median(&mut low_texels.iter().map(|t| t[c]).collect::<Vec<_>>()));
++        let texels = Texels::new(tex, mask);
++        let large = [(32, 14), (28, 12), (24, 12), (20, 10), (16, 8)];
++        let small = [(24, 10), (16, 8), (12, 6)];
++        let more = |sizes: &[(usize, usize)]| [sizes, &[(12, 6), (8, 4)]].concat();
++        // of those near the colour, the most grained of those little more
++        // grained than the flattest and with no row or column standing out,
++        // which on the foot would be a stripe along it; none of this size
++        // when no such one is, so that a smaller size is tried
++        let grained = |colour: [f64; 3]| {
++            let texels = &texels;
++            move |found: &[Found], size: (usize, usize)| {
++                let mut close: Vec<(f64, usize, usize)> = found.iter().filter(|f| farthest(f.colour, colour) < 16.0).map(|f| (f.spread, f.x, f.y)).collect();
++                close.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
++                let flattest = close.first().map_or(0.0, |c| c.0);
++                close.iter().rev().find(|c| c.0 <= flattest + 2.5 && texels.stripe(c.1, c.2, size) < 4.0).map(|c| (c.1, c.2))
++            }
++        };
++        // a grained stretch without a stripe, of any size down to 8x4, else
++        // the nearest
++        let upper = |colour: [f64; 3], sizes: &[(usize, usize)]| texels.plain(&more(sizes), &grained(colour)).or_else(|_| texels.plain(sizes, &near(colour)));
++        let rects = if style.name == "sandal" {
++            let bare = low_texels.iter().filter(|&&c| skin(c)).count() as f64 / low_texels.len() as f64;
++            // orange, from fair to dark, and even, the nearest to the leg's
++            // own colour where it meets the foot
++            let bare_foot = |found: &[Found], _: (usize, usize)| {
++                least(found.iter().filter(|f| skin(f.colour) && f.spread < 6.0).map(|f| (farthest(f.colour, usual) + f.spread, f.x, f.y)))
++            };
++            let foot = match bare >= 0.3 {
++                true => texels.plain(&more(&large), &bare_foot),
++                false => upper(usual, &large),
++            };
++            let foot = foot.or_else(|_| upper(usual, &large))?;
++            [(Material::Upper, foot), (Material::Sole, texels.plain(&small, &near(usual))?)]
++        } else {
++            [(Material::Upper, upper(usual, &large)?), (Material::Sole, texels.plain(&small, &darkest)?)]
++        };
++        Ok(Patch { rects, wide, high, density })
++    }
++
++    fn foot(&self, frame: &Frame, style: &Style, patch: Option<&Patch>) -> Result<Foot, String> {
++        let Frame { cx, cz, half, depth, ankle, height, back, .. } = *frame;
++        // the foot's length from the leg's depth, its heel a little behind
++        // the leg's back, so that the leg comes down at the back of the foot
++        // as on a real one, the instep at the leg's front, and the rest
++        // ahead of it, at least AHEAD_LEAST of its length, however deep the
++        // leg
++        let length = (LENGTH_PER_DEPTH * depth).clamp(LENGTH.0 * height, LENGTH.1 * height);
++        let heel = back - cz - HEEL * length;
++        let front = (frame.front - cz).max(heel + 0.2 * length);
++        let toe = (heel + length).max(front + AHEAD_LEAST * length);
++        let sections: Vec<[f64; 6]> = style.behind.iter().chain(style.ahead).copied().collect();
++        let along: Vec<f64> =
++            style.behind.iter().map(|s| heel + s[0] * length).chain(style.ahead.iter().map(|s| front + s[0] * (toe - front))).collect();
++        // a cross-section in x and y: the sole's bottom and its two sides,
++        // then the upper's sides in to its shoulders and its top
++        let outline = |half: f64, top: f64, sole: f64, bottom: f64, shoulder: f64| {
++            [(cx - half, bottom), (cx + half, bottom), (cx + half, sole), (cx + shoulder * half, top), (cx - shoulder * half, top), (cx - half, sole)]
++        };
++        let n = 6;
++        let points: Vec<V3> = along
++            .iter()
++            .zip(&sections)
++            .flat_map(|(&z, s)| outline(half * s[1], s[2] * ankle, s[3] * ankle, s[4] * ankle, s[5]).map(|(x, y)| [x, y, cz + z]))
++            .collect();
++        let rings = sections.len();
++        // where the hook turns the foot about, and the bottoms of the heel
++        // and the toe, the points that meet the floor
++        let contact = [
++            [cx, ankle, cz],
++            [cx, sections[rings - 1][4] * ankle - LIFT, cz + along[rings - 1]],
++            [cx, sections[0][4] * ankle - LIFT, cz + along[0]],
++        ];
++        // the faces, each with what it's made of and which way is out of the
++        // shoe: away from the middle of the two cross-sections a side joins,
++        // back at the heel and forward at the toe
++        enum Out {
++            From(V3),
++            Along(f64),
++        }
++        let mut faces: Vec<([usize; 4], Material, Out)> = Vec::new();
++        for r in 0..rings - 1 {
++            let middle = mul(points[r * n..(r + 2) * n].iter().fold([0.0; 3], |sum, &p| add(sum, p)), 1.0 / (2 * n) as f64);
++            for k in 0..n {
++                let (a, b) = (r * n + k, r * n + (k + 1) % n);
++                let material = if SOLE_EDGES.contains(&k) { Material::Sole } else { Material::Upper };
++                faces.push(([a, b, b + n, a + n], material, Out::From(middle)));
++            }
++        }
++        for (base, out) in [(0, -1.0), ((rings - 1) * n, 1.0)] {
++            for (quad, material) in [([0, 1, 2, 5], Material::Sole), ([5, 2, 3, 4], Material::Upper)] {
++                faces.push((quad.map(|i| base + i), material, Out::Along(out)));
++            }
++        }
++        let (mut tris, mut made_of, mut normal) = (Vec::new(), Vec::new(), Vec::new());
++        for ([a, b, c, d], material, out) in &faces {
++            for tri in [[*a, *b, *c], [*a, *c, *d]] {
++                let p = tri.map(|i| points[i]);
++                let mut facing = cross(sub(p[1], p[0]), sub(p[2], p[0]));
++                let outward = match out {
++                    Out::From(middle) => sub(mul(add(add(p[0], p[1]), p[2]), 1.0 / 3.0), *middle),
++                    Out::Along(o) => [0.0, 0.0, *o],
++                };
++                let tri = if dot(facing, outward) < 0.0 {
++                    facing = mul(facing, -1.0);
++                    [tri[0], tri[2], tri[1]]
++                } else {
++                    tri
++                };
++                tris.push(tri);
++                made_of.push(*material);
++                normal.push(mul(facing, 1.0 / norm(facing)));
++            }
++        }
++        // a vertex for each point, material and normal: a corner's normal is
++        // the mean of those of its point's faces that meet its own face at
++        // less than the style's angle
++        let least_cos = style.smooth.to_radians().cos();
++        let (mut verts, mut normals, mut materials, mut corners) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
++        let mut made: HashMap<(usize, Material, [i64; 3]), usize> = HashMap::new();
++        for (t, tri) in tris.iter().enumerate() {
++            let mut new = [0; 3];
++            for (c, &point) in tri.iter().enumerate() {
++                let sum = (0..tris.len())
++                    .filter(|&g| tris[g].contains(&point) && dot(normal[g], normal[t]) >= least_cos)
++                    .fold([0.0; 3], |sum, g| add(sum, normal[g]));
++                let n_ = mul(sum, 1.0 / norm(sum));
++                let key = (point, made_of[t], n_.map(|v| (v * 1e4).round_ties_even() as i64));
++                new[c] = *made.entry(key).or_insert_with(|| {
++                    verts.push(points[point]);
++                    normals.push(n_);
++                    materials.push(made_of[t]);
++                    verts.len() - 1
++                });
++            }
++            corners.push(new);
++        }
++        let uvs = match patch {
++            Some(patch) => {
++                // each material's rectangle laid on the foot from the way each
++                // vertex faces: from above on the top and the sole, from the
++                // side on the sides, from the front on the heel and the toe,
++                // at the shins' density or tighter if it doesn't fit, so that
++                // the leg's grain goes on across the foot. across the foot
++                // the texels go outward on both feet, so that the two are
++                // mirror images
++                let outward = [if cx >= 0.0 { 1.0 } else { -1.0 }, 1.0, 1.0];
++                let length = along[rings - 1] - along[0];
++                let width = 2.0 * half * sections.iter().map(|s| s[1]).fold(f64::NEG_INFINITY, f64::max);
++                let tall = ankle * sections.iter().map(|s| s[2]).fold(f64::NEG_INFINITY, f64::max);
++                let middle = [cx, tall / 2.0, cz + (along[rings - 1] + along[0]) / 2.0];
++                // a little noise, each vertex nudged up to NOISE texels, the
++                // same on both feet so that they stay mirror images, which
++                // mottles the leg's grain across the foot
++                let mut noise = Noise::new();
++                let jitter: Vec<[f64; 2]> = (0..verts.len()).map(|_| [noise.next(), noise.next()]).collect();
++                let mut uvs = vec![[0.0; 2]; verts.len()];
++                for &(material, Rect { x, y, w, h }) in &patch.rects {
++                    let (x0, y0, w, h) = (x as f64, y as f64, w as f64, h as f64);
++                    let scale = patch.density.min((w - 1.0) / length.max(width)).min((h - 1.0) / width.max(tall));
++                    for i in (0..verts.len()).filter(|&i| materials[i] == material) {
++                        let a = normals[i].map(f64::abs);
++                        let facing = if a[0] >= a[1] && a[0] >= a[2] { 0 } else if a[1] >= a[2] { 1 } else { 2 };
++                        // the axes along the rectangle's length and across
++                        // it, by which way a vertex faces: x, y or z
++                        let (u_axis, v_axis) = [(2, 1), (2, 0), (0, 1)][facing];
++                        let tx = x0 + w / 2.0 + (verts[i][u_axis] - middle[u_axis]) * outward[u_axis] * scale;
++                        let ty = y0 + h / 2.0 + (verts[i][v_axis] - middle[v_axis]) * outward[v_axis] * scale;
++                        let tx = (tx + jitter[i][0]).clamp(x0 + 1.0, x0 + w - 1.0);
++                        let ty = (ty + jitter[i][1]).clamp(y0 + 1.0, y0 + h - 1.0);
++                        uvs[i] = [tx / patch.wide as f64, 1.0 - ty / patch.high as f64];
++                    }
++                }
++                uvs
++            }
++            None => {
++                // the nearest boot vertex's texture coordinates
++                let uv = self.uv.as_ref().ok_or("no texture coordinates")?;
++                let boot: Vec<usize> = (0..self.pos.len()).filter(|&i| frame.on_leg[i] && self.pos[i][1] < 1.4).collect();
++                if boot.is_empty() {
++                    return Err("no boot to take texture coordinates from".into());
++                }
++                let distance = |v: V3, i: usize| dot(sub(v, self.pos[i]), sub(v, self.pos[i]));
++                verts.iter().map(|&v| uv[*boot.iter().min_by(|&&a, &&b| distance(v, a).total_cmp(&distance(v, b))).unwrap()]).collect()
++            }
++        };
++        let fit = Fit { cx, cz, along, sections: sections.iter().map(|s| [half * s[1], s[2] * ankle, s[3] * ankle, s[4] * ankle, s[5]]).collect() };
++        Ok(Foot { verts, normals, uvs, tris: corners, contact, fit })
++    }
++}
++
++/// the point q moved inside the shoe fit describes, margin in from its heel,
++/// toe and sole and a tenth in from its sides; none when it is above the
++/// shoe's top there, where the boot shows.
++fn inside(q: V3, fit: &Fit, margin: f64) -> Option<V3> {
++    let along = &fit.along;
++    let z = (q[2] - fit.cz).clamp(along[0] + margin, along[along.len() - 1] - margin);
++    let k = along.iter().position(|&a| a >= z).unwrap_or(along.len()).clamp(1, along.len() - 1);
++    let t = (z - along[k - 1]) / (along[k] - along[k - 1]);
++    let [w, top, sole, _, shoulder] = [0, 1, 2, 3, 4].map(|c| (1.0 - t) * fit.sections[k - 1][c] + t * fit.sections[k][c]);
++    if q[1] >= top - margin {
++        return None;
++    }
++    let y = q[1].max(sole + margin);
++    let width = if y <= sole { w } else { w - (1.0 - shoulder) * w * (y - sole) / (top - sole) };
++    Some([fit.cx + (q[0] - fit.cx).clamp(-0.9 * width, 0.9 * width), y, fit.cz + z])
++}
++
++fn put_u32(raw: &mut [u8], at: usize, value: u32) {
++    raw[at..at + 4].copy_from_slice(&value.to_le_bytes());
++}
++
++fn put_i32(raw: &mut [u8], at: usize, value: i64) {
++    raw[at..at + 4].copy_from_slice(&(value as i32).to_le_bytes());
++}
++
++fn put_f32s(raw: &mut [u8], at: usize, values: &[f64]) {
++    for (k, v) in values.iter().enumerate() {
++        raw[at + 4 * k..at + 4 * k + 4].copy_from_slice(&(*v as f32).to_le_bytes());
++    }
++}
++
++fn pad(raw: &mut Vec<u8>, n: usize) {
++    raw.resize(raw.len().next_multiple_of(n), 0);
++}
++
++/// the body at path, whose file unpacked is model, given feet, with its
++/// colour texture when it has one this reads: the new file, unpacked, and
++/// what kind of foot it got.
++pub fn build(path: &str, model: &[u8], texture: Option<&Image>) -> Result<(Vec<u8>, &'static str), String> {
++    let b = Blob(model);
++    let (_, skeleton, shape) = model::parts(&b)?;
++    let mut names = Vec::new();
++    let mut records = HashMap::new();
++    for (name, at) in b.dict(b.rel(skeleton + 0x1C))? {
++        names.push((b.i32(at + 8) as i64, name.clone()));
++        records.insert(name, at);
++    }
++    let v = model::vertices(&b, shape)?;
++    let subs = model::submeshes(&b, shape)?;
++    let (Some(local), Some(weights)) = (&v.bones, &v.weights) else {
++        return Err("its vertices are each one bone's, which this builder doesn't take".into());
++    };
++    let n = v.count;
++    if subs.iter().flat_map(|sm| sm.triangles.iter().flatten()).any(|&i| i >= n) {
++        return Err("a triangle outside the vertex buffer".into());
++    }
++    let mut joint = vec![vec![-1i64; local.first().map_or(0, Vec::len)]; n];
++    for sm in &subs {
++        let used: BTreeSet<usize> = sm.triangles.iter().flatten().copied().collect();
++        for &i in &used {
++            for (k, &slot) in local[i].iter().enumerate() {
++                joint[i][k] = *sm.palette.get(slot as usize).ok_or("a bone outside its palette")? as i64;
++            }
++        }
++    }
++    let main = (0..n)
++        .map(|i| {
++            let w = &weights[i];
++            let k = (0..w.len()).fold(0, |best, k| if w[k] > w[best] { k } else { best });
++            joint[i].get(k).copied().unwrap_or(-1)
++        })
++        .collect();
++    let body = Body {
++        b: Blob(model),
++        pos: v.position.clone(),
++        uv: v.uv.clone(),
++        weights: weights.clone(),
++        joint,
++        main,
++        names,
++        records,
++        triangles: subs.iter().flat_map(|sm| sm.triangles.iter().copied()).collect(),
++    };
++    let shin = |leg: char| body.names.iter().find(|(_, name)| *name == format!("{leg}_leg2")).map(|(joint, _)| *joint);
++    let (Some(left), Some(right)) = (shin('l'), shin('r')) else {
++        return Err("no l_leg2 and r_leg2, the shins the feet hang on".into());
++    };
++    let shins = [left, right];
++    let style = style_of(path);
++    let frames = [body.frame('l')?, body.frame('r')?];
++    let patch = match texture {
++        Some(texture) => Some(body.materials(texture, &frames, style)?),
++        None => None,
++    };
++    let feet = [body.foot(&frames[0], style, patch.as_ref())?, body.foot(&frames[1], style, patch.as_ref())?];
++
++    // the boot's own end, below LOW of the ankle's height, made a straight
++    // boot inside the foot: each of its points goes to the leg's outline at
++    // the shaft's bottom, in the direction it lies in from the middle of the
++    // end, so that a wedge pointing forward comes back under the leg, its
++    // sides under the back of the leg, and the back goes straight down into
++    // the heel, while a leg already straight stays so; there it goes a
++    // little in, and up to TUCK of the ankle's height, inside the foot
++    let pos = &body.pos;
++    let mut moved: BTreeMap<usize, V3> = BTreeMap::new();
++    for frame in &frames {
++        let low: Vec<usize> = (0..n).filter(|&i| frame.on_leg[i] && pos[i][1] < LOW * frame.ankle).collect();
++        if low.is_empty() {
++            continue;
++        }
++        let outline = &frame.outline;
++        let (o_lo, o_hi) = bounds(outline.iter().copied());
++        let o_mid = mul(add(o_lo, o_hi), 0.5);
++        let o_size = sub(o_hi, o_lo).map(|d| (d / 2.0).max(1e-3));
++        let (e_lo, e_hi) = bounds(low.iter().map(|&i| pos[i]));
++        let e_mid = mul(add(e_lo, e_hi), 0.5);
++        // an end come to a point takes the outline's size, so that its few
++        // points don't all go one way
++        let e_size = [0, 1, 2].map(|c| ((e_hi[c] - e_lo[c]) / 2.0).max(0.3 * o_size[c]));
++        let around: Vec<f64> = outline.iter().map(|o| ((o[2] - o_mid[2]) / o_size[2]).atan2((o[0] - o_mid[0]) / o_size[0])).collect();
++        for &i in &low {
++            let q = pos[i];
++            let angle = ((q[2] - e_mid[2]) / e_size[2]).atan2((q[0] - e_mid[0]) / e_size[0]);
++            let off = |a: f64| {
++                let d = a - angle;
++                d.sin().atan2(d.cos()).abs()
++            };
++            let nearest = (0..around.len()).fold(0, |best, k| if off(around[k]) < off(around[best]) { k } else { best });
++            let target = outline[nearest];
++            let x = o_mid[0] + (target[0] - o_mid[0]) * 0.95;
++            let z = o_mid[2] + (target[2] - o_mid[2]) * 0.95;
++            moved.insert(i, [x, TUCK * frame.ankle, z]);
++        }
++    }
++    let ends: BTreeSet<usize> = moved.keys().copied().collect();
++    // then every point of the leg's own under the shoe's top goes inside
++    // it, so that no boot, whatever its shape, shows through or past the
++    // shoe
++    for (frame, foot) in frames.iter().zip(&feet) {
++        for i in (0..n).filter(|&i| frame.on_leg[i]) {
++            let q = moved.get(&i).copied().unwrap_or(pos[i]);
++            if let Some(put) = inside(q, &foot.fit, 0.02 * frame.height) {
++                if (0..3).any(|c| (put[c] - q[c]).abs() > 1e-5 + 1e-5 * q[c].abs()) {
++                    moved.insert(i, put);
++                }
++            }
++        }
++    }
++    let mut after = pos.clone();
++    for (&i, &q) in &moved {
++        after[i] = q;
++    }
++    let attr = |usage: u32| -> Result<Attr, String> { v.attrs.get(&usage).copied().ok_or_else(|| format!("no vertex attribute {usage}")) };
++    let (position, normal) = (attr(model::POSITION)?, attr(model::NORMAL)?);
++    if position.format != FLOAT || normal.format != FLOAT {
++        return Err("positions or normals that aren't floats".into());
++    }
++    let mut raw = model.to_vec();
++    let touching: Vec<[usize; 3]> = body.triangles.iter().copied().filter(|t| t.iter().any(|i| moved.contains_key(i))).collect();
++    let mut sums: HashMap<usize, V3> = HashMap::new();
++    for t in &touching {
++        let p = t.map(|i| after[i]);
++        let face = cross(sub(p[1], p[0]), sub(p[2], p[0]));
++        let face = mul(face, 1.0 / (norm(face) + 1e-12));
++        for i in t.iter().copied().collect::<BTreeSet<_>>() {
++            let sum = sums.entry(i).or_insert([0.0; 3]);
++            *sum = add(*sum, face);
++        }
++    }
++    for (&i, &q) in &moved {
++        let sum = sums.get(&i).copied().unwrap_or([0.0; 3]);
++        let n_ = mul(sum, 1.0 / (norm(sum) + 1e-12));
++        let at = v.data_at + i * v.stride;
++        put_f32s(&mut raw, at + position.offset, &q.map(|c| c / position.scale));
++        put_f32s(&mut raw, at + normal.offset, &n_.map(|c| c / normal.scale));
++    }
++    // the boot's end takes the texture coordinates of the leg's point right
++    // above each of its points, the nearest it shares a face with, so that
++    // the faces from there down into the foot carry the leg's own texels on
++    // instead of stretching the game's old sole up to the foot's top, a
++    // seam. a leg that leans has no point right above, and keeps its own,
++    // as does a bare leg, whose old foot is skin and straps that go on into
++    // the bare foot
++    if let (Some(uv), true) = (v.attrs.get(&model::UV), style.name != "sandal") {
++        let width = model::width(uv.format)? * uv.count;
++        for frame in &frames {
++            let reach = 0.3 * frame.depth.max(2.0 * frame.half);
++            for &i in ends.iter().filter(|&&i| frame.on_leg[i]) {
++                let above: BTreeSet<usize> =
++                    touching.iter().filter(|t| t.contains(&i)).flatten().copied().filter(|j| !ends.contains(j)).collect();
++                let flat = |j: usize| (after[j][0] - after[i][0]).powi(2) + (after[j][2] - after[i][2]).powi(2);
++                let Some(j) = above.iter().copied().fold(None, |best: Option<usize>, j| match best {
++                    Some(best) if flat(best) <= flat(j) => Some(best),
++                    _ => Some(j),
++                }) else {
++                    continue;
++                };
++                if flat(j).sqrt() > reach {
++                    continue;
++                }
++                let (from, to) = (v.data_at + j * v.stride + uv.offset, v.data_at + i * v.stride + uv.offset);
++                raw.copy_within(from..from + width, to);
++            }
++        }
++    }
++
++    // a foot bone for each leg after the skeleton's own: the shin's record
++    // copied, named for the foot, the shin its parent, no other bone linked
++    // to it, its flags having the game compute it a skinning matrix, and its
++    // foot's points and the tag in place of its inverse bind matrix; then
++    // the skeleton's dictionary built again with the two at its end
++    let old_dict = b.to(skeleton + 0x1C)?;
++    let entries = b.dict(Some(old_dict))?;
++    let count = b.u32(skeleton + 0x18) as usize;
++    if count != entries.len() {
++        return Err("a skeleton whose dictionary doesn't count its bones".into());
++    }
++    let mut name_at: HashMap<String, usize> = HashMap::new();
++    for i in 1..=count {
++        let at = b.to(old_dict + 0x0C + 0x10 * i + 8)?;
++        name_at.insert(b.cstr(at), at);
++    }
++    let mut data_at: HashMap<String, usize> = entries.iter().cloned().collect();
++    pad(&mut raw, 4);
++    for leg in ["l", "r"] {
++        name_at.insert(format!("{leg}_shoe"), raw.len());
++        raw.extend_from_slice(format!("{leg}_shoe\0").as_bytes());
++    }
++    pad(&mut raw, 4);
++    let mut foot_bones = [0u32; 2];
++    for (k, leg) in ["l", "r"].into_iter().enumerate() {
++        let shin_at = body.records[&format!("{leg}_leg2")];
++        let at = raw.len();
++        let mut record = raw[shin_at..shin_at + 0xE0].to_vec();
++        put_i32(&mut record, 0, name_at[&format!("{leg}_shoe")] as i64 - at as i64);
++        put_u32(&mut record, 4, b.u32(shin_at + 4) | SKINNED);
++        put_u32(&mut record, 8, (count + k) as u32);
++        put_u32(&mut record, 0x0C, shins[k] as u32);
++        put_i32(&mut record, 0x10, shin_at as i64 - (at + 0x10) as i64);
++        record[0x14..0x20].fill(0);
++        put_f32s(&mut record, INVERSE_BIND, &feet[k].contact.concat());
++        record[INVERSE_BIND + 36..INVERSE_BIND + 40].copy_from_slice(TAG);
++        record[INVERSE_BIND + 40..INVERSE_BIND + 48].fill(0);
++        record[0xD8..0xE0].fill(0);
++        raw.extend(record);
++        data_at.insert(format!("{leg}_shoe"), at);
++        foot_bones[k] = (count + k) as u32;
++    }
++    pad(&mut raw, 4);
++    let dict_at = raw.len();
++    let all: Vec<String> = entries.iter().map(|(name, _)| name.clone()).chain(["l_shoe".to_owned(), "r_shoe".to_owned()]).collect();
++    let nodes = formats::dict_nodes(&all)?;
++    raw.extend(formats::dict_bytes(&nodes, dict_at, &name_at, &data_at));
++    put_u32(&mut raw, skeleton + 0x18, (count + 2) as u32);
++    put_i32(&mut raw, skeleton + 0x1C, dict_at as i64 - (skeleton + 0x1C) as i64);
++
++    let (uv_attr, bones_attr, weights_attr) = (attr(model::UV)?, attr(model::BONES)?, attr(model::WEIGHTS)?);
++    if uv_attr.format != FLOAT {
++        return Err("texture coordinates that aren't floats".into());
++    }
++    let mut new_vertices = Vec::new();
++    let mut new_indices: Vec<usize> = Vec::new();
++    for (slot, foot) in feet.iter().enumerate() {
++        let base = n + new_vertices.len() / v.stride;
++        for ((p, nrm), t) in foot.verts.iter().zip(&foot.normals).zip(&foot.uvs) {
++            let mut vertex = vec![0u8; v.stride];
++            for (a, values) in [(position, &p[..]), (normal, &nrm[..]), (uv_attr, &t[..])] {
++                let values: Vec<f64> = values[..a.count.min(values.len())].iter().map(|x| x / a.scale).collect();
++                put_f32s(&mut vertex, a.offset, &values);
++            }
++            vertex[bones_attr.offset..bones_attr.offset + bones_attr.count].fill(0);
++            vertex[bones_attr.offset] = slot as u8;
++            vertex[weights_attr.offset..weights_attr.offset + weights_attr.count].fill(0);
++            vertex[weights_attr.offset] = 100;
++            new_vertices.extend(vertex);
++        }
++        new_indices.extend(foot.tris.iter().flatten().map(|&i| i + base));
++    }
++    if new_indices.iter().any(|&i| i > u16::MAX as usize) {
++        return Err("too many vertices for 16-bit indices".into());
++    }
++
++    // the grown vertex buffer and the feet's triangles at the end of IMAG,
++    // the last block
++    pad(&mut raw, 0x80);
++    let vertex_at = raw.len();
++    raw.extend_from_within(v.data_at..v.data_at + v.size);
++    raw.extend(&new_vertices);
++    pad(&mut raw, 0x10);
++    let index_at = raw.len();
++    for &i in &new_indices {
++        raw.extend_from_slice(&(i as u16).to_le_bytes());
++    }
++    put_u32(&mut raw, v.buffer + 0x14, (v.size + new_vertices.len()) as u32);
++    put_i32(&mut raw, v.buffer + 0x18, vertex_at as i64 - (v.buffer + 0x18) as i64);
++
++    // the feet's primitive set after them, laid out as the first set is: its
++    // header, its palette, its list of primitives, the primitive and its
++    // index stream, those two copied from the first set's
++    let sets = b.u32(shape + 0x2C) as usize;
++    let old_list = b.to(shape + 0x30)?;
++    let first = b.to(old_list)?;
++    let first_primitive = b.to(b.to(first + 0x10)?)?;
++    let first_stream = b.to(b.to(first_primitive + 4)?)?;
++    if b.rel(first_primitive + 0x18) != Some(first_primitive + 0x20) {
++        return Err("the first set's index stream isn't right after its primitive".into());
++    }
++    pad(&mut raw, 4);
++    let feet_set = raw.len();
++    let mut set = vec![0u8; 0x14 + 4 * 2 + 4];
++    for (k, value) in [2, 0x10, b.u32(first + 8), 1, 0x14 + 4 * 2 - 0x10].into_iter().enumerate() {
++        put_u32(&mut set, 4 * k, value);
++    }
++    put_u32(&mut set, 0x14, foot_bones[0]);
++    put_u32(&mut set, 0x18, foot_bones[1]);
++    put_u32(&mut set, 0x1C, 4);
++    set.extend_from_slice(&raw[first_primitive..first_primitive + 0x20]);
++    let stream = set.len();
++    set.extend_from_slice(&raw[first_stream..first_stream + 0x2C]);
++    put_u32(&mut set, stream + 8, (2 * new_indices.len()) as u32);
++    put_i32(&mut set, stream + 12, index_at as i64 - (feet_set + stream + 12) as i64);
++    raw.extend(set);
++    // the shape's list of primitive sets, one longer
++    let new_list = raw.len();
++    for i in 0..sets {
++        let to = b.to(old_list + 4 * i)? as i64 - (new_list + 4 * i) as i64;
++        raw.extend_from_slice(&(to as i32).to_le_bytes());
++    }
++    raw.extend_from_slice(&((feet_set as i64 - (new_list + 4 * sets) as i64) as i32).to_le_bytes());
++    put_u32(&mut raw, shape + 0x2C, (sets + 1) as u32);
++    put_i32(&mut raw, shape + 0x30, new_list as i64 - (shape + 0x30) as i64);
++    pad(&mut raw, 0x80);
++    // the blocks' and the file's sizes
++    let data = b.u16(6) as usize;
++    let imag = data + b.u32(data + 4) as usize;
++    if raw.get(imag..imag + 4) != Some(b"IMAG") {
++        return Err("no IMAG block after DATA".into());
++    }
++    let size = raw.len();
++    put_u32(&mut raw, imag + 4, (size - imag) as u32);
++    put_u32(&mut raw, 12, size as u32);
++    Ok((raw, style.name))
++}
++
++/// a body's colour texture from its texture file, unpacked: the first image
++/// whose name ends in _c0, or the first, when it is ETC1 or ETC1A4.
++pub fn colour_texture(file: &[u8]) -> Option<Image> {
++    let b = Blob(file);
++    if file.get(0..4) != Some(b"CGFX") {
++        return None;
++    }
++    let data = b.u16(6) as usize;
++    let textures = b.dict(b.rel(data + 8 + 8 + 4)).ok()?;
++    let (_, txob) = textures.iter().find(|(name, _)| name.ends_with("_c0")).or(textures.first())?;
++    let (height, width, format) = (b.u32(txob + 0x18) as usize, b.u32(txob + 0x1C) as usize, b.u32(txob + 0x34));
++    let image = b.rel(txob + 0x38)?;
++    let bits = b.rel(image + 0x0C)?;
++    formats::decode_etc1(file.get(bits..)?, width, height, format)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    /// the noise starts as the Python builder's does.
++    #[test]
++    fn the_noise_is_the_python_builders() {
++        let mut noise = Noise::new();
++        let first: Vec<f64> = (0..3).map(|_| noise.next()).collect();
++        assert!(first.iter().all(|v| v.abs() <= NOISE));
++        // xorshift64 of 0x9E3779B97F4A7C15 once
++        let mut s: u64 = 0x9E37_79B9_7F4A_7C15;
++        s ^= s << 13;
++        s ^= s >> 7;
++        s ^= s << 17;
++        assert_eq!(first[0], ((s >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) * NOISE);
++    }
++
++    /// the rows of a mask a triangle fills, as first and last pixel.
++    fn rows(points: [(f64, f64); 3]) -> Vec<(usize, usize, usize)> {
++        let mut mask = vec![false; 32 * 32];
++        fill(&mut mask, 32, 32, points);
++        (0..32)
++            .filter_map(|y| {
++                let row: Vec<usize> = (0..32).filter(|&x| mask[y * 32 + x]).collect();
++                Some((y, *row.first()?, *row.last()?))
++            })
++            .collect()
++    }
++
++    /// a triangle fills the pixels Pillow 10.3 fills for it.
++    #[test]
++    fn a_triangle_fills_what_pillow_fills() {
++        let filled = [(2, 2, 2), (3, 2, 4), (4, 3, 7), (5, 3, 9), (6, 3, 8), (7, 3, 6), (8, 4, 5), (9, 4, 4)];
++        assert_eq!(rows([(2.0, 2.0), (9.0, 5.0), (4.0, 9.0)]), filled);
++        // its corners cut to whole pixels
++        assert_eq!(rows([(2.6, 2.6), (9.6, 5.3), (4.9, 9.1)]), filled);
++        // two edges leaving a corner the same way take the next row's pixels
++        assert_eq!(rows([(0.0, 7.0), (20.0, 20.0), (27.0, 10.0)])[0], (7, 0, 2));
++    }
++
++    #[test]
++    fn classes_have_their_styles() {
++        assert_eq!(style_of("b/uBody_M_kgre_9.m.lz").name, "sabaton");
++        assert_eq!(style_of("b/uBody_F_sorc_0.m.lz").name, "sandal");
++        assert_eq!(style_of("b/uBody_M_mymM_0.m.lz").name, "shoe");
++    }
++
++    #[test]
++    fn percentiles_go_between_values() {
++        assert_eq!(percentile(&mut [4.0, 1.0, 3.0, 2.0], 50.0), 2.5);
++        assert_eq!(median(&mut [3.0, 1.0, 2.0]), 2.0);
++    }
++}
+diff --git a/crates/zakuro/src/feet/formats.rs b/crates/zakuro/src/feet/formats.rs
+new file mode 100644
+index 0000000..0084884
+--- /dev/null
++++ b/crates/zakuro/src/feet/formats.rs
+@@ -0,0 +1,402 @@
++//! the formats the feet builder reads and writes: Awakening's CGFX models,
++//! their bone dictionaries, the LZ11 compression they are stored in, with
++//! Intelligent Systems' LZ13 header, and the PICA's ETC1 textures.
++
++use std::collections::HashMap;
++
++/// a CGFX file's bytes, read by offset. its pointers are relative to where
++/// they are stored.
++pub struct Blob<'a>(pub &'a [u8]);
++
++impl Blob<'_> {
++    pub fn u32(&self, at: usize) -> u32 {
++        u32::from_le_bytes(self.0[at..at + 4].try_into().unwrap())
++    }
++
++    pub fn i32(&self, at: usize) -> i32 {
++        self.u32(at) as i32
++    }
++
++    pub fn u16(&self, at: usize) -> u16 {
++        u16::from_le_bytes(self.0[at..at + 2].try_into().unwrap())
++    }
++
++    pub fn f32(&self, at: usize) -> f64 {
++        f32::from_bits(self.u32(at)) as f64
++    }
++
++    /// where a self-relative pointer stored at at points, none for 0.
++    pub fn rel(&self, at: usize) -> Option<usize> {
++        match self.i32(at) {
++            0 => None,
++            offset => Some((at as i64 + offset as i64) as usize),
++        }
++    }
++
++    /// the pointer, which the file must have.
++    pub fn to(&self, at: usize) -> Result<usize, String> {
++        self.rel(at).ok_or_else(|| format!("a null pointer at 0x{at:X}"))
++    }
++
++    pub fn cstr(&self, at: usize) -> String {
++        let end = self.0[at..].iter().position(|&b| b == 0).map_or(self.0.len(), |n| at + n);
++        self.0[at..end].iter().map(|&b| b as char).collect()
++    }
++
++    /// a dictionary's entries, its names and where their data is, in order.
++    pub fn dict(&self, at: Option<usize>) -> Result<Vec<(String, usize)>, String> {
++        let Some(at) = at else { return Ok(Vec::new()) };
++        if &self.0[at..at + 4] != b"DICT" {
++            return Err(format!("no dictionary at 0x{at:X}"));
++        }
++        let count = self.u32(at + 8) as usize;
++        (1..=count)
++            .map(|i| {
++                let node = at + 0x0C + 0x10 * i;
++                Ok((self.cstr(self.to(node + 8)?), self.to(node + 12)?))
++            })
++            .collect()
++    }
++}
++
++/// a dictionary's root node tests no bit.
++const ROOT_BIT: u32 = u32::MAX;
++
++/// bit n of a name, bit n % 8 of its character n / 8, past its end 0.
++fn bit(name: &[u8], n: u32) -> bool {
++    name.get((n >> 3) as usize).is_some_and(|&c| (c >> (n & 7)) & 1 == 1)
++}
++
++fn highest_difference(a: &[u8], b: &[u8]) -> Option<u32> {
++    (0..8 * a.len().max(b.len()) as u32).rev().find(|&n| bit(a, n) != bit(b, n))
++}
++
++/// a node of a dictionary's patricia tree: the bit it tests, its children
++/// and its name.
++#[derive(Debug, Clone, PartialEq)]
++pub struct Node {
++    pub bit: u32,
++    pub left: u16,
++    pub right: u16,
++    pub name: String,
++}
++
++/// where a search for name ends, as the game searches.
++fn search(nodes: &[Node], name: &[u8]) -> usize {
++    let (mut previous, mut current) = (0, nodes[0].left as usize);
++    while nodes[current].bit < nodes[previous].bit {
++        previous = current;
++        current = if bit(name, nodes[current].bit) { nodes[current].right } else { nodes[current].left } as usize;
++    }
++    current
++}
++
++/// a dictionary's nodes for names in that order, the root first, built the
++/// way the game's own files are, so that every name is found.
++pub fn dict_nodes(names: &[String]) -> Result<Vec<Node>, String> {
++    let mut nodes = vec![Node { bit: ROOT_BIT, left: 0, right: 0, name: String::new() }];
++    for name in names {
++        let key = name.as_bytes();
++        let ending = search(&nodes, key);
++        let difference = highest_difference(key, nodes[ending].name.as_bytes()).ok_or_else(|| format!("{name} twice in a dictionary"))?;
++        let (mut previous, mut current, mut went_right) = (0usize, nodes[0].left as usize, false);
++        while nodes[current].bit < nodes[previous].bit && nodes[current].bit > difference {
++            previous = current;
++            went_right = bit(key, nodes[current].bit);
++            current = if went_right { nodes[current].right } else { nodes[current].left } as usize;
++        }
++        let index = nodes.len() as u16;
++        let (left, right) = if bit(key, difference) { (current as u16, index) } else { (index, current as u16) };
++        nodes.push(Node { bit: difference, left, right, name: name.clone() });
++        if previous == 0 {
++            nodes[0].left = index;
++        } else if went_right {
++            nodes[previous].right = index;
++        } else {
++            nodes[previous].left = index;
++        }
++    }
++    Ok(nodes)
++}
++
++/// a dictionary's bytes placed at at: "DICT", its size, its entry count,
++/// then its nodes, each entry's name and data where name_at and data_at say.
++pub fn dict_bytes(nodes: &[Node], at: usize, name_at: &HashMap<String, usize>, data_at: &HashMap<String, usize>) -> Vec<u8> {
++    let mut out = b"DICT".to_vec();
++    out.extend_from_slice(&((0x0C + 0x10 * nodes.len()) as u32).to_le_bytes());
++    out.extend_from_slice(&((nodes.len() - 1) as u32).to_le_bytes());
++    for (i, node) in nodes.iter().enumerate() {
++        let here = at + 0x0C + 0x10 * i;
++        let (names, data) = if node.name.is_empty() {
++            (0, 0)
++        } else {
++            (name_at[&node.name] as i64 - (here + 8) as i64, data_at[&node.name] as i64 - (here + 12) as i64)
++        };
++        out.extend_from_slice(&node.bit.to_le_bytes());
++        out.extend_from_slice(&node.left.to_le_bytes());
++        out.extend_from_slice(&node.right.to_le_bytes());
++        out.extend_from_slice(&(names as i32).to_le_bytes());
++        out.extend_from_slice(&(data as i32).to_le_bytes());
++    }
++    out
++}
++
++/// a file of the game's unpacked: LZ13, a header before an LZ11 stream,
++/// LZ10 or LZ11, or as it is.
++pub fn unpack(data: &[u8]) -> Result<Vec<u8>, String> {
++    match data.first() {
++        Some(0x13) => lz11_unpack(&data[4..]),
++        Some(0x10 | 0x11) => lz11_unpack(data),
++        _ => Ok(data.to_vec()),
++    }
++}
++
++fn lz11_unpack(src: &[u8]) -> Result<Vec<u8>, String> {
++    let short = || "an LZ stream ends early".to_owned();
++    let kind = src[0];
++    let (mut length, mut at) = (src[1] as usize | (src[2] as usize) << 8 | (src[3] as usize) << 16, 4);
++    if length == 0 {
++        length = u32::from_le_bytes(src.get(4..8).ok_or_else(short)?.try_into().unwrap()) as usize;
++        at = 8;
++    }
++    let mut out = Vec::with_capacity(length);
++    let byte = |at: usize| src.get(at).copied().ok_or_else(short);
++    while out.len() < length {
++        let flags = byte(at)?;
++        at += 1;
++        for bit in 0..8 {
++            if out.len() >= length {
++                break;
++            }
++            if flags & (0x80 >> bit) == 0 {
++                out.push(byte(at)?);
++                at += 1;
++                continue;
++            }
++            let (count, disp);
++            let b0 = byte(at)? as usize;
++            if kind == 0x10 {
++                (count, disp) = ((b0 >> 4) + 3, ((b0 & 0xF) << 8 | byte(at + 1)? as usize) + 1);
++                at += 2;
++            } else {
++                match b0 >> 4 {
++                    0 => {
++                        let (b1, b2) = (byte(at + 1)? as usize, byte(at + 2)? as usize);
++                        (count, disp) = (((b0 & 0xF) << 4 | b1 >> 4) + 0x11, ((b1 & 0xF) << 8 | b2) + 1);
++                        at += 3;
++                    }
++                    1 => {
++                        let (b1, b2, b3) = (byte(at + 1)? as usize, byte(at + 2)? as usize, byte(at + 3)? as usize);
++                        (count, disp) = (((b0 & 0xF) << 12 | b1 << 4 | b2 >> 4) + 0x111, ((b2 & 0xF) << 8 | b3) + 1);
++                        at += 4;
++                    }
++                    top => {
++                        (count, disp) = (top + 1, ((b0 & 0xF) << 8 | byte(at + 1)? as usize) + 1);
++                        at += 2;
++                    }
++                }
++            }
++            if disp > out.len() {
++                return Err("an LZ stream reaches before its start".into());
++            }
++            for _ in 0..count {
++                out.push(out[out.len() - disp]);
++            }
++        }
++    }
++    Ok(out)
++}
++
++/// data packed as LZ11, greedy over a 4096-byte window, following chains of
++/// where each three bytes were last seen at most chain long, padded to 4
++/// bytes, so that the packed file is smaller than what it unpacks to: the
++/// game unpacks in place, from the end of a buffer as big as the result.
++pub fn lz11(data: &[u8], chain: usize) -> Vec<u8> {
++    let n = data.len();
++    let mut out = vec![0x11, n as u8, (n >> 8) as u8, (n >> 16) as u8];
++    let mut heads: HashMap<[u8; 3], i64> = HashMap::new();
++    let mut previous = vec![-1i64; n];
++    let remember = |i: usize, heads: &mut HashMap<[u8; 3], i64>, previous: &mut Vec<i64>| {
++        if i + 3 <= n {
++            let key = [data[i], data[i + 1], data[i + 2]];
++            previous[i] = heads.get(&key).copied().unwrap_or(-1);
++            heads.insert(key, i as i64);
++        }
++    };
++    let mut at = 0;
++    while at < n {
++        let flag_at = out.len();
++        out.push(0);
++        let mut flags = 0u8;
++        for bit in 0..8 {
++            if at >= n {
++                break;
++            }
++            let (mut best_len, mut best_disp) = (0usize, 0usize);
++            if at + 3 <= n {
++                let mut cand = heads.get(&[data[at], data[at + 1], data[at + 2]]).copied().unwrap_or(-1);
++                let limit = (n - at).min(0x10110);
++                let mut tries = 0;
++                while cand >= 0 && at - cand as usize <= 0x1000 && tries < chain {
++                    let c = cand as usize;
++                    let mut length = 3;
++                    while length < limit && data[c + length] == data[at + length] {
++                        length += 1;
++                    }
++                    if length > best_len {
++                        (best_len, best_disp) = (length, at - c);
++                        if length == limit {
++                            break;
++                        }
++                    }
++                    cand = previous[c];
++                    tries += 1;
++                }
++            }
++            if best_len >= 3 {
++                flags |= 0x80 >> bit;
++                let d = best_disp - 1;
++                if best_len <= 16 {
++                    out.extend_from_slice(&[((best_len - 1) << 4 | d >> 8) as u8, d as u8]);
++                } else if best_len <= 0x110 {
++                    let m = best_len - 0x11;
++                    out.extend_from_slice(&[(m >> 4) as u8, ((m & 0xF) << 4 | d >> 8) as u8, d as u8]);
++                } else {
++                    let m = best_len - 0x111;
++                    out.extend_from_slice(&[(0x10 | m >> 12) as u8, (m >> 4) as u8, ((m & 0xF) << 4 | d >> 8) as u8, d as u8]);
++                }
++                for i in at..at + best_len {
++                    remember(i, &mut heads, &mut previous);
++                }
++                at += best_len;
++            } else {
++                out.push(data[at]);
++                remember(at, &mut heads, &mut previous);
++                at += 1;
++            }
++        }
++        out[flag_at] = flags;
++    }
++    while out.len() % 4 != 0 {
++        out.push(0);
++    }
++    out
++}
++
++/// data packed as Intelligent Systems' LZ13: its header, then LZ11.
++pub fn lz13(data: &[u8]) -> Vec<u8> {
++    let n = data.len();
++    let mut out = vec![0x13, n as u8, (n >> 8) as u8, (n >> 16) as u8];
++    out.extend(lz11(data, 64));
++    out
++}
++
++/// an RGB image, rows from the top.
++pub struct Image {
++    pub width: usize,
++    pub height: usize,
++    pub rgb: Vec<[f64; 3]>,
++}
++
++impl Image {
++    pub fn at(&self, x: usize, y: usize) -> [f64; 3] {
++        self.rgb[y * self.width + x]
++    }
++}
++
++const MODIFIERS: [[i32; 2]; 8] = [[2, 8], [5, 17], [9, 29], [13, 42], [18, 60], [24, 80], [33, 106], [47, 183]];
++
++/// a texture of the PICA's ETC1 (format 12) or ETC1A4 (13): 8x8 tiles in
++/// rows, each four 4x4 blocks left to right then top to bottom, each block a
++/// little-endian 64-bit word, after 8 bytes of 4-bit alpha for ETC1A4, which
++/// is left out. none for another format.
++pub fn decode_etc1(data: &[u8], width: usize, height: usize, format: u32) -> Option<Image> {
++    let step = match format {
++        12 => 8,
++        13 => 16,
++        _ => return None,
++    };
++    let blocks = (width / 4) * (height / 4);
++    if data.len() < blocks * step {
++        return None;
++    }
++    let mut rgb = vec![[0.0; 3]; width * height];
++    for block in 0..blocks {
++        let bytes = &data[block * step + step - 8..block * step + step];
++        let word = u64::from_le_bytes(bytes.try_into().unwrap());
++        // the block's place: its tile, its place in the tile
++        let (tile, inner) = (block / 4, block % 4);
++        let columns = width / 8;
++        let (tile_x, tile_y) = (tile % columns, tile / columns);
++        let (bx, by) = (tile_x * 8 + (inner % 2) * 4, tile_y * 8 + (inner / 2) * 4);
++        for (pixel, colour) in etc1_block(word).into_iter().enumerate() {
++            let (x, y) = (pixel / 4, pixel % 4);
++            rgb[(by + y) * width + bx + x] = colour.map(f64::from);
++        }
++    }
++    Some(Image { width, height, rgb })
++}
++
++/// an ETC1 block's 16 pixels, pixel x * 4 + y.
++fn etc1_block(w: u64) -> [[u8; 3]; 16] {
++    let field = |shift: u32, size: u32| ((w >> shift) & ((1 << size) - 1)) as i32;
++    let (differential, flip) = (field(33, 1) == 1, field(32, 1) == 1);
++    let mut base = [[0i32; 3]; 2];
++    for (c, (s5, s3, s4a, s4b)) in [(59, 56, 60, 56), (51, 48, 52, 48), (43, 40, 44, 40)].into_iter().enumerate() {
++        let first5 = field(s5, 5);
++        let mut delta = field(s3, 3);
++        if delta >= 4 {
++            delta -= 8;
++        }
++        let second5 = (first5 + delta) & 31;
++        if differential {
++            base[0][c] = (first5 << 3) | (first5 >> 2);
++            base[1][c] = (second5 << 3) | (second5 >> 2);
++        } else {
++            base[0][c] = field(s4a, 4) * 17;
++            base[1][c] = field(s4b, 4) * 17;
++        }
++    }
++    let tables = [field(37, 3) as usize, field(34, 3) as usize];
++    let mut out = [[0u8; 3]; 16];
++    for index in 0..16u32 {
++        let (x, y) = (index / 4, index % 4);
++        let second = if flip { y >= 2 } else { x >= 2 } as usize;
++        let msb = ((w >> (16 + index)) & 1) as usize;
++        let lsb = ((w >> index) & 1) as usize;
++        let [small, large] = MODIFIERS[tables[second]];
++        let modifier = match msb * 2 + lsb {
++            0 => small,
++            1 => large,
++            2 => -small,
++            _ => -large,
++        };
++        out[index as usize] = base[second].map(|c| (c + modifier).clamp(0, 255) as u8);
++    }
++    out
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    /// LZ11 packs data so that it unpacks the same, repeats shorter.
++    #[test]
++    fn lz11_unpacks_to_what_it_packed() {
++        let data: Vec<u8> = (0..5000u32).map(|i| ((i * 7) % 13) as u8).chain(std::iter::repeat_n(9, 300)).collect();
++        let packed = lz13(&data);
++        assert!(packed.len() < data.len() / 4);
++        assert_eq!(unpack(&packed).unwrap(), data);
++    }
++
++    /// a dictionary finds every name it was built with.
++    #[test]
++    fn a_dictionary_finds_its_names() {
++        let names: Vec<String> = ["hip", "l_leg1", "l_leg2", "l_leg3", "r_leg2", "l_shoe", "r_shoe"].map(String::from).to_vec();
++        let nodes = dict_nodes(&names).unwrap();
++        for (i, name) in names.iter().enumerate() {
++            assert_eq!(search(&nodes, name.as_bytes()), i + 1, "{name}");
++        }
++        assert!(dict_nodes(&["a".to_owned(), "a".to_owned()]).is_err());
++    }
++}
+diff --git a/crates/zakuro/src/feet/mod.rs b/crates/zakuro/src/feet/mod.rs
+new file mode 100644
+index 0000000..0cae421
+--- /dev/null
++++ b/crates/zakuro/src/feet/mod.rs
+@@ -0,0 +1,123 @@
++//! the feet mod, built from the player's own copy of Fire Emblem: Awakening:
++//! every body model of the game given a pair of feet of our own (foot.rs),
++//! written as a mod of its own in the game's mods folder,
++//! <data>/mods/000400000009F100/feet/romfs/b/. nothing of the game's goes
++//! anywhere else.
++
++mod foot;
++mod formats;
++mod model;
++
++use std::collections::BTreeSet;
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
++use std::sync::Mutex;
++
++use crate::recompile::ModStep;
++
++/// the European release, the one the feet are made for.
++pub const PROGRAM_ID: u64 = 0x0004_0000_0009_F100;
++
++pub const STEP: ModStep = ModStep { name: "the feet mod", program_id: PROGRAM_ID, build };
++
++/// the folder of the feet mod.
++pub fn folder(data_dir: &Path) -> PathBuf {
++    zakuro_core::mods::dir(data_dir, PROGRAM_ID).join("feet")
++}
++
++/// the body models of the game, by their names in its b folder.
++fn bodies(romfs: &zakuro_fs::romfs::RomFs) -> Result<Vec<String>, String> {
++    let mut dir = romfs.root().map_err(|error| error.to_string())?;
++    if let Some((_, nameless)) = romfs.subdirs(&dir).into_iter().find(|(_, d)| d.name.is_empty()) {
++        dir = nameless;
++    }
++    let (_, b) = romfs.subdirs(&dir).into_iter().find(|(_, d)| d.name == "b").ok_or("the game has no b folder")?;
++    let mut names: Vec<String> =
++        romfs.files(&b).into_iter().map(|(_, file)| file.name).filter(|name| name.starts_with("uBody_") && name.ends_with(".m.lz")).collect();
++    names.sort();
++    Ok(names)
++}
++
++/// gives every body of the game at rom feet, several at a time, into the
++/// feet mod's folder in data_dir, telling how many are done; how many got
++/// them. a body the builder can't give feet keeps the game's own, and a
++/// model of an earlier build that this one didn't make goes.
++fn build(rom: &Path, data_dir: &Path, progress: &(dyn Fn(usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
++    let title = zakuro_fs::Title::load(rom).map_err(|error| format!("{}: {error}", rom.display()))?;
++    if title.program_id() != PROGRAM_ID {
++        return Err("the feet are made for the European release".into());
++    }
++    let romfs = title.romfs.as_ref().ok_or("the game has no RomFS")?;
++    let bodies = bodies(romfs)?;
++    let out = folder(data_dir).join("romfs").join("b");
++    std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
++    let read = |name: &str| -> Option<Vec<u8>> {
++        let file = romfs.lookup(&format!("b/{name}")).ok()?;
++        formats::unpack(title.read_romfs(&file, 0, file.data_size as usize)?).ok()
++    };
++    let one = |name: &str| -> Result<&'static str, String> {
++        let model = read(name).ok_or("its file can't be read")?;
++        let texture = read(&name.replace(".m.lz", "_c0.t.lz")).and_then(|file| foot::colour_texture(&file));
++        let (bytes, style) = foot::build(&format!("b/{name}"), &model, texture.as_ref())?;
++        let path = out.join(name);
++        std::fs::write(&path, formats::lz13(&bytes)).map_err(|error| format!("{}: {error}", path.display()))?;
++        Ok(style)
++    };
++    let (next, done, results) = (AtomicUsize::new(0), AtomicUsize::new(0), Mutex::new(Vec::new()));
++    let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).min(bodies.len()).max(1);
++    progress(0, bodies.len());
++    std::thread::scope(|scope| {
++        for _ in 0..workers {
++            scope.spawn(|| loop {
++                let i = next.fetch_add(1, Ordering::Relaxed);
++                if i >= bodies.len() || cancel.load(Ordering::Relaxed) {
++                    break;
++                }
++                let result = one(&bodies[i]);
++                results.lock().unwrap().push((bodies[i].clone(), result));
++                progress(done.fetch_add(1, Ordering::Relaxed) + 1, bodies.len());
++            });
++        }
++    });
++    if cancel.load(Ordering::Relaxed) {
++        return Err("cancelled".into());
++    }
++    let mut results = results.into_inner().unwrap();
++    results.sort_by(|a, b| a.0.cmp(&b.0));
++    let made: BTreeSet<&str> = results.iter().filter(|(_, result)| result.is_ok()).map(|(name, _)| name.as_str()).collect();
++    for (name, result) in &results {
++        match result {
++            Ok(style) => log::info!("feet: {name}, a {style}"),
++            Err(error) => log::info!("feet: {name} keeps the game's legs, {error}"),
++        }
++    }
++    for entry in std::fs::read_dir(&out).into_iter().flatten().flatten() {
++        let name = entry.file_name().to_string_lossy().into_owned();
++        if name.starts_with("uBody_") && name.ends_with(".m.lz") && !made.contains(name.as_str()) {
++            let _ = std::fs::remove_file(entry.path());
++        }
++    }
++    if made.is_empty() {
++        return Err("no body could be given feet".into());
++    }
++    Ok(format!("feet for {} of the {} bodies", made.len(), bodies.len()))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    /// builds the feet from a real game, ZAKURO_FEET_ROM, into the data
++    /// folder ZAKURO_FEET_DATA: cargo test -p zakuro --release
++    /// feet::tests::the_whole_game -- --ignored --nocapture
++    #[test]
++    #[ignore]
++    fn the_whole_game() {
++        let (Ok(rom), Ok(data)) = (std::env::var("ZAKURO_FEET_ROM"), std::env::var("ZAKURO_FEET_DATA")) else {
++            panic!("set ZAKURO_FEET_ROM and ZAKURO_FEET_DATA");
++        };
++        let started = std::time::Instant::now();
++        let said = build(Path::new(&rom), Path::new(&data), &|_, _| {}, &AtomicBool::new(false)).unwrap();
++        println!("{said} in {:.1} s", started.elapsed().as_secs_f64());
++    }
++}
+diff --git a/crates/zakuro/src/feet/model.rs b/crates/zakuro/src/feet/model.rs
+new file mode 100644
+index 0000000..7552aa9
+--- /dev/null
++++ b/crates/zakuro/src/feet/model.rs
+@@ -0,0 +1,146 @@
++//! a body model's parts read from its CGFX: its skeleton, its first shape's
++//! one interleaved vertex buffer and its sub-meshes, each with its bones and
++//! triangles.
++
++use std::collections::HashMap;
++
++use super::formats::Blob;
++
++/// the vertex formats, as the PICA's attribute types are numbered.
++pub const FLOAT: u32 = 0x1406;
++const SHORT: u32 = 0x1402;
++const UBYTE: u32 = 0x1401;
++const BYTE: u32 = 0x1400;
++/// the index format of 16-bit triangles, others being bytes.
++const SHORT_INDICES: u32 = 0x1403;
++/// the attributes' uses this reads.
++pub const POSITION: u32 = 0;
++pub const NORMAL: u32 = 1;
++pub const UV: u32 = 4;
++pub const BONES: u32 = 7;
++pub const WEIGHTS: u32 = 8;
++
++pub fn width(format: u32) -> Result<usize, String> {
++    match format {
++        FLOAT => Ok(4),
++        SHORT => Ok(2),
++        UBYTE | BYTE => Ok(1),
++        _ => Err(format!("a vertex format 0x{format:X} this doesn't read")),
++    }
++}
++
++/// an attribute of the vertex buffer: its format, how many values, the
++/// scale they are stored at and where in a vertex they are.
++#[derive(Debug, Clone, Copy)]
++pub struct Attr {
++    pub format: u32,
++    pub count: usize,
++    pub scale: f64,
++    pub offset: usize,
++}
++
++pub struct Vertices {
++    pub position: Vec<[f64; 3]>,
++    pub uv: Option<Vec<[f64; 2]>>,
++    /// each vertex's bones, places in its sub-mesh's palette, and their
++    /// weights.
++    pub bones: Option<Vec<Vec<i64>>>,
++    pub weights: Option<Vec<Vec<f64>>>,
++    pub stride: usize,
++    pub attrs: HashMap<u32, Attr>,
++    pub count: usize,
++    /// where the buffer's data is, and its size.
++    pub data_at: usize,
++    pub size: usize,
++    /// where the buffer's own record is.
++    pub buffer: usize,
++}
++
++pub struct SubMesh {
++    pub palette: Vec<u32>,
++    pub triangles: Vec<[usize; 3]>,
++}
++
++/// the first model's record, its skeleton and its first shape.
++pub fn parts(b: &Blob) -> Result<(usize, usize, usize), String> {
++    if b.0.get(0..4) != Some(b"CGFX") {
++        return Err("not a CGFX file".into());
++    }
++    let models = b.dict(b.rel(b.u16(6) as usize + 12))?;
++    let model = models.first().ok_or("no model")?.1;
++    Ok((model, b.to(model + 0xE0)?, b.to(b.to(model + 0xC8)?)?))
++}
++
++pub fn vertices(b: &Blob, shape: usize) -> Result<Vertices, String> {
++    let buffer = b.to(b.to(shape + 0x3C)?)?;
++    let (size, data_at, stride) = (b.u32(buffer + 0x14) as usize, b.to(buffer + 0x18)?, b.u32(buffer + 0x24) as usize);
++    let mut attrs = HashMap::new();
++    let list = b.to(buffer + 0x2C)?;
++    for i in 0..b.u32(buffer + 0x28) as usize {
++        let at = b.to(list + 4 * i)?;
++        let attr = Attr { format: b.u32(at + 36), count: b.u32(at + 40) as usize, scale: b.f32(at + 44), offset: b.u32(at + 48) as usize };
++        attrs.insert(b.u32(at + 4), attr);
++    }
++    if stride == 0 || data_at + size > b.0.len() {
++        return Err("a vertex buffer outside its file".into());
++    }
++    let count = size / stride;
++    let take = |usage: u32| -> Result<Option<Vec<Vec<f64>>>, String> {
++        let Some(attr) = attrs.get(&usage) else { return Ok(None) };
++        let w = width(attr.format)?;
++        let values = (0..count)
++            .map(|i| {
++                (0..attr.count)
++                    .map(|c| {
++                        let at = data_at + i * stride + attr.offset + w * c;
++                        let value = match attr.format {
++                            FLOAT => b.f32(at),
++                            SHORT => b.u16(at) as i16 as f64,
++                            UBYTE => b.0[at] as f64,
++                            _ => b.0[at] as i8 as f64,
++                        };
++                        value * attr.scale
++                    })
++                    .collect()
++            })
++            .collect();
++        Ok(Some(values))
++    };
++    let position = take(POSITION)?.ok_or("no positions")?.into_iter().map(|p| [p[0], p[1], p[2]]).collect();
++    let uv = take(UV)?.map(|uv| uv.into_iter().map(|t| [t[0], t[1]]).collect());
++    let bones = take(BONES)?.map(|bones| bones.into_iter().map(|row| row.into_iter().map(|v| v as i64).collect()).collect());
++    Ok(Vertices { position, uv, bones, weights: take(WEIGHTS)?, stride, attrs, count, data_at, size, buffer })
++}
++
++pub fn submeshes(b: &Blob, shape: usize) -> Result<Vec<SubMesh>, String> {
++    let list = b.to(shape + 0x30)?;
++    let mut out = Vec::new();
++    for i in 0..b.u32(shape + 0x2C) as usize {
++        let sm = b.to(list + 4 * i)?;
++        let count = b.u32(sm) as usize;
++        let palette = match count {
++            0 => Vec::new(),
++            _ => {
++                let at = b.to(sm + 4)?;
++                (0..count).map(|k| b.u32(at + 4 * k)).collect()
++            }
++        };
++        let mut triangles = Vec::new();
++        let faces = b.rel(sm + 0x10);
++        for f in 0..b.u32(sm + 0x0C) as usize {
++            let face = b.to(faces.ok_or("no faces")? + 4 * f)?;
++            let descs = b.rel(face + 4);
++            for d in 0..b.u32(face) as usize {
++                let desc = b.to(descs.ok_or("no index streams")? + 4 * d)?;
++                let (format, size, data) = (b.u32(desc), b.u32(desc + 8) as usize, b.to(desc + 12)?);
++                let indices: Vec<usize> = match format {
++                    SHORT_INDICES => (0..size / 2).map(|k| b.u16(data + 2 * k) as usize).collect(),
++                    _ => b.0[data..data + size].iter().map(|&i| i as usize).collect(),
++                };
++                triangles.extend(indices.chunks_exact(3).map(|t| [t[0], t[1], t[2]]));
++            }
++        }
++        out.push(SubMesh { palette, triangles });
++    }
++    Ok(out)
++}
+diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
+index e3aea76..46e5872 100644
+--- a/crates/zakuro/src/lib.rs
++++ b/crates/zakuro/src/lib.rs
+@@ -6,6 +6,7 @@ mod audio;
+ mod banners;
+ mod camera;
+ mod cli;
++mod feet;
+ mod gamepad;
+ mod gui;
+ mod input;
+diff --git a/crates/zakuro/src/recompile.rs b/crates/zakuro/src/recompile.rs
+index d3036e8..1c81507 100644
+--- a/crates/zakuro/src/recompile.rs
++++ b/crates/zakuro/src/recompile.rs
+@@ -30,7 +30,7 @@ pub struct ModStep {
+ }
+ 
+ /// the mods the launcher builds, each with its game.
+-pub const MOD_STEPS: &[ModStep] = &[];
++pub const MOD_STEPS: &[ModStep] = &[crate::feet::STEP];
+ 
+ /// the mods built with the game of program_id.
+ pub fn mod_steps(program_id: u64) -> impl Iterator<Item = &'static ModStep> {

@@ -34,7 +34,24 @@ See `LEGAL.md` for details.
 The keyboard and most controllers (Xbox, PlayStation, Switch Pro) work. The
 mouse acts as the touch screen. Keys can be changed in the settings.
 
-## Building
+## Playing
+
+You need your own copy of the game: the European cartridge dumped as a
+decrypted `.3ds` or `.cci` file, and if you have them, its update and DLC as
+decrypted `.cia` files.
+
+1. Get Zakuro's launcher, `zakuro.exe` (see "Building the launcher").
+2. Open it and choose the folder that holds your game files.
+3. Click **Build** next to the game. The launcher builds the feet mod from
+   your copy of the game, then converts the game's code to native code.
+   This takes 10 to 20 minutes. If your computer has no C compiler, the
+   launcher offers to download one (Zig, which needs no installation).
+4. Click **Play**.
+
+What the launcher builds stays on your computer: the feet mod in
+`%APPDATA%\zakuro\mods`, and the converted code in `%APPDATA%\3dsrecomp`.
+
+## Building the launcher
 
 You need Git Bash, Rust and a MinGW gcc (`tools/env.sh` sets them up).
 
@@ -43,7 +60,27 @@ You need Git Bash, Rust and a MinGW gcc (`tools/env.sh` sets them up).
    the patches: `patches/3dsrecomp-*.patch` to 3dsrecomp, and
    `patches/zakuro-local-changes.patch` then `mods/feet/zakuro-feet.patch`
    to Zakuro.
-2. Build the recompiler, convert your game, and build the program:
+2. Build it:
+
+```bash
+source tools/env.sh
+(cd zakuro && cargo build --release -p zakuro)
+```
+
+The launcher is `zakuro/target/release/zakuro.exe`. A copy given to others
+must come with the licenses of the code it is built from, which
+`tools/licenses.py` collects:
+
+```bash
+(cd zakuro && cargo metadata --format-version 1 --filter-platform x86_64-pc-windows-gnu > ../metadata.json)
+python tools/licenses.py metadata.json THIRD_PARTY_LICENSES.txt
+```
+
+### A standalone program
+
+The game can also be built into a program of its own, `fe-awakening.exe`,
+which `Play-FireEmblemAwakening.bat` starts (or
+`Play-FireEmblemAwakening-16x9.bat` for widescreen):
 
 ```bash
 source tools/env.sh
@@ -51,9 +88,6 @@ source tools/env.sh
 ./3dsrecomp/target/release/3dsrecomp.exe port "<your game>.cci" FireEmblemAwakeningRecomp --zakuro "$W/zakuro" --name fe-awakening
 (cd FireEmblemAwakeningRecomp && cargo build --release)
 ```
-
-3. Run `Play-FireEmblemAwakening.bat`, or `Play-FireEmblemAwakening-16x9.bat`
-   for widescreen.
 
 ## License
 

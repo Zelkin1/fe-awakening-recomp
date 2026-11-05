@@ -1,3 +1,16 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 8251575..ec9feef 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -27,7 +27,7 @@ log = "0.4"
+ thiserror = "2"
+ bitflags = { version = "2", features = ["serde"] }
+ serde = { version = "1", features = ["derive"] }
+-recomp-abi = { git = "https://github.com/fearkov/3dsrecomp" }
++recomp-abi = { path = "../3dsrecomp/abi" }
+ rayon = "1"
+ memmap2 = "0.9"
+ bytemuck = { version = "1", features = ["derive"] }
 diff --git a/crates/zakuro-common/src/hash.rs b/crates/zakuro-common/src/hash.rs
 new file mode 100644
 index 0000000..28ac7db
@@ -4095,6 +4108,19 @@ index 88477db..943c8c7 100644
      ];
      for (name, value) in flagged {
          flags.set(name, value).map_err(|error| format!("{name}, {error}"))?;
+diff --git a/crates/zakuro/Cargo.toml b/crates/zakuro/Cargo.toml
+index 797b370..5b3304b 100644
+--- a/crates/zakuro/Cargo.toml
++++ b/crates/zakuro/Cargo.toml
+@@ -31,7 +31,7 @@ serde = { version = "1.0.229", features = ["derive"] }
+ toml = "1.1.6"
+ rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+ image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "bmp"] }
+-recomp3ds = { git = "https://github.com/fearkov/3dsrecomp" }
++recomp3ds = { path = "../../../3dsrecomp" }
+ sha2 = "0.10"
+ gilrs = { version = "0.11.2", features = ["serde-serialize"] }
+ 
 diff --git a/crates/zakuro/src/banners.rs b/crates/zakuro/src/banners.rs
 new file mode 100644
 index 0000000..e098c31
@@ -4608,7 +4634,7 @@ index a5b4c18..7da05c6 100644
  
      /// Japanese names have every character to draw with the system's
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..02f7635 100644
+index 6cf00db..e3aea76 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,6 +3,7 @@
@@ -5027,7 +5053,27 @@ index 6cf00db..02f7635 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -1065,11 +1302,28 @@ impl App {
+@@ -1021,6 +1258,9 @@ impl App {
+                 Stage::Done => {
+                     self.library.refresh_recompiled();
+                     let playing = self.game.as_ref().is_some_and(|game| game.system.title.as_ref().is_some_and(|title| title.program_id() == program_id));
++                    if !playing && crate::recompile::mod_steps(program_id).next().is_some() {
++                        self.menus.message = Some(format!("{name} is built and ready to play."));
++                    }
+                     let installed = zakuro_core::recompiled::installed(program_id);
+                     if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
+                         // from here on the game runs on the new code, no reset needed
+@@ -1034,7 +1274,8 @@ impl App {
+                     }
+                 }
+                 Stage::Failed(error) if error != "cancelled" => {
+-                    self.menus.message = Some(format!("Recompiling {name} failed, {error}"));
++                    let doing = if crate::recompile::mod_steps(program_id).next().is_some() { "Building" } else { "Recompiling" };
++                    self.menus.message = Some(format!("{doing} {name} failed, {error}"));
+                 }
+                 _ => {}
+             }
+@@ -1065,11 +1306,28 @@ impl App {
                      job.cancel();
                  }
              }
@@ -5060,7 +5106,7 @@ index 6cf00db..02f7635 100644
                  }
              }
              Action::SaveState => self.save_state(),
-@@ -1098,19 +1352,9 @@ impl App {
+@@ -1098,19 +1356,9 @@ impl App {
                      self.apply_settings();
                  }
              }
@@ -5082,7 +5128,7 @@ index 6cf00db..02f7635 100644
                  }
              }
              Action::Resume => {
-@@ -1150,6 +1394,21 @@ impl App {
+@@ -1150,6 +1398,21 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -5104,7 +5150,7 @@ index 6cf00db..02f7635 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1306,6 +1565,18 @@ impl App {
+@@ -1306,6 +1569,18 @@ impl App {
          let Some(game) = &mut self.game else { return };
          let input = match &mut game.replay {
              Some(replay) => replay.input(game.frame),
@@ -5123,7 +5169,7 @@ index 6cf00db..02f7635 100644
              None => self.gamepads.apply(self.keyboard.state()),
          };
          game.frame += 1;
-@@ -1546,9 +1817,77 @@ impl App {
+@@ -1546,9 +1821,77 @@ impl App {
              .flatten()
              .and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
              .map(ago);
@@ -5202,7 +5248,7 @@ index 6cf00db..02f7635 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,7 +1900,14 @@ impl App {
+@@ -1561,7 +1904,14 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -5218,7 +5264,7 @@ index 6cf00db..02f7635 100644
          });
          let corner = self.overlay_corner.clone().filter(|_| game.is_some());
          let (menus, library, settings, jobs) = (&mut self.menus, &self.library, &mut self.settings, &self.jobs);
-@@ -1573,6 +1919,22 @@ impl App {
+@@ -1573,6 +1923,22 @@ impl App {
                      if let Some(text) = &corner {
                          menus::corner(ui.ctx(), text);
                      }
@@ -5241,7 +5287,7 @@ index 6cf00db..02f7635 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1597,6 +1959,7 @@ impl App {
+@@ -1597,6 +1963,7 @@ impl App {
      }
  
      fn present(&mut self, event_loop: &ActiveEventLoop) {
@@ -5395,7 +5441,7 @@ index 85b066b..1e744c2 100644
          let (beside_update, beside_dlc, beside_child) = addons_beside(&folder.join("game.cxi")).unwrap();
          assert_eq!(beside_update.map(|addon| addon.version), Some(0x0410));
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..5a7c35a 100644
+index 9372f02..e6293b7 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -11,7 +11,8 @@ use zakuro_core::services::keyboard::Request;
@@ -5543,7 +5589,28 @@ index 9372f02..5a7c35a 100644
                      }
                  });
                  return;
-@@ -361,7 +402,7 @@ impl Menus {
+@@ -333,8 +374,18 @@ impl Menus {
+                                         progress(ui, job);
+                                     }
+                                     _ => {
+-                                        let label = if game.recompiled { "Recompile again" } else { "Recompile" };
+-                                        if ui.button(label).on_hover_text("Turn the game's code into native code with 3dsrecomp, which makes it run faster. It takes around ten minutes and needs a C compiler, gcc or clang, or Zig, which Zakuro offers to download when the computer has neither.").clicked() {
++                                        // a game with mods built from its files builds them too
++                                        let mods: Vec<&str> = crate::recompile::mod_steps(game.program_id).map(|step| step.name).collect();
++                                        let compiler = "It takes around ten minutes and needs a C compiler, gcc or clang, or Zig, which Zakuro offers to download when the computer has neither.";
++                                        let (label, hover) = match (mods.is_empty(), game.recompiled) {
++                                            (true, false) => ("Recompile", format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler}")),
++                                            (true, true) => ("Recompile again", format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler}")),
++                                            (false, recompiled) => (
++                                                if recompiled { "Build again" } else { "Build" },
++                                                format!("Build everything the game needs from your own copy of it: {}, made from the game's files, then the game's code turned into native code with 3dsrecomp, which makes it run faster. {compiler}", mods.join(", ")),
++                                            ),
++                                        };
++                                        if ui.button(label).on_hover_text(hover).clicked() {
+                                             actions.push(Action::Recompile(index));
+                                         }
+                                         if let Some(Stage::Failed(error)) = job.map(Job::stage) {
+@@ -361,7 +412,7 @@ impl Menus {
          &mut self,
          ui: &mut egui::Ui,
          name: &str,
@@ -5552,7 +5619,7 @@ index 9372f02..5a7c35a 100644
          recompiled: bool,
          fast: bool,
          jobs: &[Job],
-@@ -398,89 +439,132 @@ impl Menus {
+@@ -398,89 +449,132 @@ impl Menus {
              // clicks go through to the screen under it
              egui::Area::new(egui::Id::new("fps")).fixed_pos(egui::pos2(8.0, 8.0)).interactable(false).show(&ctx, |ui| {
                  egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -5750,7 +5817,7 @@ index 9372f02..5a7c35a 100644
              let mut checkbox = |ui: &mut egui::Ui, index: usize, name: &str, enabled: bool, notes: &str| {
                  let mut on = enabled;
                  let mut response = ui.checkbox(&mut on, name);
-@@ -493,32 +577,39 @@ impl Menus {
+@@ -493,32 +587,39 @@ impl Menus {
              };
              // Zakuro's own, tested on this build of the game
              if cheats.iter().any(|cheat| cheat.3) {
@@ -5799,7 +5866,7 @@ index 9372f02..5a7c35a 100644
                      actions.push(Action::ReloadCheats);
                  }
                  if ui.button("Open the cheats folder").clicked() {
-@@ -527,6 +618,7 @@ impl Menus {
+@@ -527,6 +628,7 @@ impl Menus {
              });
          });
          self.cheats_open = open;
@@ -5807,7 +5874,7 @@ index 9372f02..5a7c35a 100644
          actions
      }
  
-@@ -653,188 +745,198 @@ impl Menus {
+@@ -653,188 +755,198 @@ impl Menus {
          // taller than a screen has room for, so it scrolls, and it can be
          // dragged to any size that fits
          let room = ctx.content_rect().height() - 16.0;
@@ -6181,7 +6248,15 @@ index 9372f02..5a7c35a 100644
          self.settings_open = open;
          if !open {
              self.rebinding = None;
-@@ -968,6 +1070,345 @@ fn progress(ui: &mut egui::Ui, job: &Job) {
+@@ -956,6 +1068,7 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+ fn progress(ui: &mut egui::Ui, job: &Job) {
+     let stage = job.stage();
+     let text = match &stage {
++        Stage::Mods { name, done, total } => format!("building {name}, {done} of {total}"),
+         Stage::Downloading(arrived) => format!("downloading the compiler, {:.0}%", arrived * 100.0),
+         Stage::Generating => "finding the code".to_owned(),
+         Stage::Compiling { done, total } => format!("compiling {done} of {total}"),
+@@ -968,6 +1081,345 @@ fn progress(ui: &mut egui::Ui, job: &Job) {
      ui.add(egui::ProgressBar::new(stage.fraction()).desired_width(220.0).text(format!("{text}, {minutes}:{seconds:02}")));
  }
  
@@ -6527,7 +6602,7 @@ index 9372f02..5a7c35a 100644
  /// a key as a person would call it.
  pub fn key_name(key: KeyCode) -> String {
      let name = format!("{key:?}");
-@@ -1011,7 +1452,7 @@ mod tests {
+@@ -1011,7 +1463,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -6536,7 +6611,7 @@ index 9372f02..5a7c35a 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1467,14 @@ mod tests {
+@@ -1026,6 +1478,14 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  
@@ -6551,6 +6626,143 @@ index 9372f02..5a7c35a 100644
      #[test]
      fn keys_have_short_names() {
          assert_eq!(key_name(KeyCode::KeyX), "X");
+diff --git a/crates/zakuro/src/recompile.rs b/crates/zakuro/src/recompile.rs
+index 1640c7a..d3036e8 100644
+--- a/crates/zakuro/src/recompile.rs
++++ b/crates/zakuro/src/recompile.rs
+@@ -17,8 +17,30 @@ pub enum Toolchain {
+     Download(PathBuf),
+ }
+ 
++/// a mod the launcher builds from the game's own files before it
++/// recompiles the game, into the game's mods folder in the data directory.
++pub struct ModStep {
++    /// what it builds, as the progress says it.
++    pub name: &'static str,
++    /// the game it is for.
++    pub program_id: u64,
++    /// builds it from the game at rom into the data directory, telling how
++    /// many of how many parts are done: what it made.
++    pub build: fn(&Path, &Path, &(dyn Fn(usize, usize) + Sync), &AtomicBool) -> Result<String, String>,
++}
++
++/// the mods the launcher builds, each with its game.
++pub const MOD_STEPS: &[ModStep] = &[];
++
++/// the mods built with the game of program_id.
++pub fn mod_steps(program_id: u64) -> impl Iterator<Item = &'static ModStep> {
++    MOD_STEPS.iter().filter(move |step| step.program_id == program_id)
++}
++
+ #[derive(Debug, Clone, PartialEq)]
+ pub enum Stage {
++    /// building a mod from the game's files, how many of its parts are done.
++    Mods { name: &'static str, done: usize, total: usize },
+     /// fetching the compiler, how much of it has arrived, 0 to 1.
+     Downloading(f32),
+     /// finding the code and writing it as C.
+@@ -38,6 +60,7 @@ impl Stage {
+     /// how far along it is, 0 to 1, going by the part that takes longest.
+     pub fn fraction(&self) -> f32 {
+         match self {
++            Stage::Mods { done, total, .. } => 0.05 * *done as f32 / (*total).max(1) as f32,
+             Stage::Downloading(arrived) => *arrived,
+             Stage::Generating => 0.05,
+             Stage::Compiling { done, total } => 0.05 + 0.9 * *done as f32 / (*total).max(1) as f32,
+@@ -74,16 +97,47 @@ pub struct Job {
+ }
+ 
+ impl Job {
+-    /// starts recompiling the game at rom with toolchain's compiler, with
+-    /// what its mods in data_dir change. the compilers run below normal
+-    /// priority, so that a game can be played meanwhile.
++    /// starts building the game at rom: the mods built with it into
++    /// data_dir, then the game recompiled with toolchain's compiler, with
++    /// what its mods change. the compilers run below normal priority, so
++    /// that a game can be played meanwhile.
+     pub fn start(rom: &Path, update: Option<&Path>, program_id: u64, name: &str, data_dir: Option<&Path>, toolchain: Toolchain) -> Job {
+-        let first = if matches!(toolchain, Toolchain::Download(_)) { Stage::Downloading(0.0) } else { Stage::Generating };
++        let steps: Vec<&'static ModStep> = if data_dir.is_some() { mod_steps(program_id).collect() } else { Vec::new() };
++        let first = match (steps.first(), &toolchain) {
++            (Some(step), _) => Stage::Mods { name: step.name, done: 0, total: 0 },
++            (None, Toolchain::Download(_)) => Stage::Downloading(0.0),
++            (None, Toolchain::Ready(_)) => Stage::Generating,
++        };
+         let state = Arc::new(Mutex::new(State { stage: first, finished_at: None }));
+         let cancel = Arc::new(AtomicBool::new(false));
+         let (progress, stop, rom, update) = (state.clone(), cancel.clone(), rom.to_owned(), update.map(Path::to_owned));
+         let (game, data_dir) = (name.to_owned(), data_dir.map(Path::to_owned));
+         std::thread::spawn(move || {
++            let set = |stage: Stage| {
++                if let Ok(mut state) = progress.lock() {
++                    state.stage = stage;
++                }
++            };
++            for step in steps {
++                let told = |done: usize, total: usize| set(Stage::Mods { name: step.name, done, total });
++                let built = (step.build)(&rom, data_dir.as_deref().unwrap(), &told, &stop);
++                if let Err(error) = built {
++                    if let Ok(mut state) = progress.lock() {
++                        state.stage = match stop.load(Ordering::Relaxed) {
++                            true => Stage::Failed("cancelled".to_owned()),
++                            false => Stage::Failed(format!("{}: {error}", step.name)),
++                        };
++                        state.finished_at = Some(Instant::now());
++                    }
++                    return;
++                }
++                if let Ok(made) = built {
++                    log::info!("built {}: {made}", step.name);
++                }
++            }
++            if !matches!(toolchain, Toolchain::Download(_)) {
++                set(Stage::Generating);
++            }
+             let events = |event: Event| {
+                 if let (Some(stage), Ok(mut state)) = (Stage::after(&event), progress.lock()) {
+                     state.stage = stage;
+@@ -378,6 +432,41 @@ mod tests {
+         std::fs::remove_file(rom).unwrap();
+     }
+ 
++    /// builds a real game the way the library's button does, its mods then
++    /// its code, ZAKURO_BUILD_ROM into the data folder ZAKURO_BUILD_DATA,
++    /// with the computer's compiler; the library goes where APPDATA says:
++    /// cargo test -p zakuro --release recompile::tests::a_whole_build --
++    /// --ignored --nocapture
++    #[test]
++    #[ignore]
++    fn a_whole_build() {
++        let (Ok(rom), Ok(data)) = (std::env::var("ZAKURO_BUILD_ROM"), std::env::var("ZAKURO_BUILD_DATA")) else {
++            panic!("set ZAKURO_BUILD_ROM and ZAKURO_BUILD_DATA");
++        };
++        let rom = Path::new(&rom);
++        let program_id = zakuro_fs::Title::load(rom).unwrap().program_id();
++        let compiler = recomp3ds::compile::check(None).unwrap();
++        let job = Job::start(rom, None, program_id, "the game", Some(Path::new(&data)), Toolchain::Ready(compiler));
++        let mut said = String::new();
++        loop {
++            let stage = job.stage();
++            let now = match &stage {
++                Stage::Mods { name, total, .. } => format!("building {name} of {total}"),
++                Stage::Compiling { total, .. } => format!("compiling {total}"),
++                other => format!("{other:?}"),
++            };
++            if now != said {
++                println!("{:>5} s  {now}", job.elapsed().as_secs());
++                said = now;
++            }
++            if stage.finished() {
++                assert_eq!(stage, Stage::Done);
++                break;
++            }
++            std::thread::sleep(Duration::from_millis(500));
++        }
++    }
++
+     #[test]
+     fn modules_are_cro_files_and_static_crs() {
+         assert!(is_module("cro/Battle.cro") && is_module("Battle.CRO") && is_module("static.crs"));
 diff --git a/crates/zakuro/src/settings.rs b/crates/zakuro/src/settings.rs
 index 1e9b15b..b0d1932 100644
 --- a/crates/zakuro/src/settings.rs

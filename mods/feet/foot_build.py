@@ -89,6 +89,19 @@ WIDEST = 0.21
 NOISE = 1.5
 
 
+def noise(count):
+    """count pairs of nudges from -NOISE to NOISE, a xorshift, the same on
+    both feet so that they stay mirror images, and the same as the launcher's
+    builder (zakuro/src/feet/foot.rs)."""
+    s, out, mask = 0x9E3779B97F4A7C15, [], (1 << 64) - 1
+    for _ in range(2 * count):
+        s ^= (s << 13) & mask
+        s ^= s >> 7
+        s ^= (s << 17) & mask
+        out.append(((s >> 11) / 2 ** 53 * 2 - 1) * NOISE)
+    return np.array(out).reshape(count, 2)
+
+
 def knee(leg):
     """how high the shin's bone, at the knee, is in the bind pose."""
     m = np.array(b.f32(records[f"{leg}_leg2"] + 0xA4, 12)).reshape(3, 4)
@@ -472,7 +485,7 @@ def foot(leg):
         tall = ankle * max(s[2] for s in SECTIONS)
         middle = np.array([cx, tall / 2, cz + (along[-1] + along[0]) / 2])
         facing = np.abs(normals).argmax(1)
-        jitter = np.random.default_rng(7).uniform(-NOISE, NOISE, (len(verts), 2))
+        jitter = noise(len(verts))
         # the axes along the rectangle's length and across it, by which way
         # a vertex faces: x, y or z
         axes = {0: (2, 1), 1: (2, 0), 2: (0, 1)}
