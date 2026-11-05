@@ -4,8 +4,7 @@ This project runs *Fire Emblem: Awakening* (Nintendo 3DS) natively on
 Windows. [3dsrecomp](https://github.com/fearkov/3dsrecomp) converts the
 game's code to native code ahead of time, and
 [Zakuro](https://github.com/fearkov/zakuro) runs it and handles the
-console's graphics, sound and system. The project's patches to both add the
-features below.
+console's graphics, sound and system. 
 
 The repository contains no game files. Everything is built from your own
 copy of the game, on your computer.
