@@ -1,0 +1,16 @@
+{
+  "$schema": "https://recomp.fyi/schema/v1.json",
+  "game": "Fire Emblem: Awakening",
+  "wikidata": "Q3072790",
+  "system": "3DS",
+  "type": "recomp",
+  "original": { "region": "Europe", "revision": "0", "serial": "CTR-P-AFEP" },
+  "project": "Fire Emblem: Awakening for Windows",
+  "status": "in-progress",
+  "targets": ["Windows"],
+  "toolchain": "3dsrecomp",
+  "approach": "Static recompilation with 3dsrecomp, run on the Zakuro 3DS runtime; the launcher builds it out of the player's own copy",
+  "maintainers": [{ "name": "Zelkin1", "link": "https://github.com/Zelkin1" }],
+  "links": [{ "label": "Releases", "url": "https://github.com/Zelkin1/fe-awakening-recomp/releases" }],
+  "notes": "3D at up to 8 times the console's resolution, battles and cutscenes at 60 FPS with frame interpolation, a 16:9 mode, play on the top screen alone with the bottom screen on demand, a Three Houses style battle display, and feet for every character model. Original mode plays the game as the console does."
+}

@@ -9,6 +9,7 @@
 /*
 
 !/.gitignore
+!/.recomp.json
 !/README.md
 !/LEGAL.md
 !/LICENSE

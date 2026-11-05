@@ -8,6 +8,7 @@ Intelligent Systems or any other company.
 ## What the repository and the launcher contain
 
 The repository holds only the project's own files: `.gitignore`,
+`.recomp.json` (the project's entry for the recomp.fyi list),
 `README.md`, `LEGAL.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`,
 `Play-FireEmblemAwakening.bat`, the patches (`patches/*.patch`), the scripts
 (`tools/*.py`, `tools/*.sh`) and the feet mod's patch, scripts and README
