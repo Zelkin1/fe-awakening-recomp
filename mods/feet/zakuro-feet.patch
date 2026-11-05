@@ -2315,22 +2315,22 @@ index 0000000..7552aa9
 +    Ok(out)
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index e3aea76..46e5872 100644
+index 1b7ad9a..5ed6265 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
-@@ -6,6 +6,7 @@ mod audio;
- mod banners;
+@@ -7,6 +7,7 @@ mod banners;
  mod camera;
  mod cli;
+ mod console;
 +mod feet;
  mod gamepad;
  mod gui;
  mod input;
 diff --git a/crates/zakuro/src/recompile.rs b/crates/zakuro/src/recompile.rs
-index d3036e8..1c81507 100644
+index bd365e0..4500ed8 100644
 --- a/crates/zakuro/src/recompile.rs
 +++ b/crates/zakuro/src/recompile.rs
-@@ -30,7 +30,7 @@ pub struct ModStep {
+@@ -31,7 +31,7 @@ pub struct ModStep {
  }
  
  /// the mods the launcher builds, each with its game.
