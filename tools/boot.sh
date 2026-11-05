@@ -9,6 +9,7 @@
 #      DUMP_AT=600,900          extra frames to save the screens at
 #      INTERP=1                 interpret everything, no recompiled code
 #      DLL=path                 another recompiled library
+#      ROM=path                 the game's file, if not next to this folder
 #      any other ZAKURO_* variable passes straight through
 set -u
 W="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,7 +31,7 @@ if [ -z "${INTERP:-}" ]; then
     export ZAKURO_RECOMPILED="${DLL:-$W/FireEmblemAwakeningRecomp/code/000400000009F100.dll}"
 fi
 
-rom="$W/../Fire Emblem - Awakening (Europe) (En,Fr,De,Es,It).cci"
+rom="${ROM:-$W/../Fire Emblem - Awakening (Europe) (En,Fr,De,Es,It).cci}"
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 "$W/zakuro/target/release/examples/boot.exe" "$rom" "$frames" 2>&1 | tee "$out/log.txt"
 status=${PIPESTATUS[0]}

@@ -4121,6 +4121,128 @@ index 797b370..5b3304b 100644
  sha2 = "0.10"
  gilrs = { version = "0.11.2", features = ["serde-serialize"] }
  
+diff --git a/crates/zakuro/src/audio.rs b/crates/zakuro/src/audio.rs
+index 2bd5242..a5ebaf5 100644
+--- a/crates/zakuro/src/audio.rs
++++ b/crates/zakuro/src/audio.rs
+@@ -34,11 +34,42 @@ struct Queue {
+     underruns: u64,
+     /// how much a queue that ran dry waits for before it plays again.
+     refill: usize,
++    /// the frontend's own sounds playing over the console's, see Audio::play.
++    sounds: Vec<Playing>,
++}
++
++/// a sound of the frontend's playing: its frames, how far it is into them,
++/// and how many of them go by for each output sample.
++struct Playing {
++    frames: Arc<[[f32; 2]]>,
++    position: f64,
++    step: f64,
++    gain: f32,
+ }
+ 
+ impl Queue {
+-    /// the next output sample, between two of the console's.
++    /// the next output sample: the console's, with the frontend's sounds
++    /// over it.
+     fn next(&mut self) -> [f32; 2] {
++        let mut out = self.console();
++        self.sounds.retain_mut(|sound| {
++            let at = sound.position as usize;
++            if at + 1 >= sound.frames.len() {
++                return false;
++            }
++            let (a, b) = (sound.frames[at], sound.frames[at + 1]);
++            let t = (sound.position - at as f64) as f32;
++            for c in 0..2 {
++                out[c] += (a[c] + (b[c] - a[c]) * t) * sound.gain;
++            }
++            sound.position += sound.step;
++            true
++        });
++        out
++    }
++
++    /// the next of the console's samples, between two of them.
++    fn console(&mut self) -> [f32; 2] {
+         if !self.starved && self.samples.len() < 2 {
+             self.starved = true;
+             self.underruns += 1;
+@@ -192,6 +223,8 @@ impl Stretch {
+ 
+ pub struct Audio {
+     queue: Arc<Mutex<Queue>>,
++    /// the output's samples a second.
++    output_rate: f64,
+     /// 0 to 1, applied as samples come in.
+     volume: std::cell::Cell<f32>,
+     stretch: std::cell::RefCell<Stretch>,
+@@ -214,7 +247,9 @@ impl Audio {
+             last: [0.0; 2],
+             underruns: 0,
+             refill: RESUME,
++            sounds: Vec::new(),
+         }));
++        let output_rate = config.sample_rate.0 as f64;
+         let stream = match format {
+             SampleFormat::F32 => stream::<f32>(&device, &config, queue.clone()),
+             SampleFormat::I16 => stream::<i16>(&device, &config, queue.clone()),
+@@ -223,7 +258,7 @@ impl Audio {
+             other => return Err(format!("the output takes {other} samples, which Zakuro does not make")),
+         }?;
+         stream.play().map_err(|e| e.to_string())?;
+-        Ok(Audio { queue, volume: std::cell::Cell::new(1.0), stretch: std::cell::RefCell::new(Stretch::new()), _stream: stream })
++        Ok(Audio { queue, output_rate, volume: std::cell::Cell::new(1.0), stretch: std::cell::RefCell::new(Stretch::new()), _stream: stream })
+     }
+ 
+     /// how many times the sound ran dry since the last call.
+@@ -251,6 +286,19 @@ impl Audio {
+         self.volume.set(volume.clamp(0.0, 1.0));
+     }
+ 
++    /// plays a sound of the frontend's over the console's, at the volume
++    /// set, from the next output sample on.
++    pub fn play(&self, sound: &crate::sounds::Sound) {
++        let gain = self.volume.get();
++        if gain == 0.0 {
++            return;
++        }
++        if let Ok(mut queue) = self.queue.lock() {
++            let step = sound.rate / self.output_rate;
++            queue.sounds.push(Playing { frames: sound.frames.clone(), position: 0.0, step, gain });
++        }
++    }
++
+     /// queues what the console played, stretched when the queue runs low
+     /// so that it plays on rather than stops.
+     pub fn push(&self, samples: &[[i16; 2]]) {
+@@ -319,9 +367,25 @@ mod tests {
+             last: [0.0; 2],
+             underruns: 0,
+             refill: RESUME,
++            sounds: Vec::new(),
+         }
+     }
+ 
++    /// a sound of the frontend's goes over the console's, at its own rate,
++    /// and stops at its end.
++    #[test]
++    fn a_frontend_sound_plays_over_the_consoles() {
++        // the console's silence
++        let mut queue = queue(TARGET, 1.0);
++        queue.samples.iter_mut().for_each(|sample| *sample = [0.0; 2]);
++        let frames: Arc<[[f32; 2]]> = vec![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]].into();
++        queue.sounds.push(Playing { frames, position: 0.0, step: 0.5, gain: 0.5 });
++        let out: Vec<[f32; 2]> = (0..6).map(|_| queue.next()).collect();
++        // half a frame further each sample, at half its level
++        assert_eq!(out, [[0.5, 1.0], [1.0, 1.5], [1.5, 2.0], [2.0, 2.5], [0.0, 0.0], [0.0, 0.0]]);
++        assert!(queue.sounds.is_empty());
++    }
++
+     /// a tone at 440 Hz, the console's rate.
+     fn tone(count: usize) -> Vec<[f32; 2]> {
+         (0..count)
 diff --git a/crates/zakuro/src/banners.rs b/crates/zakuro/src/banners.rs
 new file mode 100644
 index 0000000..e098c31
@@ -4739,7 +4861,7 @@ index a5b4c18..c344a90 100644
  
      /// Japanese names have every character to draw with the system's
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..1b7ad9a 100644
+index 6cf00db..4efd738 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,8 +3,10 @@
@@ -4753,15 +4875,16 @@ index 6cf00db..1b7ad9a 100644
  mod gamepad;
  mod gui;
  mod input;
-@@ -14,6 +16,7 @@ mod present;
+@@ -14,6 +16,8 @@ mod present;
  mod recompile;
  mod report;
  mod settings;
++mod sounds;
 +mod theme;
  mod zig;
  
  use std::path::{Path, PathBuf};
-@@ -66,6 +69,8 @@ pub fn run(linked: Option<Linked>) {
+@@ -66,6 +70,8 @@ pub fn run(linked: Option<Linked>) {
  
  /// runs the emulator as run does, with an overlay over the game.
  pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
@@ -4770,7 +4893,7 @@ index 6cf00db..1b7ad9a 100644
      report::init();
  
      let options = match cli::parse() {
-@@ -76,6 +81,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -76,6 +82,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          }
      };
      let mut settings = Settings::load();
@@ -4778,7 +4901,7 @@ index 6cf00db..1b7ad9a 100644
      // the console's own number, made the first time and kept, which tells
      // it apart from others over local wireless
      if settings.console_id == 0 {
-@@ -85,6 +91,15 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -85,6 +92,15 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          settings.console_id = hasher.finish() | 1;
          settings.save();
      }
@@ -4794,12 +4917,13 @@ index 6cf00db..1b7ad9a 100644
  
      let data_dir = options.data.clone().map(PathBuf::from).or_else(default_data_dir);
      if let Some(dir) = &data_dir {
-@@ -97,13 +112,19 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -97,13 +113,20 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          gamepads: gamepad::Gamepads::new(settings.pad.clone()),
          scale: options.scale.unwrap_or(settings.scale).max(1),
          layout: settings.layout,
 +        bottom_over: false,
 +        bottom_over_key: false,
++        bottom_sound: None,
 +        scene: Scene::Plain,
 +        placed: None,
 +        last_pieces: None,
@@ -4815,7 +4939,7 @@ index 6cf00db..1b7ad9a 100644
          data_dir,
          game: None,
          menus: {
-@@ -147,8 +168,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -147,8 +170,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          return;
      }
  
@@ -4826,7 +4950,7 @@ index 6cf00db..1b7ad9a 100644
      }
      app.audio = if app.options.mute {
          None
-@@ -331,10 +352,16 @@ struct Running {
+@@ -331,10 +354,16 @@ struct Running {
      /// place of the keyboard's and the controllers', and the frames run.
      replay: Option<zakuro_core::replay::Replay>,
      frame: u64,
@@ -4844,7 +4968,7 @@ index 6cf00db..1b7ad9a 100644
  }
  
  impl Running {
-@@ -347,8 +374,10 @@ impl Running {
+@@ -347,8 +376,10 @@ impl Running {
              replay: None,
              frame: 0,
              frames: 0,
@@ -4855,7 +4979,7 @@ index 6cf00db..1b7ad9a 100644
          }
      }
  
-@@ -356,7 +385,12 @@ impl Running {
+@@ -356,7 +387,12 @@ impl Running {
          self.frames += 1;
          let elapsed = self.counting_since.elapsed();
          if elapsed >= Duration::from_millis(500) {
@@ -4869,7 +4993,7 @@ index 6cf00db..1b7ad9a 100644
              self.frames = 0;
              self.counting_since = Instant::now();
          }
-@@ -390,6 +424,22 @@ struct App {
+@@ -390,6 +426,24 @@ struct App {
      scale: u32,
      /// how the screens are arranged.
      layout: Screens,
@@ -4879,6 +5003,8 @@ index 6cf00db..1b7ad9a 100644
 +    /// and takes it away, see place_bottom_over.
 +    bottom_over: bool,
 +    bottom_over_key: bool,
++    /// the game's own sound for the bottom screen coming up, see sounds.
++    bottom_sound: Option<sounds::Sound>,
 +    /// what the game shows that changes where the bottom screen goes over
 +    /// the top one, see place_bottom_over, and the layout last set.
 +    scene: Scene,
@@ -4892,7 +5018,7 @@ index 6cf00db..1b7ad9a 100644
      /// how wide the top screen shows.
      top_shape: settings::TopShape,
      /// the left button is down, and where the pointer is, in window pixels.
-@@ -472,6 +522,38 @@ impl std::fmt::Display for Times {
+@@ -472,6 +526,38 @@ impl std::fmt::Display for Times {
  }
  
  /// one 3DS frame, about 16.71 ms.
@@ -4931,7 +5057,7 @@ index 6cf00db..1b7ad9a 100644
  const FRAME_TIME: Duration =
      Duration::from_nanos(zakuro_core::CYCLES_PER_FRAME * 1_000_000_000 / zakuro_core::kernel::thread::CPU_CLOCK_HZ);
  /// how far behind the schedule may fall before it starts over instead of
-@@ -516,7 +598,7 @@ impl ApplicationHandler for App {
+@@ -516,7 +602,7 @@ impl ApplicationHandler for App {
          match backend {
              Ok((window, mut backend)) => {
                  log::info!("presenting with the {} backend", backend.name());
@@ -4940,7 +5066,7 @@ index 6cf00db..1b7ad9a 100644
                  backend.set_top_width(self.settings.top_shape.width());
                  backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
                  backend.set_stereo(self.settings.stereo());
-@@ -605,13 +687,17 @@ impl App {
+@@ -605,13 +691,17 @@ impl App {
              find_recompiled: !interpret,
              hardware_renderer: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
              texture_packs: self.settings.texture_packs,
@@ -4958,7 +5084,7 @@ index 6cf00db..1b7ad9a 100644
              resolution: self.settings.resolution,
              device: self.backend.as_ref().and_then(Backend::shared_device),
              username: self.nickname(),
-@@ -661,12 +747,12 @@ impl App {
+@@ -661,12 +751,12 @@ impl App {
              config.update = game.update.as_ref().map(|update| update.path.clone());
              config.dlc = game.dlc.iter().map(|dlc| dlc.path.clone()).collect();
              config.dlp_child = game.dlp_child.as_ref().map(|child| child.path.clone());
@@ -4975,7 +5101,16 @@ index 6cf00db..1b7ad9a 100644
          }
          // a recording starts the clock at a known time, for playing it back
          let record = std::env::var_os("ZAKURO_RECORD").map(PathBuf::from);
-@@ -754,7 +840,9 @@ impl App {
+@@ -698,6 +788,8 @@ impl App {
+             .or_else(|| Some(library::Smdh::parse(system.title.as_ref()?.exefs_file("icon")?)?.name).filter(|name| !name.is_empty()))
+             .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
+             .unwrap_or_default();
++        // the sound the bottom screen makes coming up, from the game's files
++        self.bottom_sound = system.title.as_ref().and_then(sounds::bottom_screen);
+         let mut game = Running::new(system, path.to_owned(), name);
+         game.replay = replay;
+         if let Some(record) = record {
+@@ -754,7 +846,9 @@ impl App {
          if let (true, Some(index)) = (pressed, self.menus.rebinding) {
              self.menus.rebinding = None;
              if code != KeyCode::Escape {
@@ -4986,7 +5121,7 @@ index 6cf00db..1b7ad9a 100644
                      *key = code;
                  }
                  self.apply_settings();
-@@ -789,6 +877,10 @@ impl App {
+@@ -789,6 +883,10 @@ impl App {
                  KeyCode::F11 => self.toggle_fullscreen(),
                  KeyCode::F5 if self.game.is_some() => self.save_state(),
                  KeyCode::F8 if self.game.is_some() => self.load_state(),
@@ -4997,7 +5132,7 @@ index 6cf00db..1b7ad9a 100644
                  _ => {}
              }
          }
-@@ -808,13 +900,17 @@ impl App {
+@@ -808,13 +906,17 @@ impl App {
      fn poll_gamepads(&mut self) {
          for button in self.gamepads.poll() {
              if let Some(index) = self.menus.rebinding_pad.take() {
@@ -5016,7 +5151,7 @@ index 6cf00db..1b7ad9a 100644
              }
          }
      }
-@@ -828,7 +924,19 @@ impl App {
+@@ -828,7 +930,19 @@ impl App {
      fn touch(&mut self) {
          let Some(window) = &self.window else { return };
          let size = window.inner_size();
@@ -5037,7 +5172,7 @@ index 6cf00db..1b7ad9a 100644
          // with the top screen alone there is nothing to touch
          let Some(bottom) = bottom else {
              self.keyboard.touch(None);
-@@ -887,11 +995,24 @@ impl App {
+@@ -887,11 +1001,24 @@ impl App {
      /// saves the settings and puts to use what can change right away.
      fn apply_settings(&mut self) {
          self.settings.save();
@@ -5062,7 +5197,7 @@ index 6cf00db..1b7ad9a 100644
              // games read the 3D slider every frame
              let slider = self.settings.slider_3d();
              if game.system.config.slider_3d != slider {
-@@ -938,13 +1059,21 @@ impl App {
+@@ -938,13 +1065,21 @@ impl App {
              backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
              backend.set_stereo(self.settings.stereo());
          }
@@ -5085,7 +5220,7 @@ index 6cf00db..1b7ad9a 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1087,119 @@ impl App {
+@@ -958,6 +1093,126 @@ impl App {
          }
      }
  
@@ -5172,7 +5307,14 @@ index 6cf00db..1b7ad9a 100644
 +            self.bottom_over_key = false;
 +        }
 +        self.scene = scene;
-+        self.bottom_over = self.game.is_some() && self.layout == Screens::TopOnly && !self.settings.original && opens && self.bottom_over_key;
++        let shown = self.game.is_some() && self.layout == Screens::TopOnly && !self.settings.original && opens && self.bottom_over_key;
++        // it comes up with the sound the game makes for choosing a menu entry
++        if shown && !self.bottom_over {
++            if let (Some(audio), Some(sound)) = (&self.audio, &self.bottom_sound) {
++                audio.play(sound);
++            }
++        }
++        self.bottom_over = shown;
 +        let layout = self.shown_layout();
 +        if self.placed != Some(layout) {
 +            self.placed = Some(layout);
@@ -5205,7 +5347,7 @@ index 6cf00db..1b7ad9a 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -1021,6 +1263,9 @@ impl App {
+@@ -1021,6 +1276,9 @@ impl App {
                  Stage::Done => {
                      self.library.refresh_recompiled();
                      let playing = self.game.as_ref().is_some_and(|game| game.system.title.as_ref().is_some_and(|title| title.program_id() == program_id));
@@ -5215,7 +5357,7 @@ index 6cf00db..1b7ad9a 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1034,7 +1279,8 @@ impl App {
+@@ -1034,7 +1292,8 @@ impl App {
                      }
                  }
                  Stage::Failed(error) if error != "cancelled" => {
@@ -5225,7 +5367,7 @@ index 6cf00db..1b7ad9a 100644
                  }
                  _ => {}
              }
-@@ -1065,11 +1311,28 @@ impl App {
+@@ -1065,11 +1324,28 @@ impl App {
                      job.cancel();
                  }
              }
@@ -5258,7 +5400,7 @@ index 6cf00db..1b7ad9a 100644
                  }
              }
              Action::SaveState => self.save_state(),
-@@ -1087,32 +1350,6 @@ impl App {
+@@ -1087,32 +1363,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -5291,7 +5433,7 @@ index 6cf00db..1b7ad9a 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1387,21 @@ impl App {
+@@ -1150,6 +1400,21 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -5313,7 +5455,7 @@ index 6cf00db..1b7ad9a 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1306,6 +1558,18 @@ impl App {
+@@ -1306,6 +1571,18 @@ impl App {
          let Some(game) = &mut self.game else { return };
          let input = match &mut game.replay {
              Some(replay) => replay.input(game.frame),
@@ -5332,7 +5474,7 @@ index 6cf00db..1b7ad9a 100644
              None => self.gamepads.apply(self.keyboard.state()),
          };
          game.frame += 1;
-@@ -1546,9 +1810,77 @@ impl App {
+@@ -1546,9 +1823,77 @@ impl App {
              .flatten()
              .and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
              .map(ago);
@@ -5411,7 +5553,7 @@ index 6cf00db..1b7ad9a 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,7 +1893,14 @@ impl App {
+@@ -1561,7 +1906,14 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -5427,7 +5569,7 @@ index 6cf00db..1b7ad9a 100644
          });
          let corner = self.overlay_corner.clone().filter(|_| game.is_some());
          let (menus, library, settings, jobs) = (&mut self.menus, &self.library, &mut self.settings, &self.jobs);
-@@ -1569,10 +1908,26 @@ impl App {
+@@ -1569,10 +1921,26 @@ impl App {
          let overlay = gui.frame(window, |ui| {
              match &game {
                  Some((name, fps, recompiled)) => {
@@ -5455,7 +5597,7 @@ index 6cf00db..1b7ad9a 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,7 +1936,7 @@ impl App {
+@@ -1581,7 +1949,7 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -5464,7 +5606,7 @@ index 6cf00db..1b7ad9a 100644
              }
              if let Some(request) = &keyboard {
                  actions.extend(menus.keyboard(ui.ctx(), request));
-@@ -1597,6 +1952,7 @@ impl App {
+@@ -1597,6 +1965,7 @@ impl App {
      }
  
      fn present(&mut self, event_loop: &ActiveEventLoop) {
@@ -7636,6 +7778,249 @@ index 1e9b15b..22220a6 100644
      }
  
      #[test]
+diff --git a/crates/zakuro/src/sounds.rs b/crates/zakuro/src/sounds.rs
+new file mode 100644
+index 0000000..98e2042
+--- /dev/null
++++ b/crates/zakuro/src/sounds.rs
+@@ -0,0 +1,237 @@
++//! sounds of a game's own that the frontend plays over the game's sound, read
++//! from the sound archive in the player's copy of the game when it starts:
++//! Fire Emblem Awakening's sound for choosing a menu entry, which the bottom
++//! screen makes as it comes up over the top one.
++//!
++//! a sound archive is NintendoWare's CSAR: its STRG block names its items,
++//! its INFO block says where each item's data is in its FILE block. a wave
++//! sound's data is a CWSD, which says which wave of which wave archive, a
++//! CWAR, it plays and at what pitch, and the wave is a CWAV of DSP ADPCM.
++//! references in them are a type, then an offset from where the structure
++//! holding them starts.
++
++use std::sync::Arc;
++
++/// a sound decoded, its frames, -1 to 1 with its level in the game, and the
++/// rate it plays at, its own times its pitch.
++pub struct Sound {
++    pub frames: Arc<[[f32; 2]]>,
++    pub rate: f64,
++}
++
++/// the sound a game makes when the bottom screen comes up over the top one:
++/// its title id, its sound archive, the sound's name in it and the level the
++/// game plays it at (the DSP's gain for it).
++const OPEN_SOUNDS: [(u64, &str, &str, f32); 1] = [(0x0004_0000_0009_F100, "sound/14Iron_sound_US_EN.bcsar", "SE_SYS_DECIDE1", 0.85)];
++
++/// the sound for the bottom screen coming up in the game of title, none for
++/// a game that has none or whose archive doesn't read.
++pub fn bottom_screen(title: &zakuro_fs::Title) -> Option<Sound> {
++    let (_, archive, name, gain) = OPEN_SOUNDS.iter().find(|(id, ..)| *id == title.program_id())?;
++    let romfs = title.romfs.as_ref()?;
++    let file = romfs.lookup(archive).ok()?;
++    let data = title.read_romfs(&file, 0, file.data_size as usize)?;
++    match sound(data, name, *gain) {
++        Ok(sound) => Some(sound),
++        Err(error) => {
++            log::warn!("{name} in {archive} can't be read, {error}");
++            None
++        }
++    }
++}
++
++/// little-endian reads of a file, an error past its end.
++struct Bytes<'a>(&'a [u8]);
++
++impl Bytes<'_> {
++    fn get(&self, at: usize, n: usize) -> Result<&[u8], String> {
++        self.0.get(at..at.checked_add(n).ok_or("an offset out of range")?).ok_or_else(|| format!("nothing at 0x{at:X}"))
++    }
++
++    fn u8(&self, at: usize) -> Result<u8, String> {
++        Ok(self.get(at, 1)?[0])
++    }
++
++    fn u16(&self, at: usize) -> Result<u16, String> {
++        Ok(u16::from_le_bytes(self.get(at, 2)?.try_into().unwrap()))
++    }
++
++    fn u32(&self, at: usize) -> Result<u32, String> {
++        Ok(u32::from_le_bytes(self.get(at, 4)?.try_into().unwrap()))
++    }
++
++    fn f32(&self, at: usize) -> Result<f32, String> {
++        Ok(f32::from_bits(self.u32(at)?))
++    }
++
++    /// where a reference at at points, from base.
++    fn to(&self, at: usize, base: usize) -> Result<usize, String> {
++        let offset = self.u32(at + 4)? as i32;
++        base.checked_add_signed(offset as isize).ok_or_else(|| "a reference out of range".into())
++    }
++
++    /// the blocks of a NintendoWare file at at, by their kinds.
++    fn block(&self, file: usize, kind: u16) -> Result<usize, String> {
++        let count = self.u16(file + 0x10)? as usize;
++        (0..count)
++            .find_map(|i| {
++                let entry = file + 0x14 + 12 * i;
++                (self.u16(entry).ok()? == kind).then(|| self.u32(entry + 4).ok().map(|offset| file + offset as usize)).flatten()
++            })
++            .ok_or_else(|| format!("no block 0x{kind:04X}"))
++    }
++
++    /// entry index of a table of references at table.
++    fn entry(&self, table: usize, index: usize) -> Result<usize, String> {
++        if index >= self.u32(table)? as usize {
++            return Err(format!("no entry {index}"));
++        }
++        self.to(table + 4 + 8 * index, table)
++    }
++}
++
++/// the sound named name in the sound archive data, decoded, at gain.
++fn sound(data: &[u8], name: &str, gain: f32) -> Result<Sound, String> {
++    let b = Bytes(data);
++    if b.get(0, 4)? != b"CSAR" {
++        return Err("not a sound archive".into());
++    }
++    let strings = b.block(0, 0x2000)? + 8;
++    let info = b.block(0, 0x2001)? + 8;
++    let files = b.block(0, 0x2002)? + 8;
++    // the name's string, then the item the tree gives it
++    let table = b.to(strings, strings)?;
++    let index = (0..b.u32(table)? as usize)
++        .find(|&i| {
++            let entry = table + 4 + 12 * i;
++            let (Ok(at), Ok(size)) = (b.u32(entry + 4), b.u32(entry + 8)) else { return false };
++            b.get(table + at as usize, size as usize).is_ok_and(|text| text.strip_suffix(&[0]).unwrap_or(text) == name.as_bytes())
++        })
++        .ok_or_else(|| format!("no sound named {name}"))?;
++    let tree = b.to(strings + 8, strings)?;
++    let item = (0..b.u32(tree + 4)? as usize)
++        .find_map(|n| {
++            let node = tree + 8 + 20 * n;
++            (b.u32(node + 12).ok()? == index as u32).then(|| b.u32(node + 16).ok()).flatten()
++        })
++        .ok_or("its name in no item")?;
++    if item >> 24 != 1 {
++        return Err(format!("{name} is not a sound"));
++    }
++    let table_of = |kind: u16| -> Result<usize, String> {
++        (0..8).map(|i| info + 8 * i).find(|&at| b.u16(at).ok() == Some(kind)).ok_or(format!("no table 0x{kind:04X}")).and_then(|at| b.to(at, info))
++    };
++    let file = |id: u32| -> Result<usize, String> {
++        let entry = b.entry(table_of(0x2106)?, id as usize)?;
++        if b.u16(entry)? != 0x220C {
++            return Err(format!("file {id} is outside the archive"));
++        }
++        Ok(files + b.u32(b.to(entry, entry)? + 4)? as usize)
++    };
++    // the sound: its wave sound file and its place there
++    let info_at = b.entry(table_of(0x2100)?, (item & 0xFF_FFFF) as usize)?;
++    if b.u16(info_at + 0x0C)? != 0x2202 {
++        return Err(format!("{name} is not a wave sound"));
++    }
++    let wsd = file(b.u32(info_at)?)?;
++    let place = b.u32(b.to(info_at + 0x0C, info_at)?)? as usize;
++    let body = b.block(wsd, 0x6800)? + 8;
++    let waves = b.to(body, body)?;
++    let wave_sound = b.entry(b.to(body + 8, body)?, place)?;
++    let pitch = b.f32(b.to(wave_sound, wave_sound)? + 8)?;
++    let notes = b.to(wave_sound + 0x10, wave_sound)?;
++    let wave = b.u32(b.entry(notes, 0)?)? as usize;
++    if wave >= b.u32(waves)? as usize {
++        return Err("a note of no wave".into());
++    }
++    let (archive, wave) = (b.u32(waves + 4 + 8 * wave)?, b.u32(waves + 8 + 8 * wave)? as usize);
++    // the wave in its wave archive
++    let cwar = file(b.u32(b.entry(table_of(0x2103)?, (archive & 0xFF_FFFF) as usize)?)?)?;
++    let (war_info, war_files) = (b.block(cwar, 0x6800)? + 8, b.block(cwar, 0x6801)? + 8);
++    if wave >= b.u32(war_info)? as usize {
++        return Err("no such wave in its archive".into());
++    }
++    let cwav = war_files + b.u32(war_info + 4 + 12 * wave + 4)? as usize;
++    let (wav_info, wav_data) = (b.block(cwav, 0x7000)? + 8, b.block(cwav, 0x7001)? + 8);
++    let (encoding, rate, length) = (b.u8(wav_info)?, b.u32(wav_info + 4)?, b.u32(wav_info + 12)? as usize);
++    if encoding != 2 {
++        return Err(format!("a wave in encoding {encoding}, not DSP ADPCM"));
++    }
++    let channels = wav_info + 0x14;
++    let mut decoded = Vec::new();
++    for c in 0..b.u32(channels)?.min(2) as usize {
++        let channel = b.entry(channels, c)?;
++        let samples = wav_data + b.u32(channel + 4)? as usize;
++        let adpcm = b.to(channel + 8, channel)?;
++        let coefficients: [i16; 16] = std::array::from_fn(|k| b.u16(adpcm + 2 * k).unwrap_or(0) as i16);
++        decoded.push(decode_adpcm(b.get(samples, length.div_ceil(14) * 8)?, length, &coefficients));
++    }
++    let scale = gain / 32768.0;
++    let frames: Vec<[f32; 2]> = (0..length)
++        .map(|i| match decoded.as_slice() {
++            [mono] => [mono[i] as f32 * scale; 2],
++            [left, right, ..] => [left[i] as f32 * scale, right[i] as f32 * scale],
++            [] => [0.0; 2],
++        })
++        .collect();
++    Ok(Sound { frames: frames.into(), rate: rate as f64 * pitch as f64 })
++}
++
++/// count samples of DSP ADPCM: frames of 8 bytes, a header of the scale and
++/// the pair of coefficients, then 14 four-bit samples, high nibble first,
++/// each predicted from the two before.
++fn decode_adpcm(data: &[u8], count: usize, coefficients: &[i16; 16]) -> Vec<i16> {
++    let mut samples = Vec::with_capacity(count);
++    let (mut yn1, mut yn2) = (0i32, 0i32);
++    for frame in data.chunks_exact(8) {
++        let header = frame[0];
++        let scale = 1i32 << (header & 0xF);
++        let predictor = ((header >> 4) & 7) as usize;
++        let (c1, c2) = (coefficients[predictor * 2] as i32, coefficients[predictor * 2 + 1] as i32);
++        for &byte in &frame[1..] {
++            for nibble in [byte >> 4, byte & 0xF] {
++                if samples.len() == count {
++                    return samples;
++                }
++                let xn = (((nibble as i32) << 28) >> 28) * scale;
++                let value = (((xn << 11) + 0x400 + c1 * yn1 + c2 * yn2) >> 11).clamp(-32768, 32767);
++                (yn2, yn1) = (yn1, value);
++                samples.push(value as i16);
++            }
++        }
++    }
++    samples
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    /// a frame's nibbles come out scaled and predicted from the two samples
++    /// before them.
++    #[test]
++    fn adpcm_predicts_from_the_samples_before() {
++        // scale 2^1, predictor 1: y = x + y1
++        let mut coefficients = [0i16; 16];
++        coefficients[2] = 1 << 11;
++        let frame = [0x11, 0x1F, 0, 0, 0, 0, 0, 0];
++        let samples = decode_adpcm(&frame, 4, &coefficients);
++        assert_eq!(samples, [2, 0, 0, 0]);
++        let frame = [0x11, 0x12, 0, 0, 0, 0, 0, 0];
++        assert_eq!(decode_adpcm(&frame, 3, &coefficients), [2, 6, 6]);
++    }
++
++    /// the sound reads from the player's copy, ZAKURO_SOUND_ROM: cargo test
++    /// -p zakuro --release sounds -- --ignored
++    #[test]
++    #[ignore]
++    fn the_bottom_screens_sound_reads_from_the_game() {
++        let Some(rom) = std::env::var_os("ZAKURO_SOUND_ROM") else { panic!("set ZAKURO_SOUND_ROM") };
++        let title = zakuro_fs::Title::load(rom).unwrap();
++        let sound = bottom_screen(&title).unwrap();
++        assert_eq!(sound.frames.len(), 45727);
++        assert!((sound.rate - 32728.0 * 1.4).abs() < 1.0, "{}", sound.rate);
++        let peak = sound.frames.iter().map(|f| f[0].abs()).fold(0.0, f32::max);
++        assert!(peak > 0.5 && peak < 0.851, "{peak}");
++    }
++}
 diff --git a/crates/zakuro/src/theme.rs b/crates/zakuro/src/theme.rs
 new file mode 100644
 index 0000000..911fdc0
