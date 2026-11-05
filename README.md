@@ -24,10 +24,8 @@ copy of the game, on your computer.
    unzip it and run `zakuro.exe`. You can also build it yourself (see below).
 2. Click Select game files and choose the game's `.3ds` or `.cci` file. If
    you have the DLC, choose its `.cia` file under Update in Settings, System.
-3. Click Build. The launcher converts the game's code and gives the
-   characters feet. This takes 10 to 20 minutes. If your computer has no C
-   compiler, the launcher offers to download one (Zig, which needs no
-   installation).
+3. Click Build. The launcher converts the game's code in 10 to 20 minutes. If your computer has no C
+   compiler, the launcher offers to download one.
 4. Click Play.
 
 The keyboard, the mouse (as the touch screen) and most controllers work.
@@ -38,13 +36,9 @@ Esc opens the menu, with the settings, the cheats and save states.
 - The 3D is drawn at up to 8 times the console's resolution, and frame
   interpolation can show battles and cutscenes at 60 frames per second.
 - A 16:9 mode shows more of the battlefield.
-- You can play on the top screen alone. E brings up the bottom screen in
-  the middle, and Q moves from unit to unit while a unit's items are open.
-- Battles can show the game's own panels, a display in the style of
-  Fire Emblem: Three Houses, or nothing at all.
-- On the world map, the name of the selected place stays on screen.
-- Every character has feet that rest on the ground
-  ([`mods/feet`](mods/feet/README.md)).
+- You can play on the top screen alone. The bottom screen can be displayed as an overlay with the press of a button.
+- Battles UI has 3 styles: vanilla style, FE3H style, or no UI.
+- A mod that adds feet to every characters in the game is implemented.
 - The Cheats window has cheat codes and built-in tweaks such as faster
   battles.
 - Original mode, at the top of Settings, Graphics, turns all of this off
@@ -52,9 +46,7 @@ Esc opens the menu, with the settings, the cheats and save states.
 
 ## Building
 
-The launcher is Zakuro with this project's patches, which apply to Zakuro
-at commit `80d78be` and to 3dsrecomp at commit `9db0d8b`. You need Git,
-Rust and MinGW-w64 gcc. In Git Bash:
+You need Git, Rust and MinGW-w64 gcc. In Git Bash:
 
 ```bash
 git clone https://github.com/Zelkin1/fe-awakening-recomp
@@ -100,7 +92,7 @@ The repository and the launcher contain no code, data or assets from the
 game. What they hold about it, such as addresses in its code and the names
 of its files, is listed in [`LEGAL.md`](LEGAL.md). What the launcher builds
 is made from your copy and stays on your computer: the converted code in
-`%APPDATA%\3dsrecomp` and the feet in `%APPDATA%\zakuro\mods`. Don't share
+`%APPDATA%\3dsrecomp` and the models with added feet in `%APPDATA%\zakuro\mods`. Don't share
 either.
 
 The project's own files are under the MIT license ([`LICENSE`](LICENSE)).
