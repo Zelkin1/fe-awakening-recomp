@@ -1,0 +1,39 @@
+diff --git a/src/port.rs b/src/port.rs
+index d205dc1..117b238 100644
+--- a/src/port.rs
++++ b/src/port.rs
+@@ -96,6 +96,14 @@ pub fn package_name(title: &str) -> String {
+     if name.is_empty() { "title".to_owned() } else { name.to_owned() }
+ }
+ 
++/// a path as it goes in a TOML string. canonicalize on Windows gives the
++/// \\?\ form, whose backslashes TOML takes for escapes.
++fn toml_path(path: &Path) -> String {
++    let path = path.display().to_string();
++    let path = path.strip_prefix(r"\\?\").unwrap_or(&path);
++    path.replace('\\', "\\\\").replace('"', "\\\"")
++}
++
+ /// writes a Cargo project at dir whose program runs the title, with the code
+ /// build left in dir/code/librecomp.a. zakuro is a checkout to build against
+ /// instead of the one on GitHub.
+@@ -104,7 +112,7 @@ pub fn write_project(dir: &Path, name: &str, title: &str, program_id: u64, zakur
+         Some(path) => {
+             let path = std::fs::canonicalize(path).map_err(|e| format!("could not find {}, {e}", path.display()))?;
+             let krate = if path.join("crates/zakuro/Cargo.toml").exists() { path.join("crates/zakuro") } else { path };
+-            format!("{{ path = \"{}\" }}", krate.display())
++            format!("{{ path = \"{}\" }}", toml_path(&krate))
+         }
+         None => format!("{{ git = \"{ZAKURO}\" }}"),
+     };
+@@ -130,4 +138,10 @@ mod tests {
+         assert_eq!(package_name("My Game!"), "my-game");
+         assert_eq!(package_name("***"), "title");
+     }
++
++    #[test]
++    fn windows_paths_go_into_toml_escaped() {
++        assert_eq!(toml_path(Path::new(r"\\?\C:\games\zakuro")), r"C:\\games\\zakuro");
++        assert_eq!(toml_path(Path::new("/home/me/zakuro")), "/home/me/zakuro");
++    }
+ }

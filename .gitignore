@@ -1,0 +1,37 @@
+# A repository of this project holds the project's own files and nothing
+# else, see LEGAL.md: everything is left out, then those files are let back
+# in by name. The work files stay on this computer: the game's code and what
+# is made from it (_work/, FireEmblemAwakeningRecomp/, _runs/, userdata/),
+# the Zakuro and 3dsrecomp clones the patches apply to, the development
+# notes, the toolchain, hints, the mods other than the feet mod's own files,
+# and logs. A new file goes in only once it's let in here, and only if it
+# holds nothing from the game.
+/*
+
+!/.gitignore
+!/README.md
+!/LEGAL.md
+!/LICENSE
+!/THIRD_PARTY_NOTICES.md
+!/Play-FireEmblemAwakening.bat
+!/Play-FireEmblemAwakening-16x9.bat
+
+!/patches/
+/patches/*
+!/patches/*.patch
+
+!/tools/
+/tools/*
+!/tools/*.py
+!/tools/*.sh
+
+!/mods/
+/mods/*
+!/mods/feet/
+/mods/feet/*
+!/mods/feet/*.py
+!/mods/feet/README.md
+!/mods/feet/zakuro-feet.patch
+
+__pycache__/
+*.pyc

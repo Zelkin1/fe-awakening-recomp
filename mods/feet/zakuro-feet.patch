@@ -1,0 +1,375 @@
+diff --git a/crates/zakuro-core/src/feet.rs b/crates/zakuro-core/src/feet.rs
+new file mode 100644
+index 0000000..e1c2953
+--- /dev/null
++++ b/crates/zakuro-core/src/feet.rs
+@@ -0,0 +1,240 @@
++//! feet that meet the floor, on bodies a mod gave feet of their own. a foot
++//! fixed to the shin points into the floor or up off it as the shin leans.
++//! a foot the mod skinned to the ankle bone instead, leg3, which no
++//! animation moves and which the game gives no matrix of its own, gets one
++//! here every frame: the shin's, turned about the ankle so that neither the
++//! toe nor the heel goes under the floor. a toe that would comes up just
++//! far enough to touch it, a heel that would brings the whole sole down
++//! flat, never past lying flat either way. a foot off the floor keeps its
++//! angle to the shin.
++//!
++//! the mod marks such an ankle in its bone's record: the flags that have the
++//! game compute it a skinning matrix, and in the inverse bind matrix the
++//! game would compute it from, which nothing else reads, the foot's points
++//! in the body's bind space, the ankle it turns about, the toe and the heel,
++//! then TAG.
++
++use recomp_abi::Context;
++use zakuro_cpu::Bus;
++
++use crate::memory::Memory;
++
++/// "FEET", the tenth word of an ankle's inverse bind matrix when it holds a
++/// foot's points. a rotation's own value there is under 1.
++pub const TAG: u32 = u32::from_le_bytes(*b"FEET");
++
++/// Awakening (EUR, rev0)'s 3x4 matrix product, which its skeleton update
++/// calls from 0x2607C8 for each bone that skins vertices: r0 the bone's
++/// skinning matrix, r1 its world matrix, r2 its inverse bind matrix, 0xA4
++/// into the bone's record, whose index is at 8 and its parent's at 0xC. the
++/// skinning and the world matrices are arrays by bone, 48 bytes each, the
++/// world matrix of the skeleton's first bone the model's place.
++pub const PRODUCT: u32 = 0x0030_6964;
++const SKINNING: u32 = 0x0026_07CC;
++const INVERSE_BIND: u32 = 0xA4;
++
++type Matrix = [[f32; 4]; 3];
++type Vector = [f32; 3];
++
++/// the hook on PRODUCT: a marked ankle's skinning matrix, the shin's turned
++/// to meet the floor, in place of the product; any other call goes on to the
++/// game's code.
++pub fn skinning(memory: &mut Memory, ctx: &mut Context) -> bool {
++    let inverse_bind = ctx.r[2];
++    if ctx.r[14] != SKINNING || memory.read32(inverse_bind.wrapping_add(36)) != TAG {
++        return true;
++    }
++    let record = inverse_bind.wrapping_sub(INVERSE_BIND);
++    let (bone, parent) = (memory.read32(record + 8), memory.read32(record + 0xC));
++    // the shin's matrix comes first in the update, being the ankle's parent
++    if parent >= bone {
++        return true;
++    }
++    let shin = matrix(memory, ctx.r[0].wrapping_sub((bone - parent) * 48));
++    let place = matrix(memory, ctx.r[1].wrapping_sub(bone * 48));
++    let mut points = [[0.0; 3]; 3];
++    for (k, point) in points.iter_mut().enumerate() {
++        for (i, value) in point.iter_mut().enumerate() {
++            *value = f32::from_bits(memory.read32(inverse_bind + 4 * (3 * k + i) as u32));
++        }
++    }
++    let [ankle, toe, heel] = points.map(|point| apply(&shin, point));
++    let up = normalize([place[0][1], place[1][1], place[2][1]]);
++    let floor = [place[0][3], place[1][3], place[2][3]];
++    let ankle_matrix = match turn(ankle, toe, heel, up, floor) {
++        Some((axis, angle)) => turned(&shin, axis, angle, ankle),
++        None => shin,
++    };
++    write(memory, ctx.r[0], &ankle_matrix);
++    false
++}
++
++/// the axis across the foot and the angle to turn it by about the ankle: a
++/// toe under the floor comes up to it, at most as far as lying flat, and a
++/// heel under it lays the foot flat, so that the toe comes down onto the
++/// floor too, as a foot standing on its heel does. none when neither is
++/// under the floor.
++fn turn(ankle: Vector, toe: Vector, heel: Vector, up: Vector, floor: Vector) -> Option<(Vector, f32)> {
++    let height = |point: Vector| dot(up, sub(point, floor));
++    if height(toe) >= 0.0 && height(heel) >= 0.0 {
++        return None;
++    }
++    let sole = sub(toe, heel);
++    let across = cross(up, sole);
++    if dot(across, across) < 1e-12 {
++        return None;
++    }
++    // turning by a positive angle about this axis lowers the toe, and by
++    // the sole's slope lays it flat
++    let axis = normalize(across);
++    let rise = dot(up, sole);
++    let flat = (rise / dot(sole, sole).sqrt()).clamp(-1.0, 1.0).asin();
++    if rise >= 0.0 {
++        return Some((axis, flat));
++    }
++    let lower_at = |angle: f32| height(add(ankle, rotate(sub(toe, ankle), axis, angle)));
++    if lower_at(flat) <= 0.0 {
++        return Some((axis, flat));
++    }
++    // the toe rises all the way to flat, the heel stays above it: where the
++    // toe meets the floor
++    let (mut under, mut over) = (0.0, flat);
++    for _ in 0..24 {
++        let middle = (under + over) / 2.0;
++        if lower_at(middle) < 0.0 {
++            under = middle;
++        } else {
++            over = middle;
++        }
++    }
++    Some((axis, over))
++}
++
++/// m followed by a turn of angle about axis through the point about.
++fn turned(m: &Matrix, axis: Vector, angle: f32, about: Vector) -> Matrix {
++    let mut out = [[0.0; 4]; 3];
++    for column in 0..3 {
++        let v = rotate([m[0][column], m[1][column], m[2][column]], axis, angle);
++        for row in 0..3 {
++            out[row][column] = v[row];
++        }
++    }
++    let at = add(about, rotate(sub([m[0][3], m[1][3], m[2][3]], about), axis, angle));
++    for row in 0..3 {
++        out[row][3] = at[row];
++    }
++    out
++}
++
++/// v turned by angle about the unit axis, Rodrigues' way.
++fn rotate(v: Vector, axis: Vector, angle: f32) -> Vector {
++    let (sin, cos) = angle.sin_cos();
++    let across = cross(axis, v);
++    let along = dot(axis, v) * (1.0 - cos);
++    [0, 1, 2].map(|i| v[i] * cos + across[i] * sin + axis[i] * along)
++}
++
++fn matrix(memory: &mut Memory, at: u32) -> Matrix {
++    let mut m = [[0.0; 4]; 3];
++    for (i, value) in m.as_flattened_mut().iter_mut().enumerate() {
++        *value = f32::from_bits(memory.read32(at + 4 * i as u32));
++    }
++    m
++}
++
++fn write(memory: &mut Memory, at: u32, m: &Matrix) {
++    for (i, value) in m.as_flattened().iter().enumerate() {
++        memory.write32(at + 4 * i as u32, value.to_bits());
++    }
++}
++
++fn apply(m: &Matrix, p: Vector) -> Vector {
++    [0, 1, 2].map(|i| m[i][0] * p[0] + m[i][1] * p[1] + m[i][2] * p[2] + m[i][3])
++}
++
++fn add(a: Vector, b: Vector) -> Vector {
++    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
++}
++
++fn sub(a: Vector, b: Vector) -> Vector {
++    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
++}
++
++fn dot(a: Vector, b: Vector) -> f32 {
++    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
++}
++
++fn cross(a: Vector, b: Vector) -> Vector {
++    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
++}
++
++fn normalize(v: Vector) -> Vector {
++    let length = dot(v, v).sqrt();
++    if length == 0.0 {
++        return v;
++    }
++    [v[0] / length, v[1] / length, v[2] / length]
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    const UP: Vector = [0.0, 1.0, 0.0];
++    const FLOOR: Vector = [0.0, 0.0, 0.0];
++
++    /// the foot of a shin leaning forward by lean degrees, its ankle at
++    /// height, the toe 1.5 ahead of it and the heel 0.4 behind, both 0.8
++    /// under it: where the turn puts the toe and the heel.
++    fn stand(lean: f32, height: f32) -> (Vector, Vector) {
++        let (sin, cos) = lean.to_radians().sin_cos();
++        let ankle = [0.0, height, 0.0];
++        // the shin's frame leant forward: z ahead goes down, y up goes ahead
++        let lean = |p: Vector| add(ankle, [p[0], p[1] * cos - p[2] * sin, p[1] * sin + p[2] * cos]);
++        let (toe, heel) = (lean([0.0, -0.8, 1.5]), lean([0.0, -0.8, -0.4]));
++        match turn(ankle, toe, heel, UP, FLOOR) {
++            Some((axis, angle)) => (add(ankle, rotate(sub(toe, ankle), axis, angle)), add(ankle, rotate(sub(heel, ankle), axis, angle))),
++            None => (toe, heel),
++        }
++    }
++
++    #[test]
++    fn a_foot_off_the_floor_keeps_its_angle_to_the_shin() {
++        let (toe, heel) = stand(15.0, 2.0);
++        assert!(toe[1] > 0.0 && heel[1] > 0.0);
++        let sin = 15f32.to_radians().sin();
++        assert!((toe[1] - (2.0 - 0.8 * 15f32.to_radians().cos() - 1.5 * sin)).abs() < 1e-5, "{toe:?}");
++    }
++
++    #[test]
++    fn a_toe_that_would_dig_in_comes_up_to_the_floor() {
++        let (toe, heel) = stand(15.0, 0.9);
++        assert!(toe[1].abs() < 1e-4, "the toe touches, {toe:?}");
++        assert!(heel[1] > toe[1], "the heel off the floor, {heel:?}");
++    }
++
++    #[test]
++    fn a_heel_that_would_dig_in_lays_the_foot_flat() {
++        let (toe, heel) = stand(-15.0, 0.85);
++        assert!((toe[1] - heel[1]).abs() < 1e-4, "flat, {toe:?} {heel:?}");
++        assert!(heel[1] > -0.1 && heel[1] < 0.1, "on the floor, {heel:?}");
++    }
++
++    #[test]
++    fn a_foot_on_the_floor_lies_flat() {
++        let (toe, heel) = stand(15.0, 0.7);
++        assert!((toe[1] - heel[1]).abs() < 1e-4, "flat, {toe:?} {heel:?}");
++        assert!(toe[1] < 0.0, "under the floor still, the ankle being too low");
++    }
++
++    #[test]
++    fn the_turned_matrix_moves_the_foot_about_the_ankle() {
++        let m = [[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 2.0], [0.0, 0.0, 1.0, 3.0]];
++        let ankle = [1.0, 2.0, 3.0];
++        let out = turned(&m, [1.0, 0.0, 0.0], 0.3, ankle);
++        assert!(sub(apply(&out, [0.0, 0.0, 0.0]), ankle).iter().all(|d| d.abs() < 1e-6), "the ankle stays");
++        let toe = apply(&out, [0.0, 0.0, 1.0]);
++        let expected = add(ankle, rotate([0.0, 0.0, 1.0], [1.0, 0.0, 0.0], 0.3));
++        assert!(sub(toe, expected).iter().all(|d| d.abs() < 1e-6));
++    }
++}
+diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
+index dc073f1..a1e3cfd 100644
+--- a/crates/zakuro-core/src/lib.rs
++++ b/crates/zakuro-core/src/lib.rs
+@@ -4,6 +4,7 @@
+ pub mod camera;
+ pub mod cheats;
+ pub mod enhancements;
++pub mod feet;
+ pub mod cro;
+ pub mod download_play;
+ pub mod hints;
+diff --git a/crates/zakuro-core/src/loader.rs b/crates/zakuro-core/src/loader.rs
+index 002e738..cfbb8c5 100644
+--- a/crates/zakuro-core/src/loader.rs
++++ b/crates/zakuro-core/src/loader.rs
+@@ -486,6 +486,10 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
+         }
+     }
+ 
++    if let Some(library) = system.recompiled.as_mut() {
++        hook(library, title.program_id(), &build);
++    }
++
+     let mut on_gpu = false;
+     if system.config.hardware_renderer {
+         match system.gpu.enable_hardware_renderer(system.config.resolution, system.config.device.clone(), Some(title.program_id())) {
+@@ -558,10 +562,22 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
+         library.place(&module.name, module.base, &mut system.memory);
+     }
+     system.hints = Some(crate::hints::Hints::new(path, text));
++    if let Some(title) = &system.title {
++        hook(&mut library, title.program_id(), &crate::enhancements::build(title));
++    }
+     system.recompiled = Some(library);
+     Ok(())
+ }
+ 
++/// the host code a game's recompiled code runs on some of its calls, see
++/// recompiled::Hook: for Awakening's build it was written for, the ankles a
++/// mod gave feet, which stay dormant without such a mod, see feet.
++fn hook(library: &mut crate::recompiled::Library, program_id: u64, build: &str) {
++    if program_id == 0x0004_0000_0009_F100 && build == "rev0" {
++        library.hook(crate::feet::PRODUCT, crate::feet::skinning);
++    }
++}
++
+ /// where the executable's code is.
+ fn exheader_text(title: &Title) -> std::ops::Range<u32> {
+     let text = &title.exheader.text;
+diff --git a/crates/zakuro-core/src/recompiled.rs b/crates/zakuro-core/src/recompiled.rs
+index 830127f..c87b298 100644
+--- a/crates/zakuro-core/src/recompiled.rs
++++ b/crates/zakuro-core/src/recompiled.rs
+@@ -29,8 +29,17 @@ pub struct Library {
+     /// picks. a jump through a register looks its target up, which is a
+     /// search through every function otherwise.
+     found: Box<[Found]>,
++    /// the game's functions whose calls run host code first, by address.
++    hooks: Vec<(u32, Hook)>,
+ }
+ 
++/// host code a call from recompiled code to one of the game's functions
++/// runs first, with the registers and memory as the call finds them. it
++/// says whether the game's own code runs after it, which it doesn't when the
++/// hook did that work itself: the call then returns to the caller from it.
++/// a call the interpreter makes skips it.
++pub type Hook = fn(&mut Memory, &mut Context) -> bool;
++
+ /// a slot of Library::found, an address and the code found for it.
+ type Found = Cell<(u32, Option<Code>)>;
+ 
+@@ -119,6 +128,27 @@ unsafe extern "C" fn lookup(ctx: *mut Context, address: u32) -> Option<Code> {
+     unsafe { machine(ctx).library.lookup(address) }
+ }
+ 
++/// what a call to a function with a hook runs: the hook, then the game's
++/// code unless the hook did its work, in which case it returns to the
++/// caller as that code would have.
++unsafe extern "C" fn hooked(ctx: *mut Context) {
++    unsafe {
++        let machine = machine(ctx);
++        let address = (*ctx).r[15];
++        let hook = machine.library.hooks.iter().find(|(at, _)| *at == address).map(|&(_, hook)| hook);
++        if hook.is_some_and(|hook| !hook(machine.memory, &mut *ctx)) {
++            let back = (*ctx).r[14];
++            (*ctx).thumb = (back & 1) as u8;
++            (*ctx).r[15] = back & if back & 1 != 0 { !1 } else { !3 };
++            return;
++        }
++        match machine.library.code.lookup(address) {
++            Some(code) => code(ctx),
++            None => (*ctx).exit = EXIT_UNWIND,
++        }
++    }
++}
++
+ static HOST: Host = Host { read8, read16, read32, write8, write16, write32, interpret, lookup };
+ 
+ fn load(ctx: &Context, cpu: &mut Cpu) {
+@@ -159,7 +189,15 @@ impl Library {
+     }
+ 
+     fn new(code: recomp_abi::Library) -> Library {
+-        Library { code, fallbacks: Cell::new(0), found: Library::nothing_found() }
++        Library { code, fallbacks: Cell::new(0), found: Library::nothing_found(), hooks: Vec::new() }
++    }
++
++    /// has hook run first whenever recompiled code calls the function at
++    /// address.
++    pub fn hook(&mut self, address: u32, hook: Hook) {
++        self.hooks.retain(|(at, _)| *at != address);
++        self.hooks.push((address, hook));
++        self.found = Library::nothing_found();
+     }
+ 
+     /// every slot of found empty, an address no code starts at in each.
+@@ -196,7 +234,10 @@ impl Library {
+         match slot.get() {
+             (seen, code) if seen == address => code,
+             _ => {
+-                let code = self.code.lookup(address);
++                let code = match self.hooks.iter().any(|(at, _)| *at == address) {
++                    true => Some(hooked as Code),
++                    false => self.code.lookup(address),
++                };
+                 slot.set((address, code));
+                 code
+             }
