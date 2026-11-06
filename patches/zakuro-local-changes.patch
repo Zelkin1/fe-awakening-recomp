@@ -5017,7 +5017,7 @@ index a5b4c18..d7c7a65 100644
  
      /// Japanese names have every character to draw with the system's
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..13327a9 100644
+index 6cf00db..a6cb8a8 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,8 +3,10 @@
@@ -5182,7 +5182,7 @@ index 6cf00db..13327a9 100644
      /// how wide the top screen shows.
      top_shape: settings::TopShape,
      /// the left button is down, and where the pointer is, in window pixels.
-@@ -472,6 +534,86 @@ impl std::fmt::Display for Times {
+@@ -472,6 +534,88 @@ impl std::fmt::Display for Times {
  }
  
  /// one 3DS frame, about 16.71 ms.
@@ -5218,12 +5218,12 @@ index 6cf00db..13327a9 100644
 +/// long they stay after the last press, see ShownButtons.
 +const BUTTONS_IN: f32 = 0.1;
 +const BUTTONS_OUT: f32 = 0.3;
-+const BUTTONS_STAY: Duration = Duration::from_secs(2);
++const BUTTONS_STAY: Duration = Duration::from_secs(3);
 +
 +/// a battle's buttons over the top screen, in whatever look its panels
-+/// are: they come in quickly when the cancel button, B, is pressed, stay
-+/// until BUTTONS_STAY after it or after any other press or touch while
-+/// they show, then fade out, and go with the battle.
++/// are: they come in quickly when any of the game's buttons is pressed, the
++/// sticks aside, stay until BUTTONS_STAY after the last press, or touch
++/// while they show, then fade out, and go with the battle.
 +#[derive(Clone, Copy)]
 +struct ShownButtons {
 +    pieces: &'static [zakuro_gpu::Piece],
@@ -5253,7 +5253,9 @@ index 6cf00db..13327a9 100644
 +            return shown.map(|shown| ShownButtons { until: shown.until.min(now), ..shown });
 +        };
 +        let opacity = shown.map_or(0.0, |shown| shown.opacity(now));
-+        let asked = pressed.contains(zakuro_core::services::hid::PadState::B) || (opacity > 0.0 && (!pressed.is_empty() || touched));
++        use zakuro_core::services::hid::PadState;
++        let sticks = PadState::C_STICK_RIGHT | PadState::C_STICK_LEFT | PadState::C_STICK_UP | PadState::C_STICK_DOWN | PadState::CIRCLE_RIGHT | PadState::CIRCLE_LEFT | PadState::CIRCLE_UP | PadState::CIRCLE_DOWN;
++        let asked = !pressed.difference(sticks).is_empty() || (opacity > 0.0 && touched);
 +        if !asked {
 +            return shown;
 +        }
@@ -5269,7 +5271,7 @@ index 6cf00db..13327a9 100644
  const FRAME_TIME: Duration =
      Duration::from_nanos(zakuro_core::CYCLES_PER_FRAME * 1_000_000_000 / zakuro_core::kernel::thread::CPU_CLOCK_HZ);
  /// how far behind the schedule may fall before it starts over instead of
-@@ -516,7 +658,7 @@ impl ApplicationHandler for App {
+@@ -516,7 +660,7 @@ impl ApplicationHandler for App {
          match backend {
              Ok((window, mut backend)) => {
                  log::info!("presenting with the {} backend", backend.name());
@@ -5278,7 +5280,7 @@ index 6cf00db..13327a9 100644
                  backend.set_top_width(self.settings.top_shape.width());
                  backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
                  backend.set_stereo(self.settings.stereo());
-@@ -605,13 +747,17 @@ impl App {
+@@ -605,13 +749,17 @@ impl App {
              find_recompiled: !interpret,
              hardware_renderer: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
              texture_packs: self.settings.texture_packs,
@@ -5296,7 +5298,7 @@ index 6cf00db..13327a9 100644
              resolution: self.settings.resolution,
              device: self.backend.as_ref().and_then(Backend::shared_device),
              username: self.nickname(),
-@@ -661,12 +807,12 @@ impl App {
+@@ -661,12 +809,12 @@ impl App {
              config.update = game.update.as_ref().map(|update| update.path.clone());
              config.dlc = game.dlc.iter().map(|dlc| dlc.path.clone()).collect();
              config.dlp_child = game.dlp_child.as_ref().map(|child| child.path.clone());
@@ -5313,7 +5315,7 @@ index 6cf00db..13327a9 100644
          }
          // a recording starts the clock at a known time, for playing it back
          let record = std::env::var_os("ZAKURO_RECORD").map(PathBuf::from);
-@@ -698,6 +844,9 @@ impl App {
+@@ -698,6 +846,9 @@ impl App {
              .or_else(|| Some(library::Smdh::parse(system.title.as_ref()?.exefs_file("icon")?)?.name).filter(|name| !name.is_empty()))
              .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
              .unwrap_or_default();
@@ -5323,7 +5325,7 @@ index 6cf00db..13327a9 100644
          let mut game = Running::new(system, path.to_owned(), name);
          game.replay = replay;
          if let Some(record) = record {
-@@ -754,7 +903,9 @@ impl App {
+@@ -754,7 +905,9 @@ impl App {
          if let (true, Some(index)) = (pressed, self.menus.rebinding) {
              self.menus.rebinding = None;
              if code != KeyCode::Escape {
@@ -5334,7 +5336,7 @@ index 6cf00db..13327a9 100644
                      *key = code;
                  }
                  self.apply_settings();
-@@ -789,6 +940,10 @@ impl App {
+@@ -789,6 +942,10 @@ impl App {
                  KeyCode::F11 => self.toggle_fullscreen(),
                  KeyCode::F5 if self.game.is_some() => self.save_state(),
                  KeyCode::F8 if self.game.is_some() => self.load_state(),
@@ -5345,7 +5347,7 @@ index 6cf00db..13327a9 100644
                  _ => {}
              }
          }
-@@ -808,13 +963,17 @@ impl App {
+@@ -808,13 +965,17 @@ impl App {
      fn poll_gamepads(&mut self) {
          for button in self.gamepads.poll() {
              if let Some(index) = self.menus.rebinding_pad.take() {
@@ -5364,7 +5366,7 @@ index 6cf00db..13327a9 100644
              }
          }
      }
-@@ -828,7 +987,26 @@ impl App {
+@@ -828,7 +989,26 @@ impl App {
      fn touch(&mut self) {
          let Some(window) = &self.window else { return };
          let size = window.inner_size();
@@ -5392,7 +5394,7 @@ index 6cf00db..13327a9 100644
          // with the top screen alone there is nothing to touch
          let Some(bottom) = bottom else {
              self.keyboard.touch(None);
-@@ -887,11 +1065,24 @@ impl App {
+@@ -887,11 +1067,24 @@ impl App {
      /// saves the settings and puts to use what can change right away.
      fn apply_settings(&mut self) {
          self.settings.save();
@@ -5417,7 +5419,7 @@ index 6cf00db..13327a9 100644
              // games read the 3D slider every frame
              let slider = self.settings.slider_3d();
              if game.system.config.slider_3d != slider {
-@@ -938,13 +1129,21 @@ impl App {
+@@ -938,13 +1131,21 @@ impl App {
              backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
              backend.set_stereo(self.settings.stereo());
          }
@@ -5440,7 +5442,7 @@ index 6cf00db..13327a9 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1157,129 @@ impl App {
+@@ -958,6 +1159,129 @@ impl App {
          }
      }
  
@@ -5570,7 +5572,7 @@ index 6cf00db..13327a9 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -1021,6 +1343,9 @@ impl App {
+@@ -1021,6 +1345,9 @@ impl App {
                  Stage::Done => {
                      self.library.refresh_recompiled();
                      let playing = self.game.as_ref().is_some_and(|game| game.system.title.as_ref().is_some_and(|title| title.program_id() == program_id));
@@ -5580,7 +5582,7 @@ index 6cf00db..13327a9 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1034,7 +1359,8 @@ impl App {
+@@ -1034,7 +1361,8 @@ impl App {
                      }
                  }
                  Stage::Failed(error) if error != "cancelled" => {
@@ -5590,7 +5592,7 @@ index 6cf00db..13327a9 100644
                  }
                  _ => {}
              }
-@@ -1065,11 +1391,28 @@ impl App {
+@@ -1065,11 +1393,28 @@ impl App {
                      job.cancel();
                  }
              }
@@ -5623,7 +5625,7 @@ index 6cf00db..13327a9 100644
                  }
              }
              Action::SaveState => self.save_state(),
-@@ -1087,32 +1430,6 @@ impl App {
+@@ -1087,32 +1432,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -5656,7 +5658,7 @@ index 6cf00db..13327a9 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1467,21 @@ impl App {
+@@ -1150,6 +1469,21 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -5678,7 +5680,7 @@ index 6cf00db..13327a9 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1306,8 +1638,26 @@ impl App {
+@@ -1306,8 +1640,26 @@ impl App {
          let Some(game) = &mut self.game else { return };
          let input = match &mut game.replay {
              Some(replay) => replay.input(game.frame),
@@ -5705,7 +5707,7 @@ index 6cf00db..13327a9 100644
          game.frame += 1;
          if let Some(recorder) = &mut game.recorder {
              recorder.record(input);
-@@ -1546,9 +1896,85 @@ impl App {
+@@ -1546,9 +1898,85 @@ impl App {
              .flatten()
              .and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
              .map(ago);
@@ -5792,7 +5794,7 @@ index 6cf00db..13327a9 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,7 +1987,14 @@ impl App {
+@@ -1561,7 +1989,14 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -5808,7 +5810,7 @@ index 6cf00db..13327a9 100644
          });
          let corner = self.overlay_corner.clone().filter(|_| game.is_some());
          let (menus, library, settings, jobs) = (&mut self.menus, &self.library, &mut self.settings, &self.jobs);
-@@ -1569,10 +2002,29 @@ impl App {
+@@ -1569,10 +2004,29 @@ impl App {
          let overlay = gui.frame(window, |ui| {
              match &game {
                  Some((name, fps, recompiled)) => {
@@ -5839,7 +5841,7 @@ index 6cf00db..13327a9 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,7 +2033,7 @@ impl App {
+@@ -1581,7 +2035,7 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -5848,7 +5850,7 @@ index 6cf00db..13327a9 100644
              }
              if let Some(request) = &keyboard {
                  actions.extend(menus.keyboard(ui.ctx(), request));
-@@ -1597,6 +2049,7 @@ impl App {
+@@ -1597,6 +2051,7 @@ impl App {
      }
  
      fn present(&mut self, event_loop: &ActiveEventLoop) {
@@ -5856,31 +5858,36 @@ index 6cf00db..13327a9 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
-@@ -1701,6 +2154,32 @@ const _: RendererKind = RendererKind::Software;
+@@ -1701,6 +2156,37 @@ const _: RendererKind = RendererKind::Software;
  mod tests {
      use super::*;
  
-+    /// a battle's buttons come in on B alone, stay two seconds after the
-+    /// last press while they show, fade out after, and go with the battle.
++    /// a battle's buttons come in on any button but the sticks, stay three
++    /// seconds after the last press, or touch while they show, fade out
++    /// after, and go with the battle.
 +    #[test]
-+    fn battle_buttons_come_on_cancel_and_stay_while_pressed() {
++    fn battle_buttons_come_on_any_button_and_stay_while_pressed() {
 +        use zakuro_core::services::hid::PadState;
 +        let pieces: &'static [zakuro_gpu::Piece] = &[];
 +        let start = Instant::now();
 +        let at = |seconds: f32| start + Duration::from_secs_f32(seconds);
 +        let step = |shown, pressed, touched, seconds| ShownButtons::next(shown, Some(pieces), pressed, touched, at(seconds));
-+        assert!(step(None, PadState::A, true, 0.0).is_none(), "nothing else brings them");
-+        let shown = step(None, PadState::B, false, 0.0).unwrap();
++        assert!(step(None, PadState::CIRCLE_LEFT | PadState::C_STICK_UP, true, 0.0).is_none(), "neither the sticks nor a touch brings them");
 +        let near = |value: f32, wanted: f32| (value - wanted).abs() < 0.01;
++        for button in [PadState::A, PadState::B, PadState::X, PadState::L, PadState::START, PadState::DOWN] {
++            assert!(near(step(None, button, false, 0.0).unwrap().opacity(at(1.0)), 1.0), "{button:?} brings them");
++        }
++        let shown = step(None, PadState::B, false, 0.0).unwrap();
 +        assert!(near(shown.opacity(at(0.05)), 0.5), "coming in");
-+        assert!(near(shown.opacity(at(1.9)), 1.0));
-+        assert!(near(shown.opacity(at(2.15)), 0.5), "fading after two seconds");
-+        assert!(near(shown.opacity(at(2.4)), 0.0));
-+        let kept = step(Some(shown), PadState::A, false, 1.5).unwrap();
-+        assert!(near(kept.opacity(at(3.4)), 1.0), "another press keeps them");
-+        let touched = step(Some(shown), PadState::empty(), true, 1.5).unwrap();
-+        assert!(near(touched.opacity(at(3.4)), 1.0), "so does a touch");
-+        assert!(near(step(Some(shown), PadState::A, false, 2.5).unwrap().opacity(at(2.5)), 0.0), "not once gone");
++        assert!(near(shown.opacity(at(2.9)), 1.0));
++        assert!(near(shown.opacity(at(3.15)), 0.5), "fading after three seconds");
++        assert!(near(shown.opacity(at(3.4)), 0.0));
++        let kept = step(Some(shown), PadState::A, false, 2.5).unwrap();
++        assert!(near(kept.opacity(at(5.4)), 1.0), "another press keeps them");
++        let touched = step(Some(shown), PadState::empty(), true, 2.5).unwrap();
++        assert!(near(touched.opacity(at(5.4)), 1.0), "so does a touch while they show");
++        let back = step(Some(shown), PadState::A, false, 4.0).unwrap();
++        assert!(near(back.opacity(at(4.05)), 0.5), "a press once gone brings them back");
 +        let gone = ShownButtons::next(Some(shown), None, PadState::B, false, at(1.0)).unwrap();
 +        assert!(near(gone.opacity(at(1.0)), 1.0));
 +        assert!(near(gone.opacity(at(1.3)), 0.0), "the battle over, they go");
@@ -6238,7 +6245,7 @@ index 8a5163d..dbf707e 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..2f1f7c8 100644
+index 9372f02..fdd2ed7 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -8,10 +8,11 @@ use egui::{Align, Color32, Layout, RichText, Vec2};
@@ -7280,7 +7287,7 @@ index 9372f02..2f1f7c8 100644
          self.settings_open = open;
          if !open {
              self.rebinding = None;
-@@ -952,20 +1105,404 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+@@ -952,20 +1105,413 @@ pub fn corner(ctx: &egui::Context, text: &str) {
          });
  }
  
@@ -7504,6 +7511,10 @@ index 9372f02..2f1f7c8 100644
 +const TICKS_A_ROW: u32 = 40;
 +const TICK_PITCH: f32 = 9.25;
 +
++/// how far out the points of a fighter's name banner and HP bar reach, and
++/// its weapon's band, in the banners' measures.
++const BANNER_TIP: f32 = 540.0;
++
 +/// a battle's panels drawn anew over the top screen, top in points: for
 +/// each fighter in the bottom corner on its side, each shape with a faint
 +/// grain of noise, its name on a banner, its
@@ -7566,7 +7577,7 @@ index 9372f02..2f1f7c8 100644
 +        let cols = if right { [(390.0, 530.0), (230.0, 370.0), (70.0, 210.0)] } else { [(70.0, 210.0), (230.0, 370.0), (390.0, 530.0)] };
 +        // the name's banner, a band with a light frame, a faint grain and a
 +        // diamond at each end
-+        let band = [(84.0, 0.0), (516.0, 0.0), (540.0, 27.0), (516.0, 54.0), (84.0, 54.0), (60.0, 27.0)];
++        let band = [(84.0, 0.0), (516.0, 0.0), (BANNER_TIP, 27.0), (516.0, 54.0), (84.0, 54.0), (60.0, 27.0)];
 +        let edge = color([230, 205, 140], 1.0);
 +        painter.add(shape(&band, color(side.name.ground, 1.0), (3.0, edge)));
 +        grain(&place(&band));
@@ -7579,14 +7590,19 @@ index 9372f02..2f1f7c8 100644
 +        // game's, 2 of every 3 pixels wide, 8 tall and rows 2 apart, the lit
 +        // ones from the outer end and every other one a little lighter, as
 +        // the game's are; the bar as tall as its rows, its left end under
-+        // the diamond and its right one a point; the number in a diamond
-+        // across the bar's middle, clear of the bands above and below
++        // the diamond and its right one a point as far out as the name's
++        // banner's, however many rows, its slope short enough to keep the
++        // last ticks 2 inside it and no longer than 0.65 of half the bar;
++        // the number in a diamond across the bar's middle, clear of the
++        // bands above and below
 +        let rows = side.ticks.len().clamp(1, 2) as f32;
 +        let (width, height, gap) = (TICK_PITCH * 2.0 / 3.0, TICK_PITCH * 8.0 / 3.0, TICK_PITCH * 2.0 / 3.0);
 +        let inside = rows * height + (rows - 1.0) * gap;
 +        let half = inside / 2.0 + 4.0;
 +        let start = 148.0 - half;
-+        let bar = [(start, 110.0 - half), (528.0, 110.0 - half), (528.0 + half * 0.65, 110.0), (528.0, 110.0 + half), (start, 110.0 + half)];
++        let ticks_end = 159.0 + (TICKS_A_ROW - 1) as f32 * TICK_PITCH + width;
++        let point = (half * 0.65).min((BANNER_TIP - ticks_end) * half / (inside / 2.0 + 2.0));
++        let bar = [(start, 110.0 - half), (BANNER_TIP - point, 110.0 - half), (BANNER_TIP, 110.0), (BANNER_TIP - point, 110.0 + half), (start, 110.0 + half)];
 +        painter.add(shape(&bar, color([18, 16, 30], 1.0), (2.0, color([220, 220, 230], 1.0))));
 +        let fill = if right { [235, 70, 50] } else { [70, 130, 235] };
 +        for (row, &[lit, all]) in side.ticks.iter().take(2).enumerate() {
@@ -7607,7 +7623,7 @@ index 9372f02..2f1f7c8 100644
 +        grain(&place(&diamond(104.0, 110.0, 46.0)));
 +        draw_text(&side.hp, at(104.0, 110.0), 2.0);
 +        // the weapon on a band with a diamond at each end
-+        let weapon = [(60.0, 166.0), (540.0, 166.0), (540.0, 212.0), (60.0, 212.0)];
++        let weapon = [(60.0, 166.0), (BANNER_TIP, 166.0), (BANNER_TIP, 212.0), (60.0, 212.0)];
 +        painter.add(shape(&weapon, color(side.weapon.ground, 1.0), (2.0, color([235, 235, 235], 1.0))));
 +        grain(&place(&weapon));
 +        for x in [76.0, 524.0] {
@@ -7694,7 +7710,7 @@ index 9372f02..2f1f7c8 100644
  }
  
  /// a key as a person would call it.
-@@ -1011,7 +1548,7 @@ mod tests {
+@@ -1011,7 +1557,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -7703,7 +7719,7 @@ index 9372f02..2f1f7c8 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1563,14 @@ mod tests {
+@@ -1026,6 +1572,14 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  

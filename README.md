@@ -36,8 +36,8 @@ Esc opens the menu, with the settings, the cheats and save states.
 - A 16:9 mode shows more of the battlefield.
 - You can play on the top screen alone. The bottom screen can be displayed as an overlay with the press of a button.
 - Battles UI has 3 styles: vanilla style, FE3H style, or no UI. In each
-  one, the six battle buttons show when you press B and fade out 2 seconds
-  after your last press.
+  one, the six battle buttons show when you press any button and fade out
+  3 seconds after your last press.
 - A mod that adds feet to every characters in the game is implemented.
 - The Cheats window has cheat codes and built-in tweaks such as faster
   battles.
