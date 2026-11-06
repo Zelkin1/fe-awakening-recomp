@@ -9,10 +9,10 @@ Intelligent Systems or any other company.
 
 The repository holds only the project's own files: `.gitignore`,
 `.recomp.json` (the project's entry for the recomp.fyi list),
-`README.md`, `LEGAL.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`,
-`Play-FireEmblemAwakening.bat`, the patches (`patches/*.patch`), the scripts
-(`tools/*.py`, `tools/*.sh`) and the feet mod's patch, scripts and README
-(`mods/feet/zakuro-feet.patch`, `mods/feet/*.py`, `mods/feet/README.md`).
+`README.md`, `LEGAL.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, the patches
+(`patches/*.patch`), the scripts (`tools/*.py`, `tools/*.sh`) and the feet
+mod's patch, scripts and README (`mods/feet/zakuro-feet.patch`,
+`mods/feet/*.py`, `mods/feet/README.md`).
 `.gitignore` leaves out everything else. The launcher download is Zakuro
 built with these patches, with the licenses of the code it uses.
 
@@ -57,18 +57,17 @@ or data, changed or not. Don't share or upload them:
   native code, a library in `%APPDATA%\3dsrecomp\`, and the feet mod's
   models in `%APPDATA%\zakuro\mods\000400000009F100\feet\`. The builder is
   the project's; the models it writes are the game's, changed;
-- Zakuro's folder, `%APPDATA%\zakuro`, and `userdata/`, with your saves,
-  states, settings and mods;
+- Zakuro's folder, `%APPDATA%\zakuro`, with your saves, states, settings
+  and mods;
 - in a development copy, `FireEmblemAwakeningRecomp/` (the C that 3dsrecomp
-  generates, its library and `fe-awakening.exe`), `_work/` (the game's code
+  generates and the library the test harness loads), `_work/` (the game's code
   extracted from your dump, and memory dumps), `_runs/` (the test harness's
   screens, dumps, states, saves and the mods it builds) and screenshots of
   the game.
 
 A development copy's other work files stay offline too: the Zakuro and
 3dsrecomp clones, the notes (`notes/`), the hints Zakuro records (`hints/`),
-the rest of `mods/`, the toolchain (`tools/rust/`, `tools/dl/`), logs and
-`analyze.txt`.
+the rest of `mods/`, the toolchain (`tools/rust/`) and logs.
 
 ## Licenses and trademarks
 
@@ -77,8 +76,7 @@ changes the patches make to Zakuro and 3dsrecomp, which keep fearkov's MIT
 notice (`THIRD_PARTY_NOTICES.md`). The license covers none of the game, nor
 anything made from it. The launcher download lists the licenses of the
 crates it is built from in `THIRD_PARTY_LICENSES.txt`. The Rust toolchain in
-`tools/rust/` and its installer in `tools/dl/` are downloads under their own
-licenses.
+`tools/rust/` is a download under its own licenses.
 
 Nintendo, Nintendo 3DS and Fire Emblem are trademarks of Nintendo.
 *Fire Emblem: Awakening* is © Nintendo / Intelligent Systems. Other names

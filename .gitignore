@@ -1,7 +1,7 @@
 # A repository of this project holds the project's own files and nothing
 # else, see LEGAL.md: everything is left out, then those files are let back
 # in by name. The work files stay on this computer: the game's code and what
-# is made from it (_work/, FireEmblemAwakeningRecomp/, _runs/, userdata/),
+# is made from it (_work/, FireEmblemAwakeningRecomp/, _runs/),
 # the Zakuro and 3dsrecomp clones the patches apply to, the development
 # notes, the toolchain, hints, the mods other than the feet mod's own files,
 # and logs. A new file goes in only once it's let in here, and only if it
@@ -14,7 +14,6 @@
 !/LEGAL.md
 !/LICENSE
 !/THIRD_PARTY_NOTICES.md
-!/Play-FireEmblemAwakening.bat
 
 !/patches/
 /patches/*

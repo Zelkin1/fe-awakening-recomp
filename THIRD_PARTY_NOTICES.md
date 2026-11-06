@@ -4,7 +4,7 @@
 |---|---|---|---|
 | [Zakuro](https://github.com/fearkov/zakuro) | `zakuro/` (a clone), changed by `patches/zakuro-local-changes.patch` | MIT, `zakuro/LICENSE` | The runtime the game runs in |
 | [3dsrecomp](https://github.com/fearkov/3dsrecomp) | `3dsrecomp/` (a clone), changed by `patches/3dsrecomp-*.patch` | MIT, as its `Cargo.toml` declares (the repository has no license file) | The recompiler |
-| Rust toolchain (rustup) | `tools/rust/`, `tools/dl/rustup-init.exe` | MIT or Apache-2.0 | Builds Zakuro, 3dsrecomp and the port; downloaded, not part of the project |
+| Rust toolchain (rustup) | `tools/rust/` | MIT or Apache-2.0 | Builds Zakuro and 3dsrecomp; downloaded, not part of the project |
 | Python with NumPy and Pillow | installed separately | BSD-3-Clause (NumPy), MIT-CMU (Pillow) | The scripts in `tools/` |
 
 The crates Zakuro and 3dsrecomp depend on keep their own licenses, listed in

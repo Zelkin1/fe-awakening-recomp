@@ -53,7 +53,6 @@ git clone https://github.com/fearkov/3dsrecomp
 git clone https://github.com/fearkov/zakuro
 git -C 3dsrecomp checkout 9db0d8b
 git -C zakuro checkout 80d78be
-git -C 3dsrecomp apply ../patches/3dsrecomp-0001-port-toml-path.patch
 git -C 3dsrecomp apply ../patches/3dsrecomp-0002-awakening-hints.patch
 git -C zakuro apply ../patches/zakuro-local-changes.patch
 git -C zakuro apply ../mods/feet/zakuro-feet.patch
@@ -70,15 +69,6 @@ code it is built from. `tools/licenses.py` collects them:
 ```bash
 (cd zakuro && cargo metadata --format-version 1 --filter-platform x86_64-pc-windows-gnu > ../metadata.json)
 python tools/licenses.py metadata.json THIRD_PARTY_LICENSES.txt
-```
-
-3dsrecomp can also build the game into a program of its own,
-`fe-awakening.exe`, which `Play-FireEmblemAwakening.bat` starts:
-
-```bash
-(cd 3dsrecomp && cargo build --release)
-./3dsrecomp/target/release/3dsrecomp.exe port "<your game>.cci" FireEmblemAwakeningRecomp --zakuro zakuro --name fe-awakening
-(cd FireEmblemAwakeningRecomp && cargo build --release)
 ```
 
 ## Legal
