@@ -6245,7 +6245,7 @@ index 8a5163d..dbf707e 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..fdd2ed7 100644
+index 9372f02..8dd2d4b 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -8,10 +8,11 @@ use egui::{Align, Color32, Layout, RichText, Vec2};
@@ -7287,7 +7287,7 @@ index 9372f02..fdd2ed7 100644
          self.settings_open = open;
          if !open {
              self.rebinding = None;
-@@ -952,20 +1105,413 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+@@ -952,20 +1105,452 @@ pub fn corner(ctx: &egui::Context, text: &str) {
          });
  }
  
@@ -7428,7 +7428,7 @@ index 9372f02..fdd2ed7 100644
 +                continue;
 +            }
 +            let points: Vec<_> = place.outline.iter().map(|&[x, y]| map(place, x as f32 / 10.0, y as f32 / 10.0)).collect();
-+            painter.add(egui::Shape::mesh(outline_mesh(&points, tint, 1.0 / ppp)));
++            painter.add(egui::Shape::mesh(outline_mesh(crate::gui::BOTTOM_SCREEN, &points, tint, 1.0 / ppp)));
 +            continue;
 +        }
 +        if place.cut.is_some() {
@@ -7509,15 +7509,27 @@ index 9372f02..fdd2ed7 100644
 +/// how many ticks of HP a row of the game's gauge holds, and how far apart
 +/// they are in the bar, which holds that many, in the banners' measures.
 +const TICKS_A_ROW: u32 = 40;
-+const TICK_PITCH: f32 = 9.25;
++const TICK_PITCH: f32 = 9.0;
++
++/// how far across the slope of the HP bar's point stays from the outer
++/// corners of its last ticks, in the banners' measures, its frame and a
++/// gap of the bar's ground between.
++const TICKS_CLEAR: f32 = 5.0;
 +
 +/// how far out the points of a fighter's name banner and HP bar reach, and
 +/// its weapon's band, in the banners' measures.
 +const BANNER_TIP: f32 = 540.0;
 +
++/// the small shadow under each shape of the battle's panels: how far below
++/// the shape it lies and how far past its edge it fades out, in the
++/// banners' measures, and how dark it is at its edge.
++const PANEL_SHADOW_DROP: f32 = 3.0;
++const PANEL_SHADOW_REACH: f32 = 5.0;
++const PANEL_SHADOW_ALPHA: f32 = 0.4;
++
 +/// a battle's panels drawn anew over the top screen, top in points: for
 +/// each fighter in the bottom corner on its side, each shape with a faint
-+/// grain of noise, its name on a banner, its
++/// grain of noise and a small shadow under it, its name on a banner, its
 +/// HP in a diamond by a long bar with its gauge's ticks, its weapon on a band,
 +/// and Atk, Hit and Crit, in that order on both sides, each label in a box
 +/// over one of the same size with its value, each shape in the colour of
@@ -7575,9 +7587,27 @@ index 9372f02..fdd2ed7 100644
 +        let shape = |points: &[(f32, f32)], fill: Color32, stroke: (f32, Color32)| egui::Shape::convex_polygon(place(points), fill, egui::Stroke::new(stroke.0 * k, stroke.1));
 +        let diamond = |cx: f32, cy: f32, r: f32| [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)];
 +        let cols = if right { [(390.0, 530.0), (230.0, 370.0), (70.0, 210.0)] } else { [(70.0, 210.0), (230.0, 370.0), (390.0, 530.0)] };
++        let band = [(84.0, 0.0), (516.0, 0.0), (BANNER_TIP, 27.0), (516.0, 54.0), (84.0, 54.0), (60.0, 27.0)];
++        let (bar, inside, width, height, gap) = hp_bar(side.ticks.len());
++        let hp = diamond(104.0, 110.0, 48.0);
++        let weapon = [(60.0, 166.0), (BANNER_TIP, 166.0), (BANNER_TIP, 212.0), (60.0, 212.0)];
++        // each stat's box with its label, and the one under it with its value
++        let boxes = |(a, b): (f32, f32)| ([(a, 230.0), (b, 230.0), (b, 270.0), (a, 270.0)], [(a, 272.0), (b, 272.0), (b, 312.0), (a, 312.0)]);
++        let stat_boxes: Vec<_> = cols.iter().map(|&col| boxes(col)).collect();
++        // the shadows first, all of them, so that none darkens a shape
++        // beside its own
++        let mut outlines: Vec<&[(f32, f32)]> = vec![&band, &bar, &hp, &weapon];
++        for (tab, cell) in &stat_boxes {
++            outlines.extend([&tab[..], &cell[..]]);
++        }
++        let shade = color([0, 0, 0], PANEL_SHADOW_ALPHA);
++        for outline in outlines {
++            let below: Vec<(f32, f32)> = outline.iter().map(|&(x, y)| (x, y + PANEL_SHADOW_DROP)).collect();
++            let points: Vec<(egui::Pos2, egui::Pos2)> = place(&below).into_iter().map(|p| (p, egui::epaint::WHITE_UV)).collect();
++            painter.add(egui::Shape::mesh(outline_mesh(egui::TextureId::default(), &points, shade, PANEL_SHADOW_REACH * k)));
++        }
 +        // the name's banner, a band with a light frame, a faint grain and a
 +        // diamond at each end
-+        let band = [(84.0, 0.0), (516.0, 0.0), (BANNER_TIP, 27.0), (516.0, 54.0), (84.0, 54.0), (60.0, 27.0)];
 +        let edge = color([230, 205, 140], 1.0);
 +        painter.add(shape(&band, color(side.name.ground, 1.0), (3.0, edge)));
 +        grain(&place(&band));
@@ -7585,25 +7615,14 @@ index 9372f02..fdd2ed7 100644
 +            painter.add(shape(&diamond(x, 27.0, 9.0), color([255, 255, 255], 0.55), (0.0, Color32::TRANSPARENT)));
 +        }
 +        draw_text(&side.name, at(300.0, 29.0), 3.3);
-+        // the HP: a bar with the game's gauge in it, a tick a point of HP, as
-+        // many to a row as the game has and as many rows, shaped as the
-+        // game's, 2 of every 3 pixels wide, 8 tall and rows 2 apart, the lit
-+        // ones from the outer end and every other one a little lighter, as
-+        // the game's are; the bar as tall as its rows, its left end under
-+        // the diamond and its right one a point as far out as the name's
-+        // banner's, however many rows, its slope short enough to keep the
-+        // last ticks 2 inside it and no longer than 0.65 of half the bar;
-+        // the number in a diamond across the bar's middle, clear of the
-+        // bands above and below
-+        let rows = side.ticks.len().clamp(1, 2) as f32;
-+        let (width, height, gap) = (TICK_PITCH * 2.0 / 3.0, TICK_PITCH * 8.0 / 3.0, TICK_PITCH * 2.0 / 3.0);
-+        let inside = rows * height + (rows - 1.0) * gap;
-+        let half = inside / 2.0 + 4.0;
-+        let start = 148.0 - half;
-+        let ticks_end = 159.0 + (TICKS_A_ROW - 1) as f32 * TICK_PITCH + width;
-+        let point = (half * 0.65).min((BANNER_TIP - ticks_end) * half / (inside / 2.0 + 2.0));
-+        let bar = [(start, 110.0 - half), (BANNER_TIP - point, 110.0 - half), (BANNER_TIP, 110.0), (BANNER_TIP - point, 110.0 + half), (start, 110.0 + half)];
-+        painter.add(shape(&bar, color([18, 16, 30], 1.0), (2.0, color([220, 220, 230], 1.0))));
++        // the HP: a bar with the game's gauge in it, see hp_bar, dark blue
++        // for the player's fighter on the left and dark red for the enemy on
++        // the right, a tick a point of HP, the lit ones from the outer end and
++        // every other one a little lighter, as the game's are; the number in
++        // a diamond across the bar's middle, clear of the bands above and
++        // below
++        let ground = if right { [44, 12, 16] } else { [18, 16, 30] };
++        painter.add(shape(&bar, color(ground, 1.0), (2.0, color([220, 220, 230], 1.0))));
 +        let fill = if right { [235, 70, 50] } else { [70, 130, 235] };
 +        for (row, &[lit, all]) in side.ticks.iter().take(2).enumerate() {
 +            let y0 = 110.0 - inside / 2.0 + row as f32 * (height + gap);
@@ -7619,11 +7638,10 @@ index 9372f02..fdd2ed7 100644
 +                painter.add(shape(&[(x0, y0), (x1, y0), (x1, y0 + height * 0.35), (x0, y0 + height * 0.35)], color(top, 1.0), (0.0, Color32::TRANSPARENT)));
 +            }
 +        }
-+        painter.add(shape(&diamond(104.0, 110.0, 48.0), color(side.hp.ground, 1.0), (3.0, color([230, 225, 240], 1.0))));
++        painter.add(shape(&hp, color(side.hp.ground, 1.0), (3.0, color([230, 225, 240], 1.0))));
 +        grain(&place(&diamond(104.0, 110.0, 46.0)));
 +        draw_text(&side.hp, at(104.0, 110.0), 2.0);
 +        // the weapon on a band with a diamond at each end
-+        let weapon = [(60.0, 166.0), (BANNER_TIP, 166.0), (BANNER_TIP, 212.0), (60.0, 212.0)];
 +        painter.add(shape(&weapon, color(side.weapon.ground, 1.0), (2.0, color([235, 235, 235], 1.0))));
 +        grain(&place(&weapon));
 +        for x in [76.0, 524.0] {
@@ -7631,27 +7649,48 @@ index 9372f02..fdd2ed7 100644
 +        }
 +        draw_text(&side.weapon, at(300.0, 189.0), 2.4);
 +        // the stats: a box with the label over one as big with the value
-+        for (stat, &(a, b)) in cols.iter().enumerate() {
++        for (stat, (&(a, b), (tab, cell))) in cols.iter().zip(&stat_boxes).enumerate() {
 +            let label = &read.labels[stat];
-+            let tab = [(a, 230.0), (b, 230.0), (b, 270.0), (a, 270.0)];
-+            painter.add(shape(&tab, color(label.ground, 1.0), (2.0, color([235, 225, 200], 1.0))));
-+            grain(&place(&tab));
++            painter.add(shape(tab, color(label.ground, 1.0), (2.0, color([235, 225, 200], 1.0))));
++            grain(&place(tab));
 +            draw_text(label, at((a + b) / 2.0, 250.0), 1.9);
 +            let value = &side.values[stat];
-+            let cell = [(a, 272.0), (b, 272.0), (b, 312.0), (a, 312.0)];
-+            painter.add(shape(&cell, color(value.ground, 1.0), (2.0, white)));
-+            grain(&place(&cell));
++            painter.add(shape(cell, color(value.ground, 1.0), (2.0, white)));
++            grain(&place(cell));
 +            draw_text(value, at((a + b) / 2.0, 292.0), 2.2);
 +        }
 +    }
 +}
 +
-+/// a polygon of the bottom screen, star-shaped about the middle of its
-+/// points' box, its points in the window's points and the texture, as a
-+/// fan from that middle, with a ring feather points wide fading out past
-+/// its edge, as egui smooths its own shapes' edges.
-+fn outline_mesh(points: &[(egui::Pos2, egui::Pos2)], tint: Color32, feather: f32) -> egui::Mesh {
-+    let mut mesh = egui::Mesh::with_texture(crate::gui::BOTTOM_SCREEN);
++/// a fighter's HP bar for a gauge of that many rows of ticks, in the
++/// banners' measures: its outline, how tall its rows are together, and a
++/// tick's width and height and the gap between rows. the ticks are shaped
++/// as the game's, 2 of every 3 pixels wide, 8 tall and rows 2 apart, as
++/// many to a row as the game has; the bar is as tall as its rows, its left
++/// end under the HP's diamond and its right one a point as far out as the
++/// name's banner's, however many rows, its slope TICKS_CLEAR across from
++/// the last ticks' outer corners and no longer than 0.65 of half the bar.
++fn hp_bar(rows: usize) -> ([(f32, f32); 5], f32, f32, f32, f32) {
++    let rows = rows.clamp(1, 2) as f32;
++    let (width, height, gap) = (TICK_PITCH * 2.0 / 3.0, TICK_PITCH * 8.0 / 3.0, TICK_PITCH * 2.0 / 3.0);
++    let inside = rows * height + (rows - 1.0) * gap;
++    let half = inside / 2.0 + 4.0;
++    let start = 148.0 - half;
++    let ticks_end = 159.0 + (TICKS_A_ROW - 1) as f32 * TICK_PITCH + width;
++    // where the slope is TICKS_CLEAR from the ticks' end at their corners,
++    // inside / 2 from the bar's middle
++    let point = (half * 0.65).min((BANNER_TIP - ticks_end - TICKS_CLEAR) * half / (inside / 2.0));
++    let bar = [(start, 110.0 - half), (BANNER_TIP - point, 110.0 - half), (BANNER_TIP, 110.0), (BANNER_TIP - point, 110.0 + half), (start, 110.0 + half)];
++    (bar, inside, width, height, gap)
++}
++
++/// a polygon of a texture, the bottom screen's or egui's own for a plain
++/// colour, star-shaped about the middle of its points' box, its points in
++/// the window's points and the texture, as a fan from that middle, with a
++/// ring feather points wide fading out past its edge, as egui smooths its
++/// own shapes' edges.
++fn outline_mesh(texture: egui::TextureId, points: &[(egui::Pos2, egui::Pos2)], tint: Color32, feather: f32) -> egui::Mesh {
++    let mut mesh = egui::Mesh::with_texture(texture);
 +    let n = points.len();
 +    if n < 3 {
 +        return mesh;
@@ -7710,7 +7749,7 @@ index 9372f02..fdd2ed7 100644
  }
  
  /// a key as a person would call it.
-@@ -1011,7 +1557,7 @@ mod tests {
+@@ -1011,7 +1596,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -7719,7 +7758,7 @@ index 9372f02..fdd2ed7 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1572,14 @@ mod tests {
+@@ -1026,6 +1611,14 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  
