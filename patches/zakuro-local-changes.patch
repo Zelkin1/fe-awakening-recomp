@@ -339,7 +339,7 @@ index fe8075b..99bf8f1 100644
              ranges.overwrote = cheat.builtin.then(|| std::mem::take(&mut cheat.overwrote));
              execute(system, &code, pad, &mut ranges);
 diff --git a/crates/zakuro-core/src/enhancements.rs b/crates/zakuro-core/src/enhancements.rs
-index 2a8d39e..365b176 100644
+index 2a8d39e..ce7969c 100644
 --- a/crates/zakuro-core/src/enhancements.rs
 +++ b/crates/zakuro-core/src/enhancements.rs
 @@ -5,10 +5,13 @@
@@ -448,7 +448,7 @@ index 2a8d39e..365b176 100644
              cheat
          })
          .collect()
-@@ -91,15 +145,80 @@ mod tests {
+@@ -91,15 +145,82 @@ mod tests {
          assert!(for_title(0x0004_0000_0008_C300, "rev0").is_empty());
          assert!(for_title(0x0004_0000_0008_C300, "update 1.1").is_empty());
  
@@ -470,14 +470,16 @@ index 2a8d39e..365b176 100644
 +        assert!(cheats[0].notes.iter().any(|note| note.contains("recomp's notes")));
 +
 +        // the camera projection builder's call to a routine past the end of
-+        // the text, the routine, and the map's 5:3
++        // the text that takes aspects from 1.6 to 1.75 16/15 times as wide,
++        // the routine, and the map's 5:3
 +        let wide = &enhancements[0];
 +        assert_eq!(wide.name, "16:9");
 +        assert!(wide.source.contains("recomp"));
 +        assert!(wide.lines.iter().all(|line| line.starts_with('0')), "32-bit writes alone");
-+        assert_eq!(wide.lines.len(), 14);
++        assert_eq!(wide.lines.len(), 15);
 +        assert_eq!(wide.lines[0], "002FE310 EB0572FA");
-+        assert_eq!(wide.lines[13], "003D57F4 3FE38E39");
++        assert_eq!(wide.lines[13], "0045AF30 3F888889");
++        assert_eq!(wide.lines[14], "003D57F4 3FE38E39");
 +
 +        // the two stores that put the units' place on the screen, cut to
 +        // whole pixels, over the exact one, each a no-op
@@ -533,7 +535,7 @@ index 2a8d39e..365b176 100644
      }
  }
 diff --git a/crates/zakuro-core/src/enhancements.txt b/crates/zakuro-core/src/enhancements.txt
-index 7daa922..20cbe33 100644
+index 7daa922..dd9a020 100644
 --- a/crates/zakuro-core/src/enhancements.txt
 +++ b/crates/zakuro-core/src/enhancements.txt
 @@ -1,6 +1,6 @@
@@ -544,25 +546,26 @@ index 7daa922..20cbe33 100644
  # <code lines>
  # the build is any, rev<remaster version> for a cartridge without an update,
  # or update <major>.<minor> for a game with that update. each code here was
-@@ -31,6 +31,71 @@ D3000000 08000000
+@@ -31,6 +31,72 @@ D3000000 08000000
  2020A748 0000003C
  D2000000 00000000
  
 += 000400000009F100 Fire Emblem: Awakening (EUR)
-+16:9 | rev0 | Claude, for this recomp | Draws the top screen's 3D wider for 16:9, so turn the top screen's shape to 16:9 in Settings, Graphics. The 2D on the top screen, menus and text boxes, is stretched a little. It widens what the game's camera projection builder makes of the top screen's 5:3, and the map camera's own 5:3. | the Fire Emblem Awakening recomp's notes
++16:9 | rev0 | Claude, for this recomp | Draws the top screen's 3D wider for 16:9, so turn the top screen's shape to 16:9 in Settings, Graphics. The 2D on the top screen, menus and text boxes, is stretched a little. The game's camera projection builder takes every top-screen camera's aspect ratio, 5:3 or close to it as in the 3D talks and the unit view, 16/15 times as wide, and the map camera's own 5:3 is 16:9. | the Fire Emblem Awakening recomp's notes
 +002FE310 EB0572FA
 +0045AF00 EE18CA90
-+0045AF04 E59F0018
++0045AF04 E59F001C
 +0045AF08 E04CC000
-+0045AF0C E59F0014
++0045AF0C E59F0018
 +0045AF10 E15C0000
 +0045AF14 EEB02A68
-+0045AF18 9D9F2A03
-+0045AF1C EE801A02
-+0045AF20 E12FFF1E
-+0045AF24 3FD47AE1
-+0045AF28 000147AE
-+0045AF2C 3FE38E39
++0045AF18 9DDF2A04
++0045AF1C 9E282AA2
++0045AF20 EE801A02
++0045AF24 E12FFF1E
++0045AF28 3FCCCCCD
++0045AF2C 00133333
++0045AF30 3F888889
 +003D57F4 3FE38E39
 +Smooth map sprites | rev0 | Claude, for this recomp | Keeps the units' sprites and HP bars on the map where the camera puts them, rather than on the console's whole pixels, so at a higher resolution they move with the map as it scrolls instead of jittering against it. At 1x they can look a little soft. It drops the two stores that put the units' place on the screen, cut to whole pixels, over the exact one. | the Fire Emblem Awakening recomp's notes
 +003D1B18 E1A00000
