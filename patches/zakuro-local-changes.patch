@@ -339,7 +339,7 @@ index fe8075b..99bf8f1 100644
              ranges.overwrote = cheat.builtin.then(|| std::mem::take(&mut cheat.overwrote));
              execute(system, &code, pad, &mut ranges);
 diff --git a/crates/zakuro-core/src/enhancements.rs b/crates/zakuro-core/src/enhancements.rs
-index 2a8d39e..a9c48d1 100644
+index 2a8d39e..365b176 100644
 --- a/crates/zakuro-core/src/enhancements.rs
 +++ b/crates/zakuro-core/src/enhancements.rs
 @@ -5,10 +5,13 @@
@@ -448,7 +448,7 @@ index 2a8d39e..a9c48d1 100644
              cheat
          })
          .collect()
-@@ -91,15 +145,66 @@ mod tests {
+@@ -91,15 +145,80 @@ mod tests {
          assert!(for_title(0x0004_0000_0008_C300, "rev0").is_empty());
          assert!(for_title(0x0004_0000_0008_C300, "update 1.1").is_empty());
  
@@ -460,12 +460,12 @@ index 2a8d39e..a9c48d1 100644
 +    }
 +
 +    /// a code from somewhere else says where, Fire Emblem: Awakening's
-+    /// widescreen, map sprite and battle speed codes from the notes of the
-+    /// recomp they were made for.
++    /// widescreen, map sprite, battle speed and glow codes from the notes of
++    /// the recomp they were made for.
 +    #[test]
 +    fn a_code_says_where_it_came_from() {
 +        let enhancements = for_title(0x0004_0000_0009_F100, "rev0");
-+        assert_eq!(enhancements.len(), 3);
++        assert_eq!(enhancements.len(), 4);
 +        let cheats = cheats(0x0004_0000_0009_F100, "rev0", &[], &Default::default());
 +        assert!(cheats[0].notes.iter().any(|note| note.contains("recomp's notes")));
 +
@@ -506,6 +506,20 @@ index 2a8d39e..a9c48d1 100644
 +            super::cheats(0x0004_0000_0009_F100, "rev0", &[], &values)[2].setting.as_ref().map(|(_, value)| *value)
 +        };
 +        assert_eq!((at(&[]), at(&[("Faster battles", 120)]), at(&[("Faster battles", 900)])), (Some(130), Some(120), Some(200)));
++
++        // the bloom's texture binds through a routine that clamps them to
++        // their edge, and its frame copy through one that copies the scene's
++        // last 16 rows past them, both after the battle speed's routines
++        let glow = &enhancements[3];
++        assert_eq!(glow.name, "Glow to the edges");
++        assert!(glow.source.contains("recomp"));
++        assert!(glow.lines.iter().all(|line| line.starts_with('0')), "32-bit writes alone");
++        assert_eq!(glow.lines.len(), 28);
++        assert_eq!(glow.lines[0], "002EA610 EB05C258");
++        assert_eq!(glow.lines[9], "002D1984 EB062583");
++        let routines = glow.lines.iter().filter(|line| line.starts_with("0045AF")).map(|line| u32::from_str_radix(&line[..8], 16).unwrap());
++        assert!(routines.clone().all(|addr| (0x0045_AF78..0x0045_B000).contains(&addr)), "past Faster battles' words");
++        assert_eq!(routines.count(), 26);
      }
  
      #[test]
@@ -519,7 +533,7 @@ index 2a8d39e..a9c48d1 100644
      }
  }
 diff --git a/crates/zakuro-core/src/enhancements.txt b/crates/zakuro-core/src/enhancements.txt
-index 7daa922..de86a38 100644
+index 7daa922..20cbe33 100644
 --- a/crates/zakuro-core/src/enhancements.txt
 +++ b/crates/zakuro-core/src/enhancements.txt
 @@ -1,6 +1,6 @@
@@ -530,7 +544,7 @@ index 7daa922..de86a38 100644
  # <code lines>
  # the build is any, rev<remaster version> for a cartridge without an update,
  # or update <major>.<minor> for a game with that update. each code here was
-@@ -31,6 +31,42 @@ D3000000 08000000
+@@ -31,6 +31,71 @@ D3000000 08000000
  2020A748 0000003C
  D2000000 00000000
  
@@ -569,6 +583,35 @@ index 7daa922..de86a38 100644
 +0045AF74 {x/100}
 +001D6168 0045AF40
 +001D61B4 0045AF54
++Glow to the edges | rev0 | Claude, for this recomp | Keeps the soft glow the game lays over its 3D scenes at full strength up to the screen's edges, where the game lets it fade over the last few pixels on the left, the right and the bottom, which shows on a large screen. The glow's blur reads the scene's own edge instead of black past it: the glow's textures clamp to their edge rather than to a black border, and once the game has copied its frame into the glow's texture, the 16 rows the 3D leaves empty past the scene's left edge get the 16 rows next to them. | the Fire Emblem Awakening recomp's notes
++002EA610 EB05C258
++0045AF78 E59DC03C
++0045AF7C E24CC818
++0045AF80 E24CCA0D
++0045AF84 E35C0B02
++0045AF88 33A0C000
++0045AF8C 358DC008
++0045AF90 358DC00C
++0045AF94 EAFAB851
++002D1984 EB062583
++0045AF98 E5941004
++0045AF9C E1D113D0
++0045AFA0 E58DE010
++0045AFA4 E59DC00C
++0045AFA8 E35C0C02
++0045AFAC 1A000008
++0045AFB0 E3A0CE18
++0045AFB4 E58DC004
++0045AFB8 E3A0C010
++0045AFBC E58DC00C
++0045AFC0 E2611000
++0045AFC4 E1A00005
++0045AFC8 E3A02000
++0045AFCC E3A03E19
++0045AFD0 EBFA3D92
++0045AFD4 E59DE010
++0045AFD8 E28DD014
++0045AFDC E12FFF1E
 +
  = 00040000000E5C00 Shin Megami Tensei IV (USA)
  60 FPS | rev0 | lucky | The whole game runs twice as fast with it.
@@ -2858,7 +2901,7 @@ index f294442..72b8f56 100644
  mod tests {
      use super::*;
 diff --git a/crates/zakuro-gpu/src/raster.rs b/crates/zakuro-gpu/src/raster.rs
-index 2e71e86..ebc1ce4 100644
+index 2e71e86..49d1730 100644
 --- a/crates/zakuro-gpu/src/raster.rs
 +++ b/crates/zakuro-gpu/src/raster.rs
 @@ -1110,6 +1110,27 @@ pub(super) fn upside_down(registers: &[u32]) -> bool {
@@ -3148,13 +3191,13 @@ index 2e71e86..ebc1ce4 100644
 +    // a picture put on the screen texel for pixel, and a draw that may be a
 +    // marker, have their vertices shaded on the CPU too, see blit_rect and
 +    // marker_drawn, which decoded inputs take
-+    #[cfg(feature = "vulkan")]
+     #[cfg(feature = "vulkan")]
+-    if resources.hardware.as_ref().is_some_and(|hardware| hardware.shades()) && registers[REG_GEOSTAGE_CONFIG] & 0x3 != 2 {
 +    let blit = (vertex_count <= BLIT_VERTICES
 +        && registers[REG_TEXTURE_CONFIG] & 1 != 0
 +        && resources.hardware.as_ref().is_some_and(|hardware| hardware.scale() > 1))
 +        || (vertex_count <= MARKER_VERTICES && marker_sized(registers, &resources.markers));
-     #[cfg(feature = "vulkan")]
--    if resources.hardware.as_ref().is_some_and(|hardware| hardware.shades()) && registers[REG_GEOSTAGE_CONFIG] & 0x3 != 2 {
++    #[cfg(feature = "vulkan")]
 +    if resources.hardware.as_ref().is_some_and(|hardware| hardware.shades()) && registers[REG_GEOSTAGE_CONFIG] & 0x3 != 2 && !blit {
          let index_short = registers[REG_INDEX_ARRAY] & 0x8000_0000 != 0;
          let first_vertex = registers[REG_VERTEX_OFFSET];
@@ -3433,7 +3476,7 @@ index 2e71e86..ebc1ce4 100644
      /// half size memory holds.
      #[cfg(feature = "vulkan")]
      #[test]
-@@ -4627,6 +5056,83 @@ mod tests {
+@@ -4627,6 +5056,115 @@ mod tests {
          assert!(pixels(&mut memory).iter().all(|&p| p == [0, 255, 0, 255]), "{:?}", pixels(&mut memory)[0]);
      }
  
@@ -3514,11 +3557,43 @@ index 2e71e86..ebc1ce4 100644
 +        assert!(out.as_chunks::<4>().0.iter().all(|p| ColorFormat::Rgba8.decode(p) == [255, 0, 0, 255]));
 +    }
 +
++    /// a TextureCopy of drawn rows of tiles into the first rows of a taller
++    /// buffer the GPU holds goes into that buffer, which keeps its other
++    /// rows on the GPU, rather than leaving them to memory.
++    #[cfg(feature = "vulkan")]
++    #[test]
++    fn a_texture_copy_into_the_first_rows_of_a_held_buffer_keeps_the_rest() {
++        let Ok(hardware) = hardware::Hardware::new() else { return };
++        const RED_BUFFER: u32 = 0x10000;
++        const GREEN_BUFFER: u32 = 0x18000;
++        const OUTPUT: u32 = 0x20000;
++        let mut memory = ConsoleMemory::default();
++        let mut resources = Resources { hardware: Some(hardware), ..Default::default() };
++        for (buffer, color) in [(RED_BUFFER, RED), (GREEN_BUFFER, GREEN)] {
++            let mut drawing = target_registers();
++            sized(&mut drawing, 16, 16);
++            drawing[REG_COLOR_BUFFER_ADDRESS] = buffer >> 3;
++            rasterize_shaded(&drawing, &mut memory, &mut resources, &cover(-0.5, color));
++        }
++        let hardware = resources.hardware.as_mut().unwrap();
++        // all sixteen rows red, then the first row of tiles, eight rows, green
++        assert!(hardware.texture_copy(&mut memory, RED_BUFFER, OUTPUT, 16 * 16 * 4).unwrap());
++        assert!(hardware.texture_copy(&mut memory, GREEN_BUFFER, OUTPUT, 8 * 16 * 4).unwrap());
++        let output = DrawnTexture { addr: OUTPUT, width: 16, height: 16, format: ColorFormat::Rgba8 };
++        assert!(hardware.holds(&output) && hardware.covers(&output), "the buffer the copies went into holds all its rows");
++        hardware.flush(&mut memory).unwrap();
++        let mut out = vec![0u8; 16 * 16 * 4];
++        memory.read(OUTPUT, &mut out);
++        let (first, rest) = out.split_at(8 * 16 * 4);
++        assert!(first.as_chunks::<4>().0.iter().all(|p| ColorFormat::Rgba8.decode(p) == [0, 255, 0, 255]), "the rows copied last");
++        assert!(rest.as_chunks::<4>().0.iter().all(|p| ColorFormat::Rgba8.decode(p) == [255, 0, 0, 255]), "the rows kept");
++    }
++
      /// a narrower buffer drawn over rows a fill left of a wider one does not
      /// cost the wider one the rows it drew elsewhere, which memory lacks,
      /// when it is used again.
 diff --git a/crates/zakuro-gpu/src/raster/hardware.rs b/crates/zakuro-gpu/src/raster/hardware.rs
-index b3cd447..7c8c218 100644
+index b3cd447..f2b94c7 100644
 --- a/crates/zakuro-gpu/src/raster/hardware.rs
 +++ b/crates/zakuro-gpu/src/raster/hardware.rs
 @@ -791,6 +791,9 @@ struct Local {
@@ -3624,7 +3699,7 @@ index b3cd447..7c8c218 100644
      }
  
      /// gives a surface a twin holding what the surface does, before a draw
-@@ -4081,6 +4136,45 @@ impl Hardware {
+@@ -4081,6 +4136,57 @@ impl Hardware {
          Ok(())
      }
  
@@ -3650,12 +3725,24 @@ index b3cd447..7c8c218 100644
 +        let Some((Kind::Color(format), width, rows)) = found else {
 +            return Ok(false);
 +        };
++        // into the first rows of a taller buffer of the same width and format
++        // the GPU holds, the rows go into that buffer and it keeps the others,
++        // rather than a buffer of their own leaving it to memory's copy at the
++        // console's resolution. Awakening's "Glow to the edges" fills the
++        // first rows of the copy of its frame like this
++        let output_height = self
++            .surfaces
++            .iter()
++            .filter(|s| s.addr == output && s.kind == Kind::Color(format) && s.tiled && s.width == width && s.height > rows)
++            .map(|s| s.height)
++            .max()
++            .unwrap_or(rows);
 +        let transfer = Transfer {
 +            input,
 +            output,
 +            input_width: width,
 +            output_width: width,
-+            output_height: rows,
++            output_height,
 +            copy: (width, rows),
 +            scale: (1, 1),
 +            flip: false,
@@ -3670,7 +3757,7 @@ index b3cd447..7c8c218 100644
      /// a display transfer out of a buffer the GPU holds, one it drew or an
      /// earlier transfer wrote, done on the GPU, false when the input is
      /// anything else, for the CPU to do. the output stays on the GPU, and a
-@@ -4234,7 +4328,11 @@ impl Hardware {
+@@ -4234,7 +4340,11 @@ impl Hardware {
      /// texture's sides are powers of two and the buffer drawn into it need
      /// not be, Inazuma Eleven GO reads 800 rows drawn as 1024, one holding
      /// all of it goes first.
@@ -3683,7 +3770,7 @@ index b3cd447..7c8c218 100644
          let depth = match texture.format {
              ColorFormat::Rgba8 => Some(Kind::Depth(4)),
              ColorFormat::Rgb8 => Some(Kind::Depth(3)),
-@@ -4248,16 +4346,26 @@ impl Hardware {
+@@ -4248,16 +4358,26 @@ impl Hardware {
                  if !(kinds.contains(&Some(s.kind)) && s.tiled && s.width == texture.width) {
                      return None;
                  }
@@ -3715,7 +3802,7 @@ index b3cd447..7c8c218 100644
      }
  
      /// whether a texture is rows of a surface the GPU drew and guest memory
-@@ -4266,10 +4374,12 @@ impl Hardware {
+@@ -4266,10 +4386,12 @@ impl Hardware {
      /// changed there since, or another surface drew over them, the texture
      /// comes from memory once what was drawn is written back.
      pub(crate) fn holds(&self, texture: &DrawnTexture) -> bool {
@@ -3730,7 +3817,7 @@ index b3cd447..7c8c218 100644
              let at = surface.addr + from * surface.row_bytes();
              from < to
                  && (!surface.checked
-@@ -4277,7 +4387,7 @@ impl Hardware {
+@@ -4277,7 +4399,7 @@ impl Hardware {
          });
          // nor where a fill wrote over what it drew
          let row_bytes = surface.row_bytes();
@@ -3739,7 +3826,7 @@ index b3cd447..7c8c218 100644
          surface.dirty.is_some() && !changed && !stale
      }
  
-@@ -4289,13 +4399,13 @@ impl Hardware {
+@@ -4289,13 +4411,13 @@ impl Hardware {
      /// width, would otherwise have the console's resolution in memory take
      /// the place of the scaled frame.
      pub(crate) fn holds_unchanged<M: GpuMemory>(&self, memory: &mut M, texture: &DrawnTexture) -> bool {
@@ -3755,7 +3842,7 @@ index b3cd447..7c8c218 100644
          let (at, len) = (surface.addr + row * row_bytes, rows * row_bytes);
          // memory behind another surface drawn over it says nothing of this one
          if (0..self.surfaces.len()).any(|i| i != index && self.surfaces[i].dirty_overlaps(at, len)) {
-@@ -4316,15 +4426,22 @@ impl Hardware {
+@@ -4316,15 +4438,22 @@ impl Hardware {
      /// one is copied from the surface's twin, when it has one.
      fn copy_texture(&mut self, texture: &DrawnTexture, bound: &BoundTexture, twin: bool) -> Result<vk::ImageView, String> {
          self.mark(Work::Copy, false);
@@ -3782,7 +3869,7 @@ index b3cd447..7c8c218 100644
                  return Err("a texture reaching past the buffer drawn into it came without its texels".to_owned());
              }
              Some(bound.texels.clone())
-@@ -4332,7 +4449,7 @@ impl Hardware {
+@@ -4332,7 +4461,7 @@ impl Hardware {
              None
          };
          let batch = self.batch;
@@ -3791,7 +3878,7 @@ index b3cd447..7c8c218 100644
              let same_memory = match (&copy.memory, &memory) {
                  (Some(kept), Some(now)) => Arc::ptr_eq(kept, now),
                  (kept, now) => kept.is_none() && now.is_none(),
-@@ -4342,28 +4459,54 @@ impl Hardware {
+@@ -4342,28 +4471,54 @@ impl Hardware {
                  return Ok(copy.image.view);
              }
          }
@@ -3855,7 +3942,7 @@ index b3cd447..7c8c218 100644
              // SAFETY: recording, outside rendering, between two color images
              // in the general layout made for transfers, both their size
              unsafe {
-@@ -4380,7 +4523,7 @@ impl Hardware {
+@@ -4380,7 +4535,7 @@ impl Hardware {
              };
          }
          if let Kind::Depth(bytes) = self.surfaces[source].kind {
@@ -3864,7 +3951,7 @@ index b3cd447..7c8c218 100644
          } else {
              // the texture's rows run top first, the surface's bottom first,
              // so the copy flips them, and its pixels round to the format as
-@@ -4389,12 +4532,16 @@ impl Hardware {
+@@ -4389,12 +4544,16 @@ impl Hardware {
              let n = self.scale;
              let (width, height) = ((texture.width * n) as i32, (rows * n) as i32);
              let (row, source_height) = ((row * n) as i32, (self.surfaces[source].height * n) as i32);
@@ -3884,7 +3971,7 @@ index b3cd447..7c8c218 100644
              copy.surface = source;
              copy.generation = generation;
              copy.memory = memory;
-@@ -4404,7 +4551,7 @@ impl Hardware {
+@@ -4404,7 +4563,7 @@ impl Hardware {
      }
  
      /// the textures copied from surfaces, or from their twins.
@@ -3893,7 +3980,7 @@ index b3cd447..7c8c218 100644
          match twin {
              true => &mut self.twin_copies,
              false => &mut self.copies,
-@@ -4809,13 +4956,45 @@ impl Hardware {
+@@ -4809,13 +4968,45 @@ impl Hardware {
              return Ok(crop(image));
          }
          // its batch finished before a screen showed the surface
@@ -3943,7 +4030,7 @@ index b3cd447..7c8c218 100644
          let buffer = &capture.buffer;
          if buffer.incoherent {
              let range = [vk::MappedMemoryRange::default().memory(buffer.memory).offset(0).size(vk::WHOLE_SIZE)];
-@@ -5014,10 +5193,10 @@ impl Hardware {
+@@ -5014,10 +5205,10 @@ impl Hardware {
              }
          }
          for twin in [false, true] {
@@ -3956,7 +4043,7 @@ index b3cd447..7c8c218 100644
                  }
              }
          }
-@@ -5136,11 +5315,14 @@ impl Hardware {
+@@ -5136,11 +5327,14 @@ impl Hardware {
              }
          }
          // pictures for screens are read out before a later batch can draw
@@ -3975,7 +4062,7 @@ index b3cd447..7c8c218 100644
              }
          }
          Ok(())
-@@ -5415,7 +5597,7 @@ impl Drop for Hardware {
+@@ -5415,7 +5609,7 @@ impl Drop for Hardware {
                  self.destroy_image(&texture.image);
              }
              for copy in self.copies.values().chain(self.twin_copies.values()) {
