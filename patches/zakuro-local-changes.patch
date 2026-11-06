@@ -6238,7 +6238,7 @@ index 8a5163d..dbf707e 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..6bdc7ca 100644
+index 9372f02..2f1f7c8 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -8,10 +8,11 @@ use egui::{Align, Color32, Layout, RichText, Vec2};
@@ -6406,22 +6406,25 @@ index 9372f02..6bdc7ca 100644
                      }
                  });
                  return;
-@@ -266,92 +298,140 @@ impl Menus {
+@@ -266,92 +298,149 @@ impl Menus {
                  ui.label("No .3ds, .cci, .cxi or .cia files in that folder.");
                  return;
              }
-+            // one game fills the window, a large card in its middle, smaller
-+            // in a narrow window; more are listed as smaller cards
-+            let scale = match library.games.len() {
-+                1 => (ui.available_width() / CARD_WIDTH).clamp(0.5, 1.0),
-+                _ => 0.5,
++            // one game is a large card across the window's middle, high in
++            // it, a third of the room it leaves above it, LONE_CARD of the
++            // window's width with its contents at LONE_CARD of their full
++            // size, smaller in a narrow window; more are listed as smaller
++            // cards across it
++            let (scale, share) = match library.games.len() {
++                1 => ((ui.available_width() / CARD_WIDTH).clamp(0.5, 1.0) * LONE_CARD, LONE_CARD),
++                _ => (0.5, 1.0),
 +            };
 +            let backed = background.is_some();
 +            let room = ui.available_height();
              egui::ScrollArea::vertical().show(ui, |ui| {
 +                if let [game] = library.games.as_slice() {
 +                    let job = jobs.iter().find(|job| job.program_id == game.program_id);
-+                    ui.add_space(((room - card_height(job, scale)) / 2.0).max(0.0));
++                    ui.add_space(((room - card_height(job, scale)) / 3.0).max(0.0));
 +                }
                  for (index, game) in library.games.iter().enumerate() {
                      let job = jobs.iter().find(|job| job.program_id == game.program_id);
@@ -6430,7 +6433,7 @@ index 9372f02..6bdc7ca 100644
 -                    let mut frame = egui::Frame::group(ui.style());
 -                    if background.is_some() {
 -                        frame = frame.fill(ui.visuals().panel_fill.gamma_multiply(0.85));
-+                    self.game_card(ui, index, game, job, scale, backed, &mut actions);
++                    self.game_card(ui, index, game, job, scale, share, backed, &mut actions);
 +                    ui.add_space(12.0);
 +                }
 +            });
@@ -6440,9 +6443,10 @@ index 9372f02..6bdc7ca 100644
 +
 +    /// a game of the library as a card: its icon, its name and what it has,
 +    /// what can be done with it, and its build while one runs, all scale
-+    /// times the size a game alone is shown at.
++    /// times their full size, the card share of the room's width, in its
++    /// middle.
 +    #[allow(clippy::too_many_arguments)]
-+    fn game_card(&mut self, ui: &mut egui::Ui, index: usize, game: &Game, job: Option<&Job>, scale: f32, backed: bool, actions: &mut Vec<Action>) {
++    fn game_card(&mut self, ui: &mut egui::Ui, index: usize, game: &Game, job: Option<&Job>, scale: f32, share: f32, backed: bool, actions: &mut Vec<Action>) {
 +        let px = |size: f32| size * scale;
 +        // text no smaller than the rest of the launcher's
 +        let text = |size: f32| (size * scale).max(14.0);
@@ -6450,7 +6454,11 @@ index 9372f02..6bdc7ca 100644
 +        // over a picture, each game gets a backing to keep it readable
 +        let fill = if backed { ui.visuals().panel_fill.gamma_multiply(0.85) } else { Color32::from_gray(32) };
 +        let frame = egui::Frame::group(ui.style()).inner_margin(px(60.0)).corner_radius(8.0).fill(fill);
-+        frame.show(ui, |ui| {
++        let width = ui.available_width() * share;
++        let left = ui.cursor().left() + (ui.available_width() - width) / 2.0;
++        let room = egui::Rect::from_min_size(egui::pos2(left, ui.cursor().top()), egui::vec2(width, ui.available_height()));
++        let mut card = ui.new_child(egui::UiBuilder::new().max_rect(room).layout(egui::Layout::top_down(egui::Align::Min)));
++        frame.show(&mut card, |ui| {
 +            ui.set_width(ui.available_width());
 +            ui.horizontal(|ui| {
 +                let icon = game.icon.as_ref().map(|pixels| {
@@ -6622,10 +6630,11 @@ index 9372f02..6bdc7ca 100644
 +            }
          });
 -        actions
++        ui.advance_cursor_after_rect(card.min_rect());
      }
  
      /// what goes over a running game, the menu when it is open and the
-@@ -361,10 +441,9 @@ impl Menus {
+@@ -361,10 +450,9 @@ impl Menus {
          &mut self,
          ui: &mut egui::Ui,
          name: &str,
@@ -6637,7 +6646,7 @@ index 9372f02..6bdc7ca 100644
          saved: Option<&str>,
      ) -> Vec<Action> {
          let mut actions = Vec::new();
-@@ -398,89 +477,125 @@ impl Menus {
+@@ -398,89 +486,125 @@ impl Menus {
              // clicks go through to the screen under it
              egui::Area::new(egui::Id::new("fps")).fixed_pos(egui::pos2(8.0, 8.0)).interactable(false).show(&ctx, |ui| {
                  egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -6828,7 +6837,7 @@ index 9372f02..6bdc7ca 100644
              let mut checkbox = |ui: &mut egui::Ui, index: usize, name: &str, enabled: bool, notes: &str| {
                  let mut on = enabled;
                  let mut response = ui.checkbox(&mut on, name);
-@@ -493,40 +608,49 @@ impl Menus {
+@@ -493,40 +617,49 @@ impl Menus {
              };
              // Zakuro's own, tested on this build of the game
              if cheats.iter().any(|cheat| cheat.3) {
@@ -6887,7 +6896,7 @@ index 9372f02..6bdc7ca 100644
          actions
      }
  
-@@ -653,188 +777,208 @@ impl Menus {
+@@ -653,188 +786,208 @@ impl Menus {
          // taller than a screen has room for, so it scrolls, and it can be
          // dragged to any size that fits
          let room = ctx.content_rect().height() - 16.0;
@@ -7271,7 +7280,7 @@ index 9372f02..6bdc7ca 100644
          self.settings_open = open;
          if !open {
              self.rebinding = None;
-@@ -952,20 +1096,400 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+@@ -952,20 +1105,404 @@ pub fn corner(ctx: &egui::Context, text: &str) {
          });
  }
  
@@ -7279,6 +7288,10 @@ index 9372f02..6bdc7ca 100644
 -fn progress(ui: &mut egui::Ui, job: &Job) {
 +/// how big the game's icon is on its card at full size.
 +const ICON: f32 = 180.0;
++
++/// how much of the window's width a game alone in the library takes, and of
++/// its full size its card's contents are.
++const LONE_CARD: f32 = 0.75;
 +
 +/// how wide a game's card is at its full size: its margins, the icon, the
 +/// gap after it and the three buttons, with room for the frame.
@@ -7681,7 +7694,7 @@ index 9372f02..6bdc7ca 100644
  }
  
  /// a key as a person would call it.
-@@ -1011,7 +1535,7 @@ mod tests {
+@@ -1011,7 +1548,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -7690,7 +7703,7 @@ index 9372f02..6bdc7ca 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1550,14 @@ mod tests {
+@@ -1026,6 +1563,14 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  
