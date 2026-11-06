@@ -26,9 +26,10 @@ place:
   built-in tweaks (`enhancements.txt`) and the feet hook (`feet.rs`) step in;
 - names: the game's title ID, its file names (such as
   `b/uBody_M_tac1_0.m.lz`), its bones' names (such as `l_leg2`) and the
-  name of the menu sound the bottom screen plays (`SE_SYS_DECIDE1`). The
-  launcher reads that sound from your copy's sound archive when the game
-  starts, and keeps it in memory only;
+  names of the sounds the bottom screen plays as it comes up and goes away
+  (`SE_SYS_SELECT1` and `SE_SYS_CANCEL1`, the game's sounds for choosing a
+  unit and letting it go). The launcher reads them from your copy's sound
+  archive when the game starts, and keeps them in memory only;
 - what the game draws: the format, size and position of the textures that
   tell Zakuro which screen is showing, the rectangles of the panels and text
   the project redraws, the outline of the world map's name panel, and the
