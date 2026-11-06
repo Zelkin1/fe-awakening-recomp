@@ -245,7 +245,7 @@ index 0000000..e1c2953
 +    }
 +}
 diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
-index 36b49cd..0f94050 100644
+index ae01397..d7bf5f8 100644
 --- a/crates/zakuro-core/src/lib.rs
 +++ b/crates/zakuro-core/src/lib.rs
 @@ -4,6 +4,7 @@
@@ -257,10 +257,10 @@ index 36b49cd..0f94050 100644
  pub mod download_play;
  pub mod hints;
 diff --git a/crates/zakuro-core/src/loader.rs b/crates/zakuro-core/src/loader.rs
-index 1a7863e..a2b6c99 100644
+index b8933cb..0ab54cf 100644
 --- a/crates/zakuro-core/src/loader.rs
 +++ b/crates/zakuro-core/src/loader.rs
-@@ -568,6 +568,10 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
+@@ -587,6 +587,10 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
          }
      }
  
@@ -271,7 +271,7 @@ index 1a7863e..a2b6c99 100644
      let mut on_gpu = false;
      if system.config.hardware_renderer {
          match system.gpu.enable_hardware_renderer(system.config.resolution, system.config.device.clone(), Some(title.program_id())) {
-@@ -643,10 +647,22 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
+@@ -662,10 +666,22 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
          library.place(&module.name, module.base, &mut system.memory);
      }
      system.hints = Some(crate::hints::Hints::new(path, text));
@@ -2315,7 +2315,7 @@ index 0000000..7552aa9
 +    Ok(out)
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index aa813d0..7e8743e 100644
+index 13327a9..21a3bbd 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -7,6 +7,7 @@ mod banners;

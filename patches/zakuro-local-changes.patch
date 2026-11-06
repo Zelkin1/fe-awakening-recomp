@@ -574,7 +574,7 @@ index 7daa922..de86a38 100644
  60 FPS | rev0 | lucky | The whole game runs twice as fast with it.
  204E3BA0 00000000
 diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
-index a9d239c..36b49cd 100644
+index a9d239c..ae01397 100644
 --- a/crates/zakuro-core/src/lib.rs
 +++ b/crates/zakuro-core/src/lib.rs
 @@ -32,6 +32,10 @@ use memory::{Memory, MemoryState, Permission};
@@ -822,7 +822,7 @@ index a9d239c..36b49cd 100644
          // the next frame is drawn in between too while the title keeps to
          // every other refresh
          self.gpu.set_twins(gap == 2);
-@@ -783,6 +941,148 @@ impl System {
+@@ -783,6 +941,150 @@ impl System {
          self.pacing.between
      }
  
@@ -865,11 +865,13 @@ index a9d239c..36b49cd 100644
 +    }
 +
 +    /// what the battle's panels show, told apart for the frontend to draw
-+    /// them anew, and its buttons alone, while battle_pieces are shown.
++    /// them anew, while battle_pieces are shown.
 +    pub fn battle_banners(&self) -> Option<&'static zakuro_gpu::Banners> {
 +        self.banners.filter(|_| self.battle_shows())
 +    }
 +
++    /// the battle's buttons, whatever the look of its panels, while
++    /// battle_pieces are shown.
 +    pub fn battle_buttons(&self) -> Option<&'static [zakuro_gpu::Piece]> {
 +        self.battle_buttons.filter(|_| self.battle_shows())
 +    }
@@ -971,7 +973,7 @@ index a9d239c..36b49cd 100644
      /// the DSP finishing an audio frame, it plays its voices one frame on and
      /// interrupts the title, whose sound library does one update per interrupt.
      fn audio_frame(&mut self) {
-@@ -843,6 +1143,10 @@ impl System {
+@@ -843,6 +1145,10 @@ impl System {
          stride: u32,
          format: u32,
      ) {
@@ -982,7 +984,7 @@ index a9d239c..36b49cd 100644
          self.gpu
              .set_framebuffer(screen, active, left, right, stride, format);
      }
-@@ -995,6 +1299,15 @@ impl System {
+@@ -995,6 +1301,15 @@ impl System {
          memory::config::set_slider_3d(self.memory.phys.shared_page_mut(), value);
      }
  
@@ -998,7 +1000,7 @@ index a9d239c..36b49cd 100644
      /// where a screen's picture is on the host's GPU, for a presenter sharing
      /// its device to draw straight from, none when the GPU does not show the
      /// screens itself or did not draw what the screen shows, read_screen_scaled
-@@ -1089,6 +1402,18 @@ impl System {
+@@ -1089,6 +1404,18 @@ impl System {
      }
  
      /// reads one screen into a straight RGBA8 buffer for presentation.
@@ -1018,10 +1020,10 @@ index a9d239c..36b49cd 100644
          self.read_screen_at(screen, false)
      }
 diff --git a/crates/zakuro-core/src/loader.rs b/crates/zakuro-core/src/loader.rs
-index 937bcbb..1a7863e 100644
+index 937bcbb..b8933cb 100644
 --- a/crates/zakuro-core/src/loader.rs
 +++ b/crates/zakuro-core/src/loader.rs
-@@ -41,6 +41,371 @@ pub fn attach_update(title: &mut Title, path: &std::path::Path) -> bool {
+@@ -41,6 +41,390 @@ pub fn attach_update(title: &mut Title, path: &std::path::Path) -> bool {
      }
  }
  
@@ -1275,17 +1277,15 @@ index 937bcbb..1a7863e 100644
 +    // the same size so their text is as sharp, the table with the stats
 +    // panel's beige around it to be as tall as the HP panel's body, so their
 +    // tops and bottoms line up, the panel over the table's last pixel so no
-+    // seam shows between them; the portraits left out. the six buttons small
-+    // in the bottom middle, a little off the bottom, the 3D above and between
-+    // them clear. the panels are where they are whatever the language, only
-+    // their text changes
++    // seam shows between them; the portraits and the buttons left out, see
++    // BATTLE_BUTTONS. the panels are where they are whatever the language,
++    // only their text changes
 +    0x0004_0000_0009_F100,
 +    &[
 +        zakuro_gpu::Piece { from: [68, 85, 107, 59], across: zakuro_gpu::Anchor::Start(0), down: zakuro_gpu::Anchor::End(0), size: 50, shapes: STATS_LEFT, follows: None },
 +        zakuro_gpu::Piece { from: [0, 6, 162, 70], across: zakuro_gpu::Anchor::Start(53), down: zakuro_gpu::Anchor::End(0), size: 50, shapes: HP_LEFT, follows: Some((crate::LEFT_BANNER, [24, 4])) },
 +        zakuro_gpu::Piece { from: [145, 85, 107, 59], across: zakuro_gpu::Anchor::End(0), down: zakuro_gpu::Anchor::End(0), size: 50, shapes: STATS_RIGHT, follows: None },
 +        zakuro_gpu::Piece { from: [162, 6, 162, 70], across: zakuro_gpu::Anchor::End(53), down: zakuro_gpu::Anchor::End(0), size: 50, shapes: HP_RIGHT, follows: Some((crate::RIGHT_BANNER, [184, 4])) },
-+        zakuro_gpu::Piece { from: [6, 191, 307, 42], across: zakuro_gpu::Anchor::Middle(0), down: zakuro_gpu::Anchor::End(4), size: 28, shapes: BUTTONS, follows: None },
 +    ],
 +)];
 +
@@ -1295,9 +1295,12 @@ index 937bcbb..1a7863e 100644
 +    // Fire Emblem Awakening (Europe), measured on a battle's at 1x: the name
 +    // inside its banner, short of the banner's ornaments; the HP's number at
 +    // the outer edge and the gauge, two rows of 3-pixel segments, beside it;
-+    // the weapon's icon and name under them; and the stat table's values,
-+    // rows from y 90, 106 and 122, x 72-144 and 176-246 inside its borders,
-+    // its labels between; the HP's numbers short of the gauges' ends
++    // the weapon's icon and name under them; and the stat table's cells, the
++    // values' and between them the labels', inside the table's borders, its
++    // rows' lines (y 90, 106 and 122 and the light row under each) and its
++    // cells' round corners: rows y 92-105, 108-121 and 124-137, x 74-142
++    // and 177-245 for the values, 146-173 for the labels; the HP's numbers
++    // short of the gauges' ends
 +    0x0004_0000_0009_F100,
 +    zakuro_gpu::Banners {
 +        sides: [
@@ -1306,7 +1309,7 @@ index 937bcbb..1a7863e 100644
 +                hp: [0, 30, 30, 20],
 +                gauge: [32, 28, 122, 20],
 +                weapon: [36, 54, 120, 22],
-+                values: [[72, 90, 72, 16], [72, 106, 72, 16], [72, 122, 72, 16]],
++                values: [[74, 92, 69, 14], [74, 108, 69, 14], [74, 124, 69, 14]],
 +                follows: Some((crate::LEFT_BANNER, [24, 4])),
 +            },
 +            zakuro_gpu::BannerSide {
@@ -1314,14 +1317,32 @@ index 937bcbb..1a7863e 100644
 +                hp: [290, 30, 30, 20],
 +                gauge: [166, 28, 124, 20],
 +                weapon: [178, 54, 124, 22],
-+                values: [[176, 90, 70, 16], [176, 106, 70, 16], [176, 122, 70, 16]],
++                values: [[177, 92, 69, 14], [177, 108, 69, 14], [177, 124, 69, 14]],
 +                follows: Some((crate::RIGHT_BANNER, [184, 4])),
 +            },
 +        ],
-+        labels: [[145, 90, 30, 16], [145, 106, 30, 16], [145, 122, 30, 16]],
++        labels: [[146, 92, 28, 14], [146, 108, 28, 14], [146, 124, 28, 14]],
 +    },
 +)];
++
++/// the battle's panels told apart in the game of program_id, see BANNERS.
++pub fn banners(program_id: u64) -> Option<&'static zakuro_gpu::Banners> {
++    BANNERS.iter().find(|(id, _)| *id == program_id).map(|(_, banners)| banners)
++}
++
++/// the parts of the bottom screen shown over the top one in a battle in the
++/// game of program_id, see PIECES, and its buttons alone, see BATTLE_BUTTONS.
++pub fn battle_pieces(program_id: u64) -> Option<(&'static [zakuro_gpu::Piece], &'static [zakuro_gpu::Piece])> {
++    let find = |table: &[(u64, &'static [zakuro_gpu::Piece])]| table.iter().find(|(id, _)| *id == program_id).map(|&(_, pieces)| pieces);
++    Some((find(PIECES)?, find(BATTLE_BUTTONS)?))
++}
++
++/// a battle's buttons, the same in every look of its panels, which the
++/// frontend shows over the top one for a while once asked to, see
++/// System::battle_buttons.
 +const BATTLE_BUTTONS: &[(u64, &[zakuro_gpu::Piece])] = &[(
++    // Fire Emblem Awakening (Europe): the six small in the bottom middle, a
++    // little off the bottom, the 3D above and between them clear
 +    0x0004_0000_0009_F100,
 +    &[zakuro_gpu::Piece { from: [6, 191, 307, 42], across: zakuro_gpu::Anchor::Middle(0), down: zakuro_gpu::Anchor::End(4), size: 28, shapes: BUTTONS, follows: None }],
 +)];
@@ -1393,7 +1414,7 @@ index 937bcbb..1a7863e 100644
  /// the DLC at paths that is the title's.
  fn load_dlc(title: &Title, paths: &[std::path::PathBuf]) -> Vec<zakuro_fs::Dlc> {
      let mut found = Vec::new();
-@@ -66,7 +431,8 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
+@@ -66,7 +450,8 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
      let mut title = Title::load(path)?;
      log::info!("loaded {}", title.describe());
      let updated = config.update.as_ref().is_some_and(|update| attach_update(&mut title, update));
@@ -1403,7 +1424,7 @@ index 937bcbb..1a7863e 100644
      let dlc = load_dlc(&title, &config.dlc);
  
      let exheader = &title.exheader;
-@@ -91,6 +457,7 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
+@@ -91,6 +476,7 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
      config.region = crate::services::cfg::region_for_product_code(&title.ncch.product_code);
  
      let mut system = System::new(config);
@@ -1411,7 +1432,7 @@ index 937bcbb..1a7863e 100644
      system.dlc = dlc;
      if let Some(data_dir) = &system.config.data_dir {
          let path = crate::cheats::path(data_dir, title.program_id());
-@@ -101,8 +468,10 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
+@@ -101,8 +487,10 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
          }
      }
      let build = crate::enhancements::build(&title);
@@ -1424,7 +1445,7 @@ index 937bcbb..1a7863e 100644
      if !enhancements.is_empty() {
          let on: Vec<&str> = enhancements.iter().filter(|cheat| cheat.enabled).map(|cheat| cheat.name.as_str()).collect();
          log::info!("{} enhancements for this build, {build}, on: {}", enhancements.len(), if on.is_empty() { "none".to_owned() } else { on.join(", ") });
-@@ -209,13 +578,23 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
+@@ -209,13 +597,23 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
              Err(error) => log::warn!("{error}, drawing in software"),
          }
      }
@@ -1449,7 +1470,7 @@ index 937bcbb..1a7863e 100644
          let dir = crate::mods::textures(data_dir, title.program_id());
          if !on_gpu {
              if std::fs::read_dir(&dir).is_ok_and(|mut entries| entries.next().is_some()) {
-@@ -249,7 +628,7 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
+@@ -249,7 +647,7 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
      system.recompiled = None;
      let mut library = crate::recompiled::Library::open(path).map_err(|error| format!("could not load {}, {error}", path.display()))?;
      if !library.checks_itself() {
@@ -1458,7 +1479,7 @@ index 937bcbb..1a7863e 100644
          if modded || title.update().is_some() {
              let what = if modded { "a mod" } else { "the update" };
              return Err(format!("{what} changed the game's code and {} can't tell where", path.display()));
-@@ -349,7 +728,7 @@ fn map_special_pages(system: &mut System, app_bytes: u32) {
+@@ -349,7 +747,7 @@ fn map_special_pages(system: &mut System, app_bytes: u32) {
  
  /// maps the code segments, saying whether a mod changed them.
  fn map_code(system: &mut System, title: &Title) -> Result<bool, LoadError> {
@@ -1467,7 +1488,7 @@ index 937bcbb..1a7863e 100644
      let exheader = &title.exheader;
  
      let segments = [
-@@ -568,6 +947,14 @@ mod tests {
+@@ -568,6 +966,14 @@ mod tests {
  
          let system = load(&game, Config::default()).unwrap();
          assert!(!system.cheats.iter().find(|cheat| cheat.builtin).unwrap().enabled);
@@ -4245,10 +4266,10 @@ index 2bd5242..a5ebaf5 100644
          (0..count)
 diff --git a/crates/zakuro/src/banners.rs b/crates/zakuro/src/banners.rs
 new file mode 100644
-index 0000000..e098c31
+index 0000000..cc5f36f
 --- /dev/null
 +++ b/crates/zakuro/src/banners.rs
-@@ -0,0 +1,220 @@
+@@ -0,0 +1,263 @@
 +//! the second look of a battle's panels over the 3D, see settings::BattleUi:
 +//! each fighter's name on a banner, the HP in a diamond by a long bar, the
 +//! weapon on a band and the stats as tabs over boxes, drawn from shapes of
@@ -4262,24 +4283,29 @@ index 0000000..e098c31
 +const HEIGHT: usize = 240;
 +
 +/// a piece of the bottom screen's text off its ground: RGBA, not
-+/// premultiplied, its width and height in the console's pixels, and the
-+/// ground's colour, which what it goes on is painted in.
++/// premultiplied, its width and height in the console's pixels, the
++/// ground's colour, which what it goes on is painted in, and how far below
++/// the middle of the rectangle it was cut from its own middle lies, in the
++/// console's pixels, so that texts cut from rectangles alike keep the line
++/// the game writes them on.
 +#[derive(Debug, Clone, PartialEq)]
 +pub struct Text {
 +    pub size: [usize; 2],
 +    pub rgba: Vec<u8>,
 +    pub ground: [u8; 3],
++    pub down: f32,
 +}
 +
 +/// what one fighter's panels show: name, HP, weapon, and Atk, Hit and Crit
-+/// from the top, and how full its HP gauge is.
++/// from the top, and its HP gauge's rows of ticks, each how many are lit
++/// and how many there are, see ticks.
 +#[derive(Debug, Clone, PartialEq)]
 +pub struct Side {
 +    pub name: Text,
 +    pub hp: Text,
 +    pub weapon: Text,
 +    pub values: [Text; 3],
-+    pub fraction: f32,
++    pub ticks: Vec<[u32; 2]>,
 +}
 +
 +/// both fighters', the left one first, and the stats' labels between them.
@@ -4323,8 +4349,10 @@ index 0000000..e098c31
 +/// a rectangle's pixels off their ground: how far each is from the ground's
 +/// colour, against how far the farthest is, is how much of it is text, its
 +/// colour what is left once the ground's share of it is taken out, so that
-+/// drawn over the ground's colour it is the game's pixel again. a rectangle
-+/// with nothing far from its ground is clear.
++/// drawn over the ground's colour it is the game's pixel again. a pixel
++/// less than a tenth text, the grain of a parchment or the corner of a cell
++/// tinting it, is clear, and so is a rectangle with nothing far from its
++/// ground.
 +pub fn text(picture: &[u8], rect: [u16; 4], moved: [i32; 2], ground: [u8; 3]) -> Text {
 +    let (xs, ys) = ranges(rect, moved);
 +    let size = [xs.len(), ys.len()];
@@ -4335,38 +4363,44 @@ index 0000000..e098c31
 +    };
 +    let top = ys.clone().flat_map(|y| xs.clone().map(move |x| (x, y))).map(|(x, y)| far(x, y)).fold(0.0, f32::max);
 +    const NEAR: f32 = 12.0;
++    const FAINT: f32 = 0.1;
 +    let mut rgba = Vec::with_capacity(size[0] * size[1] * 4);
 +    for y in ys {
 +        for x in xs.clone() {
 +            let c = pixel(picture, x, y).map(f32::from);
 +            let alpha = if top < 40.0 { 0.0 } else { ((far(x, y) - NEAR) / (top - NEAR)).clamp(0.0, 1.0) };
++            let alpha = if alpha < FAINT { 0.0 } else { alpha };
 +            let color = if alpha > 0.0 { [0, 1, 2].map(|i| ((c[i] - g[i] * (1.0 - alpha)) / alpha).clamp(0.0, 255.0) as u8) } else { [0; 3] };
 +            rgba.extend_from_slice(&[color[0], color[1], color[2], (alpha * 255.0).round() as u8]);
 +        }
 +    }
-+    trimmed(Text { size, rgba, ground })
++    trimmed(Text { size, rgba, ground, down: 0.0 })
 +}
 +
 +/// the text without the clear rows and columns round it, so that it is
-+/// placed by what it shows.
++/// placed by what it shows, and where that lies in the rectangle.
 +fn trimmed(text: Text) -> Text {
 +    let [width, height] = text.size;
-+    let seen = |x: usize, y: usize| text.rgba[(y * width + x) * 4 + 3] > 8;
++    let seen = |x: usize, y: usize| text.rgba[(y * width + x) * 4 + 3] > 0;
 +    let columns: Vec<usize> = (0..width).filter(|&x| (0..height).any(|y| seen(x, y))).collect();
 +    let rows: Vec<usize> = (0..height).filter(|&y| (0..width).any(|x| seen(x, y))).collect();
 +    let (Some(&x0), Some(&x1), Some(&y0), Some(&y1)) = (columns.first(), columns.last(), rows.first(), rows.last()) else {
-+        return Text { size: [0, 0], rgba: Vec::new(), ground: text.ground };
++        return Text { size: [0, 0], rgba: Vec::new(), ground: text.ground, down: 0.0 };
 +    };
 +    let mut rgba = Vec::with_capacity((x1 - x0 + 1) * (y1 - y0 + 1) * 4);
 +    for y in y0..=y1 {
 +        rgba.extend_from_slice(&text.rgba[(y * width + x0) * 4..(y * width + x1 + 1) * 4]);
 +    }
-+    Text { size: [x1 - x0 + 1, y1 - y0 + 1], rgba, ground: text.ground }
++    let down = (y0 + y1 + 1) as f32 / 2.0 - height as f32 / 2.0;
++    Text { size: [x1 - x0 + 1, y1 - y0 + 1], rgba, ground: text.ground, down }
 +}
 +
-+/// how full a gauge of segments is: the lit ones in its brightest row over
-+/// all of them in the rows about it, where the unlit ones show too.
-+pub fn fraction(picture: &[u8], rect: [u16; 4], moved: [i32; 2]) -> f32 {
++/// the rows of a gauge of segments, a point of HP each, as the game draws
++/// them: each row's lit ones and all of them, from the top. a row is a run
++/// of the rectangle's rows with segments in them, every segment showing in
++/// its dim lower part and only the lit ones bright in their upper part,
++/// apart from each other by darker columns.
++pub fn ticks(picture: &[u8], rect: [u16; 4], moved: [i32; 2]) -> Vec<[u32; 2]> {
 +    let (xs, ys) = ranges(rect, moved);
 +    let light = |x: usize, y: usize| {
 +        let [r, g, b] = pixel(picture, x, y).map(f32::from);
@@ -4383,10 +4417,20 @@ index 0000000..e098c31
 +        }
 +        count
 +    };
-+    let Some(best) = ys.clone().max_by_key(|&y| runs(y, 150.0)) else { return 0.0 };
-+    let lit = runs(best, 150.0);
-+    let all = ys.filter(|y| y.abs_diff(best) <= 6).map(|y| runs(y, 50.0)).max().unwrap_or(0);
-+    if all == 0 { 0.0 } else { (lit as f32 / all as f32).min(1.0) }
++    let mut rows = Vec::new();
++    let mut row: Option<[u32; 2]> = None;
++    for y in ys {
++        match runs(y, 50.0) {
++            0 => rows.extend(row.take()),
++            all => {
++                let [lit, most] = row.get_or_insert([0, 0]);
++                *lit = (*lit).max(runs(y, 100.0));
++                *most = (*most).max(all);
++            }
++        }
++    }
++    rows.extend(row);
++    rows
 +}
 +
 +/// how far the game moved a side's panels, shaking them as its fighter is
@@ -4411,7 +4455,7 @@ index 0000000..e098c31
 +            hp: taken(side.hp),
 +            weapon: taken(side.weapon),
 +            values: side.values.map(taken),
-+            fraction: fraction(picture, side.gauge, by),
++            ticks: ticks(picture, side.gauge, by),
 +        }
 +    };
 +    let labels = banners.labels.map(|rect| text(picture, rect, [0, 0], ground(picture, rect, [0, 0])));
@@ -4453,20 +4497,40 @@ index 0000000..e098c31
 +        assert!(half[0] > 200, "its own colour again, {half:?}");
 +    }
 +
-+    /// a gauge of three-pixel segments, the lit ones bright on top and all
-+    /// of them dimmer under, is as full as its lit share.
-+    #[test]
-+    fn a_gauge_is_as_full_as_its_lit_segments() {
++    /// a gauge of three-pixel segments in rows the game's are, all of them
++    /// dim in their lower rows and the lit ones bright above, moved by
++    /// moved, its rows so many segments each and so many lit.
++    fn gauge(rows: &[(usize, usize)], [dx, dy]: [i32; 2]) -> Vec<u8> {
 +        let mut picture = picture([10, 18, 34]);
-+        for segment in 0..10 {
-+            for dx in 0..2 {
-+                let x = 40 + segment * 3 + dx;
-+                put(&mut picture, x, 33, if segment < 7 { [217, 217, 81] } else { [10, 18, 34] });
-+                put(&mut picture, x, 36, [78, 78, 10]);
++        for (row, &(count, lit)) in rows.iter().enumerate() {
++            let top = (31 + row as i32 * 10 + dy) as usize;
++            for segment in 0..count {
++                for column in 0..2 {
++                    let x = (40 + dx) as usize + segment * 3 + column;
++                    for y in top..top + 4 {
++                        put(&mut picture, x, y, if segment < lit { [217, 217, 81] } else { [40, 40, 40] });
++                    }
++                    for y in top + 4..top + 8 {
++                        put(&mut picture, x, y, [78, 78, 10]);
++                    }
++                }
 +            }
 +        }
-+        let full = fraction(&picture, [38, 30, 40, 10], [0, 0]);
-+        assert!((full - 0.7).abs() < 1e-6, "{full}");
++        picture
++    }
++
++    /// a gauge comes in its rows of ticks, as many lit as are bright, a
++    /// second row partly lit or not at all, and so does one the game shook,
++    /// moved as far as its panel.
++    #[test]
++    fn a_gauge_comes_in_rows_of_ticks() {
++        let rect = [38, 28, 60, 20];
++        assert_eq!(ticks(&gauge(&[(12, 12), (3, 1)], [0, 0]), rect, [0, 0]), vec![[12, 12], [1, 3]]);
++        assert_eq!(ticks(&gauge(&[(12, 7), (3, 0)], [0, 0]), rect, [0, 0]), vec![[7, 12], [0, 3]]);
++        assert_eq!(ticks(&gauge(&[(9, 4)], [0, 0]), rect, [0, 0]), vec![[4, 9]]);
++        for moved in [[6, -5], [-4, 7]] {
++            assert_eq!(ticks(&gauge(&[(12, 12), (3, 2)], moved), rect, moved), vec![[12, 12], [2, 3]], "{moved:?}");
++        }
 +    }
 +}
 diff --git a/crates/zakuro/src/cli.rs b/crates/zakuro/src/cli.rs
@@ -4656,7 +4720,7 @@ index 0000000..af5fd15
 +    }
 +}
 diff --git a/crates/zakuro/src/gui.rs b/crates/zakuro/src/gui.rs
-index a5b4c18..c344a90 100644
+index a5b4c18..d7c7a65 100644
 --- a/crates/zakuro/src/gui.rs
 +++ b/crates/zakuro/src/gui.rs
 @@ -15,8 +15,7 @@ pub struct Gui {
@@ -4697,7 +4761,7 @@ index a5b4c18..c344a90 100644
  /// egui's own fonts, then extra ones to fall back on for what they lack.
  /// game names come in Japanese, Korean and Chinese, whose characters
  /// egui's fonts have none of and drew as boxes.
-@@ -186,6 +199,162 @@ fn font_candidates() -> Vec<(char, Vec<std::path::PathBuf>)> {
+@@ -186,6 +199,254 @@ fn font_candidates() -> Vec<(char, Vec<std::path::PathBuf>)> {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -4711,7 +4775,13 @@ index a5b4c18..c344a90 100644
 +    /// draws what egui made of a frame into a picture, triangle by
 +    /// triangle, so the menus can be looked at without a window.
 +    /// pointer, when given, is where the mouse is, in the picture's pixels.
-+    fn paint(ctx: &egui::Context, size: [u32; 2], pointer: Option<[f32; 2]>, mut run: impl FnMut(&mut egui::Ui)) -> image::RgbaImage {
++    fn paint(ctx: &egui::Context, size: [u32; 2], pointer: Option<[f32; 2]>, run: impl FnMut(&mut egui::Ui)) -> image::RgbaImage {
++        paint_with(ctx, size, pointer, Vec::new(), run)
++    }
++
++    /// paint, with textures of the frontend's own as well, such as the
++    /// bottom screen's, BOTTOM_SCREEN.
++    fn paint_with(ctx: &egui::Context, size: [u32; 2], pointer: Option<[f32; 2]>, own: Vec<(TextureId, egui::ColorImage)>, mut run: impl FnMut(&mut egui::Ui)) -> image::RgbaImage {
 +        use egui::epaint::{ClippedPrimitive, Primitive};
 +        use std::collections::HashMap;
 +        let zoom = 1.5;
@@ -4745,7 +4815,7 @@ index a5b4c18..c344a90 100644
 +            }
 +        }
 +        // frames for egui to measure the windows in, then the one drawn
-+        let mut textures: HashMap<egui::TextureId, egui::ColorImage> = HashMap::new();
++        let mut textures: HashMap<egui::TextureId, egui::ColorImage> = own.into_iter().collect();
 +        let mut output = ctx.run_ui(input(), &mut run);
 +        for _ in 0..2 {
 +            take(&mut textures, &mut output.textures_delta);
@@ -4857,11 +4927,97 @@ index a5b4c18..c344a90 100644
 +            window.save(folder.join(name)).unwrap();
 +        }
 +    }
++
++    /// a battle in each look of its panels, from a battle's screens as
++    /// tools/boot.sh dumps them in the folder ZAKURO_BATTLE, to pictures in
++    /// ZAKURO_SNAPSHOT, as the frontend draws them in a 1080-high window,
++    /// each with the buttons shown and, -hidden, without:
++    /// battle-panels.png, the game's own panels cut from the bottom screen
++    /// over the top one; battle-banners.png, the panels drawn anew;
++    /// battle-buttons.png, the buttons alone, the look with no panels; and
++    /// each piece of text the banners take off the bottom screen, eight
++    /// times as big on magenta.
++    #[test]
++    #[ignore = "draws pictures to look at, ZAKURO_SNAPSHOT=folder ZAKURO_BATTLE=folder cargo test -p zakuro snapshot -- --ignored"]
++    fn snapshot_the_battle_panels() {
++        let (Some(folder), Some(battle)) = (std::env::var_os("ZAKURO_SNAPSHOT"), std::env::var_os("ZAKURO_BATTLE")) else { return };
++        let (folder, battle) = (std::path::PathBuf::from(folder), std::path::PathBuf::from(battle));
++        std::fs::create_dir_all(&folder).unwrap();
++        let bottom = image::open(battle.join("zakuro-bottom.png")).unwrap().to_rgba8();
++        let top = image::open(battle.join("zakuro-top.png")).unwrap().to_rgba8();
++        let awakening = 0x0004_0000_0009_F100;
++        let read = crate::banners::read(bottom.as_raw(), zakuro_core::loader::banners(awakening).unwrap(), &[]).unwrap();
++        let (panels, buttons) = zakuro_core::loader::battle_pieces(awakening).unwrap();
++        let size = [1800u32, 1080];
++        let window = zakuro_gpu::Viewport { x: 0.0, y: 0.0, width: size[0] as f32, height: size[1] as f32 };
++        let bottom_image = egui::ColorImage::from_rgba_unmultiplied([bottom.width() as usize, bottom.height() as usize], bottom.as_raw());
++        let whole = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
++        let none: &[zakuro_gpu::Piece] = &[];
++        let looks = [("battle-panels", panels, false), ("battle-banners", none, true), ("battle-buttons", none, false)];
++        let pictures = looks.into_iter().flat_map(|(name, panels, banners)| [(format!("{name}.png"), [panels, buttons], banners), (format!("{name}-hidden.png"), [panels, none], banners)]);
++        for (name, drawn, banners) in pictures {
++            // the panels, then the buttons over them, as the frontend draws them
++            let drawn = drawn.map(|pieces| {
++                let places = zakuro_gpu::piece_places(window, pieces, &[]);
++                let cuts: Vec<Vec<[u16; 3]>> = places
++                    .iter()
++                    .map(|place| match place.cut {
++                        Some(ground) => {
++                            let [left, top, width, height] = place.part;
++                            let rect = [left * 320.0, top * 240.0, width * 320.0, height * 240.0].map(|value| value.round().max(0.0) as u16);
++                            zakuro_gpu::cut_out(bottom.as_raw(), rect, ground)
++                        }
++                        None => Vec::new(),
++                    })
++                    .collect();
++                (places, cuts)
++            });
++            let ctx = crate::gui::context();
++            let mut textures = crate::menus::BannerTextures::default();
++            let mut background: Option<egui::TextureHandle> = None;
++            let picture = paint_with(&ctx, size, None, vec![(BOTTOM_SCREEN, bottom_image.clone())], |ui| {
++                let rect = ui.ctx().content_rect();
++                let id = background
++                    .get_or_insert_with(|| {
++                        let image = egui::ColorImage::from_rgba_unmultiplied([top.width() as usize, top.height() as usize], top.as_raw());
++                        ui.ctx().load_texture("top screen", image, egui::TextureOptions::LINEAR)
++                    })
++                    .id();
++                ui.ctx().layer_painter(egui::LayerId::background()).image(id, rect, whole, egui::Color32::WHITE);
++                if banners {
++                    crate::menus::banners(ui.ctx(), &mut textures, &read, rect, 1.0);
++                }
++                let ppp = ui.ctx().pixels_per_point();
++                for (places, cuts) in &drawn {
++                    crate::menus::pieces(ui.ctx(), places, cuts, crate::PIECE_SHADOW * window.height / 240.0 / ppp, 1.0);
++                }
++            });
++            picture.save(folder.join(name)).unwrap();
++        }
++        fn side(s: &crate::banners::Side) -> [&crate::banners::Text; 6] {
++            [&s.name, &s.hp, &s.weapon, &s.values[0], &s.values[1], &s.values[2]]
++        }
++        let pieces = side(&read.sides[0]).into_iter().chain(side(&read.sides[1])).chain(read.labels.iter());
++        for (n, text) in pieces.enumerate() {
++            let [width, height] = text.size;
++            let mut out = image::RgbaImage::from_pixel(width.max(1) as u32 * 8, height.max(1) as u32 * 8, image::Rgba([255, 0, 255, 255]));
++            for (i, px) in text.rgba.chunks(4).enumerate() {
++                let a = px[3] as f32 / 255.0;
++                let c = [0, 1, 2].map(|k| (px[k] as f32 * a + [255.0, 0.0, 255.0][k] * (1.0 - a)) as u8);
++                for dy in 0..8 {
++                    for dx in 0..8 {
++                        out.put_pixel((i % width) as u32 * 8 + dx, (i / width) as u32 * 8 + dy, image::Rgba([c[0], c[1], c[2], 255]));
++                    }
++                }
++            }
++            out.save(folder.join(format!("piece-{n:02}.png"))).unwrap();
++        }
++    }
      use egui::epaint::text::{Fonts, TextOptions};
  
      /// Japanese names have every character to draw with the system's
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..aa813d0 100644
+index 6cf00db..13327a9 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,8 +3,10 @@
@@ -4917,7 +5073,7 @@ index 6cf00db..aa813d0 100644
  
      let data_dir = options.data.clone().map(PathBuf::from).or_else(default_data_dir);
      if let Some(dir) = &data_dir {
-@@ -97,13 +113,20 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -97,13 +113,22 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          gamepads: gamepad::Gamepads::new(settings.pad.clone()),
          scale: options.scale.unwrap_or(settings.scale).max(1),
          layout: settings.layout,
@@ -4928,6 +5084,8 @@ index 6cf00db..aa813d0 100644
 +        placed: None,
 +        last_pieces: None,
 +        last_banners: None,
++        buttons: None,
++        last_input: (zakuro_core::services::hid::PadState::empty(), false),
          top_shape: settings.top_shape,
          options,
          settings,
@@ -4939,7 +5097,7 @@ index 6cf00db..aa813d0 100644
          data_dir,
          game: None,
          menus: {
-@@ -147,8 +170,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -147,8 +172,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          return;
      }
  
@@ -4950,7 +5108,7 @@ index 6cf00db..aa813d0 100644
      }
      app.audio = if app.options.mute {
          None
-@@ -331,10 +354,16 @@ struct Running {
+@@ -331,10 +356,16 @@ struct Running {
      /// place of the keyboard's and the controllers', and the frames run.
      replay: Option<zakuro_core::replay::Replay>,
      frame: u64,
@@ -4968,7 +5126,7 @@ index 6cf00db..aa813d0 100644
  }
  
  impl Running {
-@@ -347,8 +376,10 @@ impl Running {
+@@ -347,8 +378,10 @@ impl Running {
              replay: None,
              frame: 0,
              frames: 0,
@@ -4979,7 +5137,7 @@ index 6cf00db..aa813d0 100644
          }
      }
  
-@@ -356,7 +387,12 @@ impl Running {
+@@ -356,7 +389,12 @@ impl Running {
          self.frames += 1;
          let elapsed = self.counting_since.elapsed();
          if elapsed >= Duration::from_millis(500) {
@@ -4993,7 +5151,7 @@ index 6cf00db..aa813d0 100644
              self.frames = 0;
              self.counting_since = Instant::now();
          }
-@@ -390,6 +426,25 @@ struct App {
+@@ -390,6 +428,30 @@ struct App {
      scale: u32,
      /// how the screens are arranged.
      layout: Screens,
@@ -5016,10 +5174,15 @@ index 6cf00db..aa813d0 100644
 +    /// what the battle's panels showed last, drawn anew as banners, kept so
 +    /// that they fade out once they go.
 +    last_banners: Option<banners::Read>,
++    /// a battle's buttons over the top screen for a while, see
++    /// ShownButtons, and the game's buttons held and whether it was touched
++    /// the frame before, which tell what is pressed anew.
++    buttons: Option<ShownButtons>,
++    last_input: (zakuro_core::services::hid::PadState, bool),
      /// how wide the top screen shows.
      top_shape: settings::TopShape,
      /// the left button is down, and where the pointer is, in window pixels.
-@@ -472,6 +527,38 @@ impl std::fmt::Display for Times {
+@@ -472,6 +534,86 @@ impl std::fmt::Display for Times {
  }
  
  /// one 3DS frame, about 16.71 ms.
@@ -5051,6 +5214,54 @@ index 6cf00db..aa813d0 100644
 +const PIECE_SHADOW: f32 = 1.5;
 +const PIECE_FADE: f32 = 0.2;
 +
++/// how many seconds a battle's buttons take to come in and to go, and how
++/// long they stay after the last press, see ShownButtons.
++const BUTTONS_IN: f32 = 0.1;
++const BUTTONS_OUT: f32 = 0.3;
++const BUTTONS_STAY: Duration = Duration::from_secs(2);
++
++/// a battle's buttons over the top screen, in whatever look its panels
++/// are: they come in quickly when the cancel button, B, is pressed, stay
++/// until BUTTONS_STAY after it or after any other press or touch while
++/// they show, then fade out, and go with the battle.
++#[derive(Clone, Copy)]
++struct ShownButtons {
++    pieces: &'static [zakuro_gpu::Piece],
++    /// since when they come in, earlier when they were partly there
++    since: Instant,
++    /// until when they stay, from when they go
++    until: Instant,
++}
++
++impl ShownButtons {
++    /// how much they show at now, 0 to 1.
++    fn opacity(&self, now: Instant) -> f32 {
++        let coming = |at: Instant| (at.saturating_duration_since(self.since).as_secs_f32() / BUTTONS_IN).min(1.0);
++        if now < self.until {
++            coming(now)
++        } else {
++            (coming(self.until) - now.duration_since(self.until).as_secs_f32() / BUTTONS_OUT).max(0.0)
++        }
++    }
++
++    /// the buttons a frame later, the game's buttons pressed anew in it and
++    /// whether the screen was touched anew, pieces the battle's buttons
++    /// while a battle shows them.
++    fn next(shown: Option<ShownButtons>, pieces: Option<&'static [zakuro_gpu::Piece]>, pressed: zakuro_core::services::hid::PadState, touched: bool, now: Instant) -> Option<ShownButtons> {
++        let Some(pieces) = pieces else {
++            // gone with the battle, from now on if they were still there
++            return shown.map(|shown| ShownButtons { until: shown.until.min(now), ..shown });
++        };
++        let opacity = shown.map_or(0.0, |shown| shown.opacity(now));
++        let asked = pressed.contains(zakuro_core::services::hid::PadState::B) || (opacity > 0.0 && (!pressed.is_empty() || touched));
++        if !asked {
++            return shown;
++        }
++        let since = now.checked_sub(Duration::from_secs_f32(opacity * BUTTONS_IN)).unwrap_or(now);
++        Some(ShownButtons { pieces, since, until: now + BUTTONS_STAY })
++    }
++}
++
 +/// how round the corners of the bottom screen over the top one are, in its
 +/// pixels, as the battle's panels are, see zakuro_gpu::Rounded.
 +const BOTTOM_OVER_CORNER: f32 = 6.0;
@@ -5058,7 +5269,7 @@ index 6cf00db..aa813d0 100644
  const FRAME_TIME: Duration =
      Duration::from_nanos(zakuro_core::CYCLES_PER_FRAME * 1_000_000_000 / zakuro_core::kernel::thread::CPU_CLOCK_HZ);
  /// how far behind the schedule may fall before it starts over instead of
-@@ -516,7 +603,7 @@ impl ApplicationHandler for App {
+@@ -516,7 +658,7 @@ impl ApplicationHandler for App {
          match backend {
              Ok((window, mut backend)) => {
                  log::info!("presenting with the {} backend", backend.name());
@@ -5067,7 +5278,7 @@ index 6cf00db..aa813d0 100644
                  backend.set_top_width(self.settings.top_shape.width());
                  backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
                  backend.set_stereo(self.settings.stereo());
-@@ -605,13 +692,17 @@ impl App {
+@@ -605,13 +747,17 @@ impl App {
              find_recompiled: !interpret,
              hardware_renderer: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
              texture_packs: self.settings.texture_packs,
@@ -5085,7 +5296,7 @@ index 6cf00db..aa813d0 100644
              resolution: self.settings.resolution,
              device: self.backend.as_ref().and_then(Backend::shared_device),
              username: self.nickname(),
-@@ -661,12 +752,12 @@ impl App {
+@@ -661,12 +807,12 @@ impl App {
              config.update = game.update.as_ref().map(|update| update.path.clone());
              config.dlc = game.dlc.iter().map(|dlc| dlc.path.clone()).collect();
              config.dlp_child = game.dlp_child.as_ref().map(|child| child.path.clone());
@@ -5102,7 +5313,7 @@ index 6cf00db..aa813d0 100644
          }
          // a recording starts the clock at a known time, for playing it back
          let record = std::env::var_os("ZAKURO_RECORD").map(PathBuf::from);
-@@ -698,6 +789,9 @@ impl App {
+@@ -698,6 +844,9 @@ impl App {
              .or_else(|| Some(library::Smdh::parse(system.title.as_ref()?.exefs_file("icon")?)?.name).filter(|name| !name.is_empty()))
              .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
              .unwrap_or_default();
@@ -5112,7 +5323,7 @@ index 6cf00db..aa813d0 100644
          let mut game = Running::new(system, path.to_owned(), name);
          game.replay = replay;
          if let Some(record) = record {
-@@ -754,7 +848,9 @@ impl App {
+@@ -754,7 +903,9 @@ impl App {
          if let (true, Some(index)) = (pressed, self.menus.rebinding) {
              self.menus.rebinding = None;
              if code != KeyCode::Escape {
@@ -5123,7 +5334,7 @@ index 6cf00db..aa813d0 100644
                      *key = code;
                  }
                  self.apply_settings();
-@@ -789,6 +885,10 @@ impl App {
+@@ -789,6 +940,10 @@ impl App {
                  KeyCode::F11 => self.toggle_fullscreen(),
                  KeyCode::F5 if self.game.is_some() => self.save_state(),
                  KeyCode::F8 if self.game.is_some() => self.load_state(),
@@ -5134,7 +5345,7 @@ index 6cf00db..aa813d0 100644
                  _ => {}
              }
          }
-@@ -808,13 +908,17 @@ impl App {
+@@ -808,13 +963,17 @@ impl App {
      fn poll_gamepads(&mut self) {
          for button in self.gamepads.poll() {
              if let Some(index) = self.menus.rebinding_pad.take() {
@@ -5153,18 +5364,25 @@ index 6cf00db..aa813d0 100644
              }
          }
      }
-@@ -828,7 +932,19 @@ impl App {
+@@ -828,7 +987,26 @@ impl App {
      fn touch(&mut self) {
          let Some(window) = &self.window else { return };
          let size = window.inner_size();
 -        let (_, bottom) = layout(size.width, size.height, self.layout.screens(), self.top_shape.width(), self.settings.integer_scale);
 +        let (top, bottom) = layout(size.width, size.height, self.shown_layout(), self.top_shape.width(), self.settings.integer_scale);
 +        // a piece of the bottom screen over the top one touches the bottom
-+        // screen where that piece of it is
-+        if let (Some(top), zakuro_gpu::ScreenLayout::TopWithPieces(pieces)) = (top, self.shown_layout()) {
++        // screen where that piece of it is, a battle's buttons first while
++        // they show and never while they don't
++        let buttons = self.buttons.filter(|shown| shown.opacity(Instant::now()) > 0.0).map(|shown| shown.pieces);
++        let laid = match self.shown_layout() {
++            zakuro_gpu::ScreenLayout::TopWithPieces(pieces) => Some(pieces),
++            _ => None,
++        };
++        if let (Some(top), true) = (top, buttons.is_some() || laid.is_some()) {
 +            let pressed = self.mouse_down;
 +            let spans = self.game.as_ref().map(|game| game.system.marker_spans()).unwrap_or_default();
-+            let at = zakuro_gpu::piece_places(top, pieces, &spans).into_iter().find_map(|zakuro_gpu::PiecePlace { viewport: place, part: [left, top, width, height], .. }| {
++            let places = buttons.into_iter().chain(laid).flat_map(|pieces| zakuro_gpu::piece_places(top, pieces, &spans));
++            let at = places.into_iter().find_map(|zakuro_gpu::PiecePlace { viewport: place, part: [left, top, width, height], .. }| {
 +                let (x, y) = ((self.cursor.0 - place.x) / place.width, (self.cursor.1 - place.y) / place.height);
 +                ((0.0..1.0).contains(&x) && (0.0..1.0).contains(&y)).then(|| (((left + x * width) * 320.0) as u16, ((top + y * height) * 240.0) as u16))
 +            });
@@ -5174,7 +5392,7 @@ index 6cf00db..aa813d0 100644
          // with the top screen alone there is nothing to touch
          let Some(bottom) = bottom else {
              self.keyboard.touch(None);
-@@ -887,11 +1003,24 @@ impl App {
+@@ -887,11 +1065,24 @@ impl App {
      /// saves the settings and puts to use what can change right away.
      fn apply_settings(&mut self) {
          self.settings.save();
@@ -5199,7 +5417,7 @@ index 6cf00db..aa813d0 100644
              // games read the 3D slider every frame
              let slider = self.settings.slider_3d();
              if game.system.config.slider_3d != slider {
-@@ -938,13 +1067,21 @@ impl App {
+@@ -938,13 +1129,21 @@ impl App {
              backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
              backend.set_stereo(self.settings.stereo());
          }
@@ -5222,7 +5440,7 @@ index 6cf00db..aa813d0 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1095,132 @@ impl App {
+@@ -958,6 +1157,129 @@ impl App {
          }
      }
  
@@ -5248,14 +5466,11 @@ index 6cf00db..aa813d0 100644
 +                // the world map's place name, and while the key has it there
 +                // the bottom screen in the middle
 +                Scene::Pieces(pieces) => ScreenLayout::TopWithPieces(pieces),
-+                // the game's panels, its buttons by the banners, or nothing
++                // the game's panels, or the banners drawn anew, or nothing,
++                // the buttons over any of them for a while, see ShownButtons
 +                Scene::Battle(pieces) => match self.settings.battle_ui {
 +                    settings::BattleUi::Panels => ScreenLayout::TopWithPieces(pieces),
-+                    settings::BattleUi::Banners => match self.game.as_ref().and_then(|game| game.system.battle_buttons()) {
-+                        Some(buttons) => ScreenLayout::TopWithPieces(buttons),
-+                        None => ScreenLayout::TopOnly,
-+                    },
-+                    settings::BattleUi::Off => ScreenLayout::TopOnly,
++                    settings::BattleUi::Banners | settings::BattleUi::Off => ScreenLayout::TopOnly,
 +                },
 +                _ if self.bottom_over => self.bottom_over_at(Over::Middle),
 +                Scene::WorldMap => match self.game.as_ref().and_then(|game| game.system.world_pieces()) {
@@ -5355,7 +5570,7 @@ index 6cf00db..aa813d0 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -1021,6 +1284,9 @@ impl App {
+@@ -1021,6 +1343,9 @@ impl App {
                  Stage::Done => {
                      self.library.refresh_recompiled();
                      let playing = self.game.as_ref().is_some_and(|game| game.system.title.as_ref().is_some_and(|title| title.program_id() == program_id));
@@ -5365,7 +5580,7 @@ index 6cf00db..aa813d0 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1034,7 +1300,8 @@ impl App {
+@@ -1034,7 +1359,8 @@ impl App {
                      }
                  }
                  Stage::Failed(error) if error != "cancelled" => {
@@ -5375,7 +5590,7 @@ index 6cf00db..aa813d0 100644
                  }
                  _ => {}
              }
-@@ -1065,11 +1332,28 @@ impl App {
+@@ -1065,11 +1391,28 @@ impl App {
                      job.cancel();
                  }
              }
@@ -5408,7 +5623,7 @@ index 6cf00db..aa813d0 100644
                  }
              }
              Action::SaveState => self.save_state(),
-@@ -1087,32 +1371,6 @@ impl App {
+@@ -1087,32 +1430,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -5441,7 +5656,7 @@ index 6cf00db..aa813d0 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1408,21 @@ impl App {
+@@ -1150,6 +1467,21 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -5463,7 +5678,7 @@ index 6cf00db..aa813d0 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1306,6 +1579,18 @@ impl App {
+@@ -1306,8 +1638,26 @@ impl App {
          let Some(game) = &mut self.game else { return };
          let input = match &mut game.replay {
              Some(replay) => replay.input(game.frame),
@@ -5481,8 +5696,16 @@ index 6cf00db..aa813d0 100644
 +            }
              None => self.gamepads.apply(self.keyboard.state()),
          };
++        let (held, touched) = std::mem::replace(&mut self.last_input, (input.buttons, input.touch.is_some()));
++        let pieces = match self.scene {
++            Scene::Battle(_) if !self.settings.original => game.system.battle_buttons(),
++            _ => None,
++        };
++        self.buttons = ShownButtons::next(self.buttons, pieces, input.buttons.difference(held), input.touch.is_some() && !touched, Instant::now());
          game.frame += 1;
-@@ -1546,9 +1831,77 @@ impl App {
+         if let Some(recorder) = &mut game.recorder {
+             recorder.record(input);
+@@ -1546,9 +1896,85 @@ impl App {
              .flatten()
              .and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
              .map(ago);
@@ -5553,6 +5776,14 @@ index 6cf00db..aa813d0 100644
 +            let size = window.inner_size();
 +            layout(size.width, size.height, zakuro_gpu::ScreenLayout::TopOnly, self.top_shape.width(), self.settings.integer_scale).0
 +        });
++        // a battle's buttons over the top screen while they show, whatever
++        // the look of its panels, see ShownButtons, in the window's pixels,
++        // their shadow's length there and how much they show
++        let buttons = self.buttons.map(|shown| (shown, shown.opacity(Instant::now()))).filter(|&(_, opacity)| opacity > 0.0).and_then(|(shown, opacity)| {
++            let top = banner_top?;
++            let spans = self.game.as_ref().map(|game| game.system.marker_spans()).unwrap_or_default();
++            Some((zakuro_gpu::piece_places(top, shown.pieces, &spans), PIECE_SHADOW * top.height / 240.0, opacity))
++        });
 +        let last_banners = &self.last_banners;
          let (Some(gui), Some(window)) = (&mut self.gui, &self.window) else { return Overlay::default() };
          let show_fps = self.settings.show_fps;
@@ -5561,7 +5792,7 @@ index 6cf00db..aa813d0 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,7 +1914,14 @@ impl App {
+@@ -1561,7 +1987,14 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -5577,7 +5808,7 @@ index 6cf00db..aa813d0 100644
          });
          let corner = self.overlay_corner.clone().filter(|_| game.is_some());
          let (menus, library, settings, jobs) = (&mut self.menus, &self.library, &mut self.settings, &self.jobs);
-@@ -1569,10 +1929,26 @@ impl App {
+@@ -1569,10 +2002,29 @@ impl App {
          let overlay = gui.frame(window, |ui| {
              match &game {
                  Some((name, fps, recompiled)) => {
@@ -5597,6 +5828,9 @@ index 6cf00db..aa813d0 100644
 +                    if let (Some((pieces, edge)), true) = (&pieces, opacity > 0.0) {
 +                        menus::pieces(ui.ctx(), pieces, &cuts, edge / ui.ctx().pixels_per_point(), opacity);
 +                    }
++                    if let Some((places, edge, opacity)) = &buttons {
++                        menus::pieces(ui.ctx(), places, &[], edge / ui.ctx().pixels_per_point(), *opacity);
++                    }
 +                    if let Some((bottom, edge, corner)) = over {
 +                        let ppp = ui.ctx().pixels_per_point();
 +                        let rect = egui::Rect::from_min_size(egui::pos2(bottom.x, bottom.y) / ppp, egui::vec2(bottom.width, bottom.height) / ppp);
@@ -5605,7 +5839,7 @@ index 6cf00db..aa813d0 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,7 +1957,7 @@ impl App {
+@@ -1581,7 +2033,7 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -5614,7 +5848,7 @@ index 6cf00db..aa813d0 100644
              }
              if let Some(request) = &keyboard {
                  actions.extend(menus.keyboard(ui.ctx(), request));
-@@ -1597,6 +1973,7 @@ impl App {
+@@ -1597,6 +2049,7 @@ impl App {
      }
  
      fn present(&mut self, event_loop: &ActiveEventLoop) {
@@ -5622,6 +5856,39 @@ index 6cf00db..aa813d0 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
+@@ -1701,6 +2154,32 @@ const _: RendererKind = RendererKind::Software;
+ mod tests {
+     use super::*;
+ 
++    /// a battle's buttons come in on B alone, stay two seconds after the
++    /// last press while they show, fade out after, and go with the battle.
++    #[test]
++    fn battle_buttons_come_on_cancel_and_stay_while_pressed() {
++        use zakuro_core::services::hid::PadState;
++        let pieces: &'static [zakuro_gpu::Piece] = &[];
++        let start = Instant::now();
++        let at = |seconds: f32| start + Duration::from_secs_f32(seconds);
++        let step = |shown, pressed, touched, seconds| ShownButtons::next(shown, Some(pieces), pressed, touched, at(seconds));
++        assert!(step(None, PadState::A, true, 0.0).is_none(), "nothing else brings them");
++        let shown = step(None, PadState::B, false, 0.0).unwrap();
++        let near = |value: f32, wanted: f32| (value - wanted).abs() < 0.01;
++        assert!(near(shown.opacity(at(0.05)), 0.5), "coming in");
++        assert!(near(shown.opacity(at(1.9)), 1.0));
++        assert!(near(shown.opacity(at(2.15)), 0.5), "fading after two seconds");
++        assert!(near(shown.opacity(at(2.4)), 0.0));
++        let kept = step(Some(shown), PadState::A, false, 1.5).unwrap();
++        assert!(near(kept.opacity(at(3.4)), 1.0), "another press keeps them");
++        let touched = step(Some(shown), PadState::empty(), true, 1.5).unwrap();
++        assert!(near(touched.opacity(at(3.4)), 1.0), "so does a touch");
++        assert!(near(step(Some(shown), PadState::A, false, 2.5).unwrap().opacity(at(2.5)), 0.0), "not once gone");
++        let gone = ShownButtons::next(Some(shown), None, PadState::B, false, at(1.0)).unwrap();
++        assert!(near(gone.opacity(at(1.0)), 1.0));
++        assert!(near(gone.opacity(at(1.3)), 0.0), "the battle over, they go");
++    }
++
+     /// a frame goes unshown only while the game runs behind with a
+     /// presenter that waits for the display, a few in a row at most.
+     #[test]
 diff --git a/crates/zakuro/src/library.rs b/crates/zakuro/src/library.rs
 index 85b066b..2ad3d8a 100644
 --- a/crates/zakuro/src/library.rs
@@ -5971,7 +6238,7 @@ index 8a5163d..dbf707e 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..577d45e 100644
+index 9372f02..6bdc7ca 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -8,10 +8,11 @@ use egui::{Align, Color32, Layout, RichText, Vec2};
@@ -7004,7 +7271,7 @@ index 9372f02..577d45e 100644
          self.settings_open = open;
          if !open {
              self.rebinding = None;
-@@ -952,20 +1096,381 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+@@ -952,20 +1096,400 @@ pub fn corner(ctx: &egui::Context, text: &str) {
          });
  }
  
@@ -7219,20 +7486,27 @@ index 9372f02..577d45e 100644
 +    }
 +}
 +
++/// how many ticks of HP a row of the game's gauge holds, and how far apart
++/// they are in the bar, which holds that many, in the banners' measures.
++const TICKS_A_ROW: u32 = 40;
++const TICK_PITCH: f32 = 9.25;
++
 +/// a battle's panels drawn anew over the top screen, top in points: for
 +/// each fighter in the bottom corner on its side, each shape with a faint
 +/// grain of noise, its name on a banner, its
-+/// HP in a diamond by a long bar as full as its gauge, its weapon on a band,
-+/// and Atk, Hit and Crit, in that order on both sides, as tabs over boxes,
-+/// each shape in the colour of the ground its text lies on in the game, the
-+/// text off that ground; the measures are a 1080-high window's at 85%.
++/// HP in a diamond by a long bar with its gauge's ticks, its weapon on a band,
++/// and Atk, Hit and Crit, in that order on both sides, each label in a box
++/// over one of the same size with its value, each shape in the colour of
++/// the ground its text lies on in the game, the text off that ground,
++/// across in the middle of its shape and down where the game writes it;
++/// the measures are a 1080-high window's at 85%.
 +pub fn banners(ctx: &egui::Context, textures: &mut BannerTextures, read: &crate::banners::Read, top: egui::Rect, opacity: f32) {
 +    let painter = ctx.layer_painter(egui::LayerId::background());
 +    let opacity = opacity.clamp(0.0, 1.0);
 +    let color = |[r, g, b]: [u8; 3], alpha: f32| Color32::from_rgba_unmultiplied(r, g, b, (alpha * opacity * 255.0).round() as u8);
 +    let lighter = |c: [u8; 3], by: u8| c.map(|v| v.saturating_add(by));
 +    let k = top.height() / 1080.0 * 0.85;
-+    let group_top = top.bottom() - (50.0 + 288.0) * k;
++    let group_top = top.bottom() - (50.0 + 312.0) * k;
 +    let white = color([255, 255, 255], 1.0);
 +    let noise = textures.noise(ctx);
 +    let fade = Color32::from_white_alpha((opacity * 255.0).round() as u8);
@@ -7259,6 +7533,7 @@ index 9372f02..577d45e 100644
 +        if let Some(id) = id {
 +            let size = egui::vec2(text.size[0] as f32, text.size[1] as f32) * scale * k;
 +            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
++            let center = center + egui::vec2(0.0, text.down * scale * k);
 +            painter.image(id, egui::Rect::from_center_size(center, size), uv, white);
 +        }
 +    };
@@ -7274,17 +7549,8 @@ index 9372f02..577d45e 100644
 +            points
 +        };
 +        let shape = |points: &[(f32, f32)], fill: Color32, stroke: (f32, Color32)| egui::Shape::convex_polygon(place(points), fill, egui::Stroke::new(stroke.0 * k, stroke.1));
-+        let boxed = |x0: f32, y0: f32, x1: f32, y1: f32| egui::Rect::from_two_pos(at(x0, y0), at(x1, y1));
 +        let diamond = |cx: f32, cy: f32, r: f32| [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)];
 +        let cols = if right { [(390.0, 530.0), (230.0, 370.0), (70.0, 210.0)] } else { [(70.0, 210.0), (230.0, 370.0), (390.0, 530.0)] };
-+        // a soft shadow under each part
-+        let dark = color([0, 0, 0], 0.43);
-+        for rect in [boxed(60.0, 0.0, 540.0, 54.0), boxed(64.0, 64.0, 144.0, 144.0), boxed(146.0, 93.0, 544.0, 115.0), boxed(60.0, 142.0, 540.0, 188.0)]
-+            .into_iter()
-+            .chain(cols.iter().map(|&(a, b)| boxed(a, 206.0, b, 288.0)))
-+        {
-+            painter.add(shadow(6.0 * k, dark).as_shape(rect, egui::CornerRadius::same(2)));
-+        }
 +        // the name's banner, a band with a light frame, a faint grain and a
 +        // diamond at each end
 +        let band = [(84.0, 0.0), (516.0, 0.0), (540.0, 27.0), (516.0, 54.0), (84.0, 54.0), (60.0, 27.0)];
@@ -7295,38 +7561,58 @@ index 9372f02..577d45e 100644
 +            painter.add(shape(&diamond(x, 27.0, 9.0), color([255, 255, 255], 0.55), (0.0, Color32::TRANSPARENT)));
 +        }
 +        draw_text(&side.name, at(300.0, 29.0), 3.3);
-+        // the HP: a bar filled as the game's gauge is, the number in a diamond
-+        let bar = [(146.0, 93.0), (530.0, 93.0), (544.0, 104.0), (530.0, 115.0), (146.0, 115.0)];
++        // the HP: a bar with the game's gauge in it, a tick a point of HP, as
++        // many to a row as the game has and as many rows, shaped as the
++        // game's, 2 of every 3 pixels wide, 8 tall and rows 2 apart, the lit
++        // ones from the outer end and every other one a little lighter, as
++        // the game's are; the bar as tall as its rows, its left end under
++        // the diamond and its right one a point; the number in a diamond
++        // across the bar's middle, clear of the bands above and below
++        let rows = side.ticks.len().clamp(1, 2) as f32;
++        let (width, height, gap) = (TICK_PITCH * 2.0 / 3.0, TICK_PITCH * 8.0 / 3.0, TICK_PITCH * 2.0 / 3.0);
++        let inside = rows * height + (rows - 1.0) * gap;
++        let half = inside / 2.0 + 4.0;
++        let start = 148.0 - half;
++        let bar = [(start, 110.0 - half), (528.0, 110.0 - half), (528.0 + half * 0.65, 110.0), (528.0, 110.0 + half), (start, 110.0 + half)];
 +        painter.add(shape(&bar, color([18, 16, 30], 1.0), (2.0, color([220, 220, 230], 1.0))));
 +        let fill = if right { [235, 70, 50] } else { [70, 130, 235] };
-+        let end = 150.0 + 378.0 * side.fraction.clamp(0.0, 1.0);
-+        if side.fraction > 0.0 {
-+            painter.add(shape(&[(150.0, 97.0), (end, 97.0), (end, 111.0), (150.0, 111.0)], color(fill, 1.0), (0.0, Color32::TRANSPARENT)));
-+            painter.add(shape(&[(150.0, 97.0), (end, 97.0), (end, 101.0), (150.0, 101.0)], color(lighter(fill, 60), 1.0), (0.0, Color32::TRANSPARENT)));
++        for (row, &[lit, all]) in side.ticks.iter().take(2).enumerate() {
++            let y0 = 110.0 - inside / 2.0 + row as f32 * (height + gap);
++            for tick in 0..all.min(TICKS_A_ROW) {
++                let x0 = 159.0 + tick as f32 * TICK_PITCH;
++                let x1 = x0 + width;
++                let (body, top) = match tick < lit {
++                    true if tick % 2 == 1 => (lighter(fill, 25), lighter(fill, 85)),
++                    true => (fill, lighter(fill, 60)),
++                    false => ([52, 52, 60], [66, 66, 76]),
++                };
++                painter.add(shape(&[(x0, y0), (x1, y0), (x1, y0 + height), (x0, y0 + height)], color(body, 1.0), (0.0, Color32::TRANSPARENT)));
++                painter.add(shape(&[(x0, y0), (x1, y0), (x1, y0 + height * 0.35), (x0, y0 + height * 0.35)], color(top, 1.0), (0.0, Color32::TRANSPARENT)));
++            }
 +        }
-+        painter.add(shape(&diamond(104.0, 104.0, 40.0), color(side.hp.ground, 1.0), (3.0, color([230, 225, 240], 1.0))));
-+        grain(&place(&diamond(104.0, 104.0, 38.0)));
-+        draw_text(&side.hp, at(104.0, 104.0), 2.0);
++        painter.add(shape(&diamond(104.0, 110.0, 48.0), color(side.hp.ground, 1.0), (3.0, color([230, 225, 240], 1.0))));
++        grain(&place(&diamond(104.0, 110.0, 46.0)));
++        draw_text(&side.hp, at(104.0, 110.0), 2.0);
 +        // the weapon on a band with a diamond at each end
-+        let weapon = [(60.0, 142.0), (540.0, 142.0), (540.0, 188.0), (60.0, 188.0)];
++        let weapon = [(60.0, 166.0), (540.0, 166.0), (540.0, 212.0), (60.0, 212.0)];
 +        painter.add(shape(&weapon, color(side.weapon.ground, 1.0), (2.0, color([235, 235, 235], 1.0))));
 +        grain(&place(&weapon));
 +        for x in [76.0, 524.0] {
-+            painter.add(shape(&diamond(x, 165.0, 6.0), color([240, 240, 240], 1.0), (0.0, Color32::TRANSPARENT)));
++            painter.add(shape(&diamond(x, 189.0, 6.0), color([240, 240, 240], 1.0), (0.0, Color32::TRANSPARENT)));
 +        }
-+        draw_text(&side.weapon, at(300.0, 165.0), 2.4);
-+        // the stats: a tab with the label over a box with the value
++        draw_text(&side.weapon, at(300.0, 189.0), 2.4);
++        // the stats: a box with the label over one as big with the value
 +        for (stat, &(a, b)) in cols.iter().enumerate() {
 +            let label = &read.labels[stat];
-+            let tab = [(a + 10.0, 206.0), (b - 10.0, 206.0), (b, 240.0), (a, 240.0)];
++            let tab = [(a, 230.0), (b, 230.0), (b, 270.0), (a, 270.0)];
 +            painter.add(shape(&tab, color(label.ground, 1.0), (2.0, color([235, 225, 200], 1.0))));
 +            grain(&place(&tab));
-+            draw_text(label, at((a + b) / 2.0, 223.0), 1.9);
++            draw_text(label, at((a + b) / 2.0, 250.0), 1.9);
 +            let value = &side.values[stat];
-+            let cell = [(a, 242.0), (b, 242.0), (b, 288.0), (a, 288.0)];
++            let cell = [(a, 272.0), (b, 272.0), (b, 312.0), (a, 312.0)];
 +            painter.add(shape(&cell, color(value.ground, 1.0), (2.0, white)));
 +            grain(&place(&cell));
-+            draw_text(value, at((a + b) / 2.0, 265.0), 2.2);
++            draw_text(value, at((a + b) / 2.0, 292.0), 2.2);
 +        }
 +    }
 +}
@@ -7395,7 +7681,7 @@ index 9372f02..577d45e 100644
  }
  
  /// a key as a person would call it.
-@@ -1011,7 +1516,7 @@ mod tests {
+@@ -1011,7 +1535,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -7404,7 +7690,7 @@ index 9372f02..577d45e 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1531,14 @@ mod tests {
+@@ -1026,6 +1550,14 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  
