@@ -32,7 +32,7 @@ Esc opens the menu, with the settings, the cheats and save states.
 ## Features
 
 - The 3D is drawn at up to 8 times the console's resolution, and frame
-  interpolation can show battles and cutscenes at 60 frames per second.
+  interpolation can show battles at 60 frames per second.
 - A 16:9 mode shows more of the battlefield.
 - You can play on the top screen alone. The bottom screen can be displayed as an overlay with the press of a button.
 - Battles UI has 3 styles: vanilla style, FE3H style, or no UI.
