@@ -46,7 +46,10 @@ Esc opens the menu, with the settings, the cheats and save states.
   battles. All the built-in tweaks are on from the start, with the top
   screen in 16:9 and faster battles at 100%.
 - Update Launcher, in the launcher's top bar, installs the newest release and
-  restarts the launcher, or says that no update is available.
+  restarts the launcher, or says that no update is available. The
+  launcher's version shows beside its name.
+- Create shortcut, beside Mods, puts a shortcut to the launcher on the
+  desktop, with the game's icon.
 - Original mode plays the game as the console does.
 
 ## Building

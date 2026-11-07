@@ -4236,10 +4236,10 @@ index a5b4c18..f2cf7c5 100644
  
      /// Japanese names have every character to draw with the system's
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..2e0d0ed 100644
+index 6cf00db..52fab8a 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
-@@ -3,17 +3,23 @@
+@@ -3,17 +3,24 @@
  //! at a time.
  
  mod audio;
@@ -4257,13 +4257,14 @@ index 6cf00db..2e0d0ed 100644
  mod recompile;
  mod report;
  mod settings;
++mod shortcut;
 +mod sounds;
 +mod theme;
 +mod update;
  mod zig;
  
  use std::path::{Path, PathBuf};
-@@ -33,6 +39,7 @@ use gui::Gui;
+@@ -33,6 +40,7 @@ use gui::Gui;
  use input::Keyboard;
  use library::Library;
  use menus::{Action, Menus};
@@ -4271,7 +4272,7 @@ index 6cf00db..2e0d0ed 100644
  use present::Backend;
  use recompile::{Job, Stage, Toolchain};
  use settings::{CameraSource, Renderer, Screens, Settings};
-@@ -66,7 +73,11 @@ pub fn run(linked: Option<Linked>) {
+@@ -66,7 +74,11 @@ pub fn run(linked: Option<Linked>) {
  
  /// runs the emulator as run does, with an overlay over the game.
  pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
@@ -4283,7 +4284,7 @@ index 6cf00db..2e0d0ed 100644
  
      let options = match cli::parse() {
          Ok(options) => options,
-@@ -76,6 +87,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -76,6 +88,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          }
      };
      let mut settings = Settings::load();
@@ -4291,7 +4292,7 @@ index 6cf00db..2e0d0ed 100644
      // the console's own number, made the first time and kept, which tells
      // it apart from others over local wireless
      if settings.console_id == 0 {
-@@ -85,6 +97,12 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -85,6 +98,12 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          settings.console_id = hasher.finish() | 1;
          settings.save();
      }
@@ -4304,7 +4305,7 @@ index 6cf00db..2e0d0ed 100644
  
      let data_dir = options.data.clone().map(PathBuf::from).or_else(default_data_dir);
      if let Some(dir) = &data_dir {
-@@ -97,13 +115,29 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -97,13 +116,29 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          gamepads: gamepad::Gamepads::new(settings.pad.clone()),
          scale: options.scale.unwrap_or(settings.scale).max(1),
          layout: settings.layout,
@@ -4335,7 +4336,7 @@ index 6cf00db..2e0d0ed 100644
          data_dir,
          game: None,
          menus: {
-@@ -147,8 +181,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -147,8 +182,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          return;
      }
  
@@ -4346,7 +4347,7 @@ index 6cf00db..2e0d0ed 100644
      }
      app.audio = if app.options.mute {
          None
-@@ -331,10 +365,11 @@ struct Running {
+@@ -331,10 +366,11 @@ struct Running {
      /// place of the keyboard's and the controllers', and the frames run.
      replay: Option<zakuro_core::replay::Replay>,
      frame: u64,
@@ -4359,7 +4360,7 @@ index 6cf00db..2e0d0ed 100644
  }
  
  impl Running {
-@@ -347,8 +382,10 @@ impl Running {
+@@ -347,8 +383,10 @@ impl Running {
              replay: None,
              frame: 0,
              frames: 0,
@@ -4370,7 +4371,7 @@ index 6cf00db..2e0d0ed 100644
          }
      }
  
-@@ -356,7 +393,12 @@ impl Running {
+@@ -356,7 +394,12 @@ impl Running {
          self.frames += 1;
          let elapsed = self.counting_since.elapsed();
          if elapsed >= Duration::from_millis(500) {
@@ -4384,7 +4385,7 @@ index 6cf00db..2e0d0ed 100644
              self.frames = 0;
              self.counting_since = Instant::now();
          }
-@@ -390,6 +432,22 @@ struct App {
+@@ -390,6 +433,22 @@ struct App {
      scale: u32,
      /// how the screens are arranged.
      layout: Screens,
@@ -4407,7 +4408,7 @@ index 6cf00db..2e0d0ed 100644
      /// how wide the top screen shows.
      top_shape: settings::TopShape,
      /// the left button is down, and where the pointer is, in window pixels.
-@@ -516,7 +574,7 @@ impl ApplicationHandler for App {
+@@ -516,7 +575,7 @@ impl ApplicationHandler for App {
          match backend {
              Ok((window, mut backend)) => {
                  log::info!("presenting with the {} backend", backend.name());
@@ -4416,7 +4417,7 @@ index 6cf00db..2e0d0ed 100644
                  backend.set_top_width(self.settings.top_shape.width());
                  backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
                  backend.set_stereo(self.settings.stereo());
-@@ -605,13 +663,16 @@ impl App {
+@@ -605,13 +664,16 @@ impl App {
              find_recompiled: !interpret,
              hardware_renderer: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
              texture_packs: self.settings.texture_packs,
@@ -4433,7 +4434,7 @@ index 6cf00db..2e0d0ed 100644
              resolution: self.settings.resolution,
              device: self.backend.as_ref().and_then(Backend::shared_device),
              username: self.nickname(),
-@@ -661,12 +722,10 @@ impl App {
+@@ -661,12 +723,10 @@ impl App {
              config.update = game.update.as_ref().map(|update| update.path.clone());
              config.dlc = game.dlc.iter().map(|dlc| dlc.path.clone()).collect();
              config.dlp_child = game.dlp_child.as_ref().map(|child| child.path.clone());
@@ -4448,7 +4449,7 @@ index 6cf00db..2e0d0ed 100644
          }
          // a recording starts the clock at a known time, for playing it back
          let record = std::env::var_os("ZAKURO_RECORD").map(PathBuf::from);
-@@ -698,6 +757,7 @@ impl App {
+@@ -698,6 +758,7 @@ impl App {
              .or_else(|| Some(library::Smdh::parse(system.title.as_ref()?.exefs_file("icon")?)?.name).filter(|name| !name.is_empty()))
              .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
              .unwrap_or_default();
@@ -4456,7 +4457,7 @@ index 6cf00db..2e0d0ed 100644
          let mut game = Running::new(system, path.to_owned(), name);
          game.replay = replay;
          if let Some(record) = record {
-@@ -754,7 +814,9 @@ impl App {
+@@ -754,7 +815,9 @@ impl App {
          if let (true, Some(index)) = (pressed, self.menus.rebinding) {
              self.menus.rebinding = None;
              if code != KeyCode::Escape {
@@ -4467,7 +4468,7 @@ index 6cf00db..2e0d0ed 100644
                      *key = code;
                  }
                  self.apply_settings();
-@@ -766,6 +828,7 @@ impl App {
+@@ -766,6 +829,7 @@ impl App {
              self.fast_forward_key = pressed && self.game.is_some();
          }
          if pressed && !event.repeat {
@@ -4475,7 +4476,7 @@ index 6cf00db..2e0d0ed 100644
              match code {
                  KeyCode::Escape if self.game.is_some() => {
                      self.menus.menu_open = !self.menus.menu_open;
-@@ -789,6 +852,12 @@ impl App {
+@@ -789,6 +853,12 @@ impl App {
                  KeyCode::F11 => self.toggle_fullscreen(),
                  KeyCode::F5 if self.game.is_some() => self.save_state(),
                  KeyCode::F8 if self.game.is_some() => self.load_state(),
@@ -4488,7 +4489,7 @@ index 6cf00db..2e0d0ed 100644
                  _ => {}
              }
          }
-@@ -807,14 +876,21 @@ impl App {
+@@ -807,14 +877,21 @@ impl App {
      /// it, and Home opens and closes the menu over the game.
      fn poll_gamepads(&mut self) {
          for button in self.gamepads.poll() {
@@ -4511,7 +4512,7 @@ index 6cf00db..2e0d0ed 100644
              }
          }
      }
-@@ -828,7 +904,11 @@ impl App {
+@@ -828,7 +905,11 @@ impl App {
      fn touch(&mut self) {
          let Some(window) = &self.window else { return };
          let size = window.inner_size();
@@ -4524,7 +4525,7 @@ index 6cf00db..2e0d0ed 100644
          // with the top screen alone there is nothing to touch
          let Some(bottom) = bottom else {
              self.keyboard.touch(None);
-@@ -842,6 +922,28 @@ impl App {
+@@ -842,6 +923,28 @@ impl App {
          }));
      }
  
@@ -4553,7 +4554,7 @@ index 6cf00db..2e0d0ed 100644
      /// tilts the console while the right button is held, toward where the
      /// pointer went and by how far, as Citra's motion emulation does,
      /// which titles were tried with. letting go stands it upright again.
-@@ -887,11 +989,20 @@ impl App {
+@@ -887,11 +990,20 @@ impl App {
      /// saves the settings and puts to use what can change right away.
      fn apply_settings(&mut self) {
          self.settings.save();
@@ -4574,7 +4575,7 @@ index 6cf00db..2e0d0ed 100644
              // games read the 3D slider every frame
              let slider = self.settings.slider_3d();
              if game.system.config.slider_3d != slider {
-@@ -938,13 +1049,20 @@ impl App {
+@@ -938,13 +1050,20 @@ impl App {
              backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
              backend.set_stereo(self.settings.stereo());
          }
@@ -4596,7 +4597,7 @@ index 6cf00db..2e0d0ed 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1076,108 @@ impl App {
+@@ -958,6 +1077,108 @@ impl App {
          }
      }
  
@@ -4705,7 +4706,7 @@ index 6cf00db..2e0d0ed 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -1007,20 +1227,57 @@ impl App {
+@@ -1007,20 +1228,57 @@ impl App {
          self.jobs.push(Job::start(&game.path, update, game.program_id, &game.name, self.data_dir.as_deref(), toolchain));
      }
  
@@ -4765,7 +4766,7 @@ index 6cf00db..2e0d0ed 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1034,7 +1291,8 @@ impl App {
+@@ -1034,7 +1292,8 @@ impl App {
                      }
                  }
                  Stage::Failed(error) if error != "cancelled" => {
@@ -4775,7 +4776,7 @@ index 6cf00db..2e0d0ed 100644
                  }
                  _ => {}
              }
-@@ -1049,6 +1307,13 @@ impl App {
+@@ -1049,7 +1308,22 @@ impl App {
                  }
              }
              Action::Recompile(index) => self.recompile(index, false),
@@ -4787,9 +4788,18 @@ index 6cf00db..2e0d0ed 100644
 +                (None, None) => self.menus.message = Some("No update available.".to_owned()),
 +            },
              Action::DownloadCompiler(index) => self.recompile(index, true),
++            Action::Shortcut(index) => {
++                if let Some(game) = self.library.games.get(index) {
++                    self.menus.message = Some(match shortcut::create(&game.name, game.icon.as_deref()) {
++                        Ok(path) => format!("Shortcut created: {}", path.display()),
++                        Err(error) => format!("The shortcut can't be created: {error}"),
++                    });
++                }
++            }
              Action::Mods(program_id) => {
                  if let Some(data_dir) = &self.data_dir {
-@@ -1065,13 +1330,22 @@ impl App {
+                     let folder = zakuro_core::mods::dir(data_dir, program_id);
+@@ -1065,13 +1339,22 @@ impl App {
                      job.cancel();
                  }
              }
@@ -4802,14 +4812,14 @@ index 6cf00db..2e0d0ed 100644
 +                if let Some(file) = rfd::FileDialog::new().set_title("The game's file").add_filter("3DS games", &["3ds", "cci", "cxi", "cia"]).pick_file() {
 +                    self.settings.game_file = Some(file);
 +                    self.save_and_rescan();
-+                }
-+            }
+                 }
+             }
 +            Action::ChooseUpdate => {
 +                if let Some(file) = rfd::FileDialog::new().set_title("The game's update").add_filter("Updates", &["cia"]).pick_file() {
 +                    self.settings.update_file = Some(file);
 +                    self.save_and_rescan();
-                 }
-             }
++                }
++            }
 +            Action::ForgetUpdate => {
 +                self.settings.update_file = None;
 +                self.save_and_rescan();
@@ -4817,7 +4827,7 @@ index 6cf00db..2e0d0ed 100644
              Action::SaveState => self.save_state(),
              Action::LoadState => self.load_state(),
              Action::HostRoom => self.host_room(),
-@@ -1087,32 +1361,6 @@ impl App {
+@@ -1087,32 +1370,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -4850,7 +4860,7 @@ index 6cf00db..2e0d0ed 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1398,15 @@ impl App {
+@@ -1150,6 +1407,15 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -4866,7 +4876,7 @@ index 6cf00db..2e0d0ed 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1202,6 +1459,7 @@ impl App {
+@@ -1202,6 +1468,7 @@ impl App {
          }
          self.library.poll();
          self.poll_jobs();
@@ -4874,7 +4884,7 @@ index 6cf00db..2e0d0ed 100644
          self.poll_gamepads();
          // a room that went away takes the game's local wireless with it
          if self.room.as_ref().is_some_and(|room| !room.open()) {
-@@ -1304,10 +1562,24 @@ impl App {
+@@ -1304,10 +1571,24 @@ impl App {
      /// runs one frame of the game.
      fn emulate(&mut self) {
          let Some(game) = &mut self.game else { return };
@@ -4900,7 +4910,7 @@ index 6cf00db..2e0d0ed 100644
          game.frame += 1;
          if let Some(recorder) = &mut game.recorder {
              recorder.record(input);
-@@ -1546,9 +1818,26 @@ impl App {
+@@ -1546,9 +1827,26 @@ impl App {
              .flatten()
              .and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
              .map(ago);
@@ -4928,7 +4938,7 @@ index 6cf00db..2e0d0ed 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,18 +1850,41 @@ impl App {
+@@ -1561,18 +1859,41 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -4972,7 +4982,7 @@ index 6cf00db..2e0d0ed 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,7 +1893,7 @@ impl App {
+@@ -1581,7 +1902,7 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -4981,7 +4991,7 @@ index 6cf00db..2e0d0ed 100644
              }
              if let Some(request) = &keyboard {
                  actions.extend(menus.keyboard(ui.ctx(), request));
-@@ -1596,7 +1908,72 @@ impl App {
+@@ -1596,7 +1917,72 @@ impl App {
          overlay
      }
  
@@ -5054,7 +5064,7 @@ index 6cf00db..2e0d0ed 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
-@@ -1697,6 +2074,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
+@@ -1697,6 +2083,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
  /// keeps the renderer kind referenced even when a backend feature is off.
  const _: RendererKind = RendererKind::Software;
  
@@ -5404,7 +5414,7 @@ index 8a5163d..c09ab3d 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..7a6bbbd 100644
+index 9372f02..eb9e0e4 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -4,14 +4,15 @@ use std::collections::HashMap;
@@ -5426,11 +5436,12 @@ index 9372f02..7a6bbbd 100644
  
  /// what the user asked for.
  #[derive(Debug, Clone, PartialEq)]
-@@ -19,16 +20,17 @@ pub enum Action {
+@@ -19,16 +20,18 @@ pub enum Action {
      Play(PathBuf),
      /// recompile the library's game at this index.
      Recompile(usize),
 +    BuildFeet(usize),
++    Shortcut(usize),
 +    Update,
      /// download a compiler, then recompile the library's game at this
      /// index with it.
@@ -5448,7 +5459,7 @@ index 9372f02..7a6bbbd 100644
      /// save the game's state to the slot chosen, or load it from there.
      SaveState,
      LoadState,
-@@ -40,7 +42,6 @@ pub enum Action {
+@@ -40,7 +43,6 @@ pub enum Action {
      /// leave the one taken part in.
      DlpJoin(usize),
      DlpLeave,
@@ -5456,7 +5467,7 @@ index 9372f02..7a6bbbd 100644
      Resume,
      Reset,
      Library,
-@@ -54,6 +55,7 @@ pub enum Action {
+@@ -54,6 +56,7 @@ pub enum Action {
      Keyboard(String, usize),
      /// turn the running game's cheat at this index on or off.
      Cheat(usize, bool),
@@ -5464,7 +5475,7 @@ index 9372f02..7a6bbbd 100644
      /// add a cheat, its name and its code, to the running game.
      AddCheat(String, String),
      /// read the running game's cheats from their file again.
-@@ -71,6 +73,7 @@ pub struct Menus {
+@@ -71,6 +74,7 @@ pub struct Menus {
      cheat_name: String,
      cheat_code: String,
      pub settings_open: bool,
@@ -5472,7 +5483,7 @@ index 9372f02..7a6bbbd 100644
      /// the binding waiting for a key, by its place in Keys::all_mut.
      pub rebinding: Option<usize>,
      /// the controller binding waiting for a button, by its place in
-@@ -96,10 +99,36 @@ pub struct Menus {
+@@ -96,10 +100,36 @@ pub struct Menus {
      /// the library's game to recompile once the player agrees to download a
      /// compiler for it.
      pub compiler_offer: Option<usize>,
@@ -5509,7 +5520,7 @@ index 9372f02..7a6bbbd 100644
  /// the room the player is in, as the multiplayer window shows it.
  pub struct RoomView {
      pub name: String,
-@@ -202,35 +231,51 @@ fn cover(area: Vec2, picture: [usize; 2]) -> egui::Rect {
+@@ -202,35 +232,52 @@ fn cover(area: Vec2, picture: [usize; 2]) -> egui::Rect {
  impl Menus {
      /// the library, filling the window.
      pub fn library(&mut self, ui: &mut egui::Ui, library: &Library, settings: &Settings, jobs: &[Job]) -> Vec<Action> {
@@ -5533,6 +5544,7 @@ index 9372f02..7a6bbbd 100644
 +                ui,
 +                |ui| {
 +                    ui.label(RichText::new("Zakuro").heading().size(24.0));
++                    ui.label(RichText::new(crate::update::RELEASE).weak()).on_hover_text("The launcher's version.");
 +                    ui.separator();
 +                    match (&settings.game_file, &settings.games) {
 +                        (Some(file), _) => ui.label(file.display().to_string()),
@@ -5578,7 +5590,7 @@ index 9372f02..7a6bbbd 100644
          });
          let background = match self.background.get(ui.ctx(), settings.background.as_deref()) {
              Ok(texture) => texture.map(|texture| (texture.id(), texture.size())),
-@@ -245,12 +290,12 @@ impl Menus {
+@@ -245,12 +292,12 @@ impl Menus {
                  let alpha = (settings.background_opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
                  ui.painter().image(texture, area, cover(area.size(), size), Color32::from_white_alpha(alpha));
              }
@@ -5595,7 +5607,7 @@ index 9372f02..7a6bbbd 100644
                      }
                  });
                  return;
-@@ -266,92 +311,138 @@ impl Menus {
+@@ -266,92 +313,142 @@ impl Menus {
                  ui.label("No .3ds, .cci, .cxi or .cia files in that folder.");
                  return;
              }
@@ -5782,6 +5794,10 @@ index 9372f02..7a6bbbd 100644
 +                        if ui.add(mods).on_hover_text("Open the game's mods folder. Files put in its romfs folder replace the game's, the way Luma3DS and Citra take mods, and a texture pack made for Citra or Azahar goes in its textures folder.").clicked() {
 +                            actions.push(Action::Mods(game.program_id));
 +                        }
++                        let shortcut = egui::Button::new(RichText::new("Create shortcut").size(text(20.0))).min_size(Vec2::new(px(200.0), px(64.0)));
++                        if ui.add(shortcut).on_hover_text("Put a shortcut to the launcher on the desktop, with the game's icon.").clicked() {
++                            actions.push(Action::Shortcut(index));
++                        }
                      });
 -                }
 +                });
@@ -5811,7 +5827,7 @@ index 9372f02..7a6bbbd 100644
      }
  
      /// what goes over a running game, the menu when it is open and the
-@@ -361,10 +452,9 @@ impl Menus {
+@@ -361,10 +458,9 @@ impl Menus {
          &mut self,
          ui: &mut egui::Ui,
          name: &str,
@@ -5823,7 +5839,7 @@ index 9372f02..7a6bbbd 100644
          saved: Option<&str>,
      ) -> Vec<Action> {
          let mut actions = Vec::new();
-@@ -398,89 +488,117 @@ impl Menus {
+@@ -398,89 +494,117 @@ impl Menus {
              // clicks go through to the screen under it
              egui::Area::new(egui::Id::new("fps")).fixed_pos(egui::pos2(8.0, 8.0)).interactable(false).show(&ctx, |ui| {
                  egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -6006,7 +6022,7 @@ index 9372f02..7a6bbbd 100644
              let mut checkbox = |ui: &mut egui::Ui, index: usize, name: &str, enabled: bool, notes: &str| {
                  let mut on = enabled;
                  let mut response = ui.checkbox(&mut on, name);
-@@ -493,40 +611,48 @@ impl Menus {
+@@ -493,40 +617,48 @@ impl Menus {
              };
              // Zakuro's own, tested on this build of the game
              if cheats.iter().any(|cheat| cheat.3) {
@@ -6064,7 +6080,7 @@ index 9372f02..7a6bbbd 100644
          actions
      }
  
-@@ -653,188 +779,27 @@ impl Menus {
+@@ -653,188 +785,27 @@ impl Menus {
          // taller than a screen has room for, so it scrolls, and it can be
          // dragged to any size that fits
          let room = ctx.content_rect().height() - 16.0;
@@ -6271,7 +6287,7 @@ index 9372f02..7a6bbbd 100644
          self.settings_open = open;
          if !open {
              self.rebinding = None;
-@@ -846,6 +811,65 @@ impl Menus {
+@@ -846,6 +817,65 @@ impl Menus {
          actions
      }
  
@@ -6337,7 +6353,7 @@ index 9372f02..7a6bbbd 100644
      /// a message box, when there is something to tell.
      /// the keyboard a game opened to have text typed in, it waits until a
      /// button closes it.
-@@ -940,6 +964,135 @@ impl Menus {
+@@ -940,6 +970,135 @@ impl Menus {
      }
  }
  
@@ -6473,7 +6489,7 @@ index 9372f02..7a6bbbd 100644
  /// a line a GameOverlay keeps over the game, in the bottom right corner.
  pub fn corner(ctx: &egui::Context, text: &str) {
      egui::Area::new(egui::Id::new("overlay corner"))
-@@ -952,20 +1105,61 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+@@ -952,20 +1111,61 @@ pub fn corner(ctx: &egui::Context, text: &str) {
          });
  }
  
@@ -6544,7 +6560,7 @@ index 9372f02..7a6bbbd 100644
  }
  
  /// a key as a person would call it.
-@@ -1011,7 +1205,7 @@ mod tests {
+@@ -1011,7 +1211,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -6553,7 +6569,7 @@ index 9372f02..7a6bbbd 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1220,12 @@ mod tests {
+@@ -1026,6 +1226,12 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  
@@ -7415,6 +7431,94 @@ index 1e9b15b..2fefd2c 100644
      }
  
      #[test]
+diff --git a/crates/zakuro/src/shortcut.rs b/crates/zakuro/src/shortcut.rs
+new file mode 100644
+index 0000000..e9cc14a
+--- /dev/null
++++ b/crates/zakuro/src/shortcut.rs
+@@ -0,0 +1,82 @@
++use std::path::{Path, PathBuf};
++use std::process::Command;
++
++use crate::library::ICON_SIZE;
++
++pub fn create(name: &str, icon: Option<&[u8]>) -> Result<PathBuf, String> {
++    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
++    let folder = exe.parent().ok_or("the launcher's folder is unknown")?;
++    let file_name: String = name.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) || c.is_control() { ' ' } else { c }).collect();
++    let file_name = file_name.trim().to_owned();
++    let icon_path = match icon {
++        Some(rgba) => {
++            let path = folder.join(format!("{file_name}.ico"));
++            std::fs::write(&path, ico(rgba)).map_err(|error| format!("the icon can't be saved: {error}"))?;
++            path
++        }
++        None => exe.clone(),
++    };
++    link(&exe, folder, &icon_path, &file_name)
++}
++
++fn link(exe: &Path, folder: &Path, icon: &Path, name: &str) -> Result<PathBuf, String> {
++    const SCRIPT: &str = "$ErrorActionPreference = 'Stop'; \
++        $path = Join-Path ([Environment]::GetFolderPath('Desktop')) ($env:ZAKURO_NAME + '.lnk'); \
++        $link = (New-Object -ComObject WScript.Shell).CreateShortcut($path); \
++        $link.TargetPath = $env:ZAKURO_EXE; \
++        $link.WorkingDirectory = $env:ZAKURO_FOLDER; \
++        $link.IconLocation = $env:ZAKURO_ICON + ',0'; \
++        $link.Save(); \
++        [Console]::Out.Write($path)";
++    let mut command = Command::new("powershell");
++    command
++        .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
++        .env("ZAKURO_NAME", name)
++        .env("ZAKURO_EXE", exe)
++        .env("ZAKURO_FOLDER", folder)
++        .env("ZAKURO_ICON", icon);
++    let output = crate::zig::windowless(&mut command).output().map_err(|error| format!("PowerShell can't start: {error}"))?;
++    if !output.status.success() {
++        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
++    }
++    Ok(PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
++}
++
++fn ico(rgba: &[u8]) -> Vec<u8> {
++    let side = ICON_SIZE;
++    let mask_row = (side.div_ceil(8) + 3) / 4 * 4;
++    let image_size = 40 + side * side * 4 + mask_row * side;
++    let mut out = Vec::with_capacity(22 + image_size);
++    out.extend_from_slice(&[0, 0, 1, 0, 1, 0]);
++    out.extend_from_slice(&[side as u8, side as u8, 0, 0, 1, 0, 32, 0]);
++    out.extend_from_slice(&(image_size as u32).to_le_bytes());
++    out.extend_from_slice(&22u32.to_le_bytes());
++    out.extend_from_slice(&40u32.to_le_bytes());
++    out.extend_from_slice(&(side as i32).to_le_bytes());
++    out.extend_from_slice(&(side as i32 * 2).to_le_bytes());
++    out.extend_from_slice(&1u16.to_le_bytes());
++    out.extend_from_slice(&32u16.to_le_bytes());
++    out.extend_from_slice(&[0; 24]);
++    for y in (0..side).rev() {
++        for pixel in rgba[y * side * 4..(y + 1) * side * 4].chunks_exact(4) {
++            out.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
++        }
++    }
++    out.resize(out.len() + mask_row * side, 0);
++    out
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn icon_file_holds_the_pixels_bottom_up() {
++        let mut rgba = vec![0; ICON_SIZE * ICON_SIZE * 4];
++        rgba[..4].copy_from_slice(&[1, 2, 3, 255]);
++        let file = ico(&rgba);
++        assert_eq!(file.len(), 22 + 40 + ICON_SIZE * ICON_SIZE * 4 + 8 * ICON_SIZE);
++        let top_left = 22 + 40 + (ICON_SIZE - 1) * ICON_SIZE * 4;
++        assert_eq!(&file[top_left..top_left + 4], &[3, 2, 1, 255]);
++    }
++}
 diff --git a/crates/zakuro/src/sounds.rs b/crates/zakuro/src/sounds.rs
 new file mode 100644
 index 0000000..a41e253
@@ -7980,7 +8084,7 @@ index 0000000..5f5fca0
 +}
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..e27c7ef
+index 0000000..1658fd2
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,161 @@
@@ -7992,7 +8096,7 @@ index 0000000..e27c7ef
 +
 +use crate::zig::{fetch, windowless, Fetcher};
 +
-+pub const RELEASE: &str = "v0.2.7";
++pub const RELEASE: &str = "v0.2.8";
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +const ASSET_SUFFIX: &str = "-windows-x64.zip";
 +const STAGING: &str = "update";

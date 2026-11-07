@@ -11,6 +11,7 @@ This list separates the project's code from Zakuro's and 3dsrecomp's. Paths star
 | `zakuro/crates/zakuro/src/banners.rs` | 221 | Reads the text of the FE3H-style banners (names, HP, weapon, stats) off the bottom screen. |
 | `zakuro/crates/zakuro/src/console.rs` | 81 | The optional console window with Zakuro's log (Settings, System). |
 | `zakuro/crates/zakuro/src/overlays.rs` | 407 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
+| `zakuro/crates/zakuro/src/shortcut.rs` | 82 | Create shortcut: saves the game's icon as an .ico beside the launcher and puts a shortcut to the launcher with it on the desktop. |
 | `zakuro/crates/zakuro/src/sounds.rs` | 301 | Reads the bottom screen's open and close sounds from the game's sound archive. |
 | `zakuro/crates/zakuro/src/theme.rs` | 250 | The launcher's look: colours, fonts, window frames, tabs and buttons. |
 | `zakuro/crates/zakuro/src/update.rs` | 161 | Update Launcher: finds the latest release on GitHub, downloads it and puts it in place of the running launcher. |
@@ -502,51 +503,52 @@ Added:
 - `mod console`, line 9
 - `mod feet`, line 10 (feet mod)
 - `mod overlays`, line 16
-- `mod sounds`, line 21
-- `mod theme`, line 22
-- `mod update`, line 23
-- `fn App::touch_on_pieces`, lines 926–942
-- `fn App::marker_spans`, lines 944–946
-- `fn App::library_source`, lines 1080–1086
-- `fn App::save_and_rescan`, lines 1088–1093
-- `fn App::shown_layout`, lines 1095–1114
-- `fn App::bottom_over_layout`, lines 1116–1121
-- `fn App::current_scene`, lines 1123–1134
-- `fn App::place_bottom_over`, lines 1136–1162
-- `fn App::close_bottom_over_with_cancel`, lines 1164–1167
-- `fn App::toggle_bottom_over`, lines 1169–1180
-- `fn App::build_feet`, lines 1231–1242
-- `fn App::poll_update`, lines 1244–1261
-- `fn App::window_layout`, lines 1912–1915
-- `fn App::bottom_over_frame`, lines 1917–1925
-- `fn App::placed_pieces`, lines 1927–1930
-- `fn App::bottom_screen_cuts`, lines 1932–1951
-- `fn App::banners_on`, lines 1953–1958
-- `fn App::read_banners`, lines 1960–1968
-- `fn App::button_places`, lines 1970–1974
-- `fn mod_setting`, lines 2078–2081
+- `mod shortcut`, line 21
+- `mod sounds`, line 22
+- `mod theme`, line 23
+- `mod update`, line 24
+- `fn App::touch_on_pieces`, lines 927–943
+- `fn App::marker_spans`, lines 945–947
+- `fn App::library_source`, lines 1081–1087
+- `fn App::save_and_rescan`, lines 1089–1094
+- `fn App::shown_layout`, lines 1096–1115
+- `fn App::bottom_over_layout`, lines 1117–1122
+- `fn App::current_scene`, lines 1124–1135
+- `fn App::place_bottom_over`, lines 1137–1163
+- `fn App::close_bottom_over_with_cancel`, lines 1165–1168
+- `fn App::toggle_bottom_over`, lines 1170–1181
+- `fn App::build_feet`, lines 1232–1243
+- `fn App::poll_update`, lines 1245–1262
+- `fn App::window_layout`, lines 1921–1924
+- `fn App::bottom_over_frame`, lines 1926–1934
+- `fn App::placed_pieces`, lines 1936–1939
+- `fn App::bottom_screen_cuts`, lines 1941–1960
+- `fn App::banners_on`, lines 1962–1967
+- `fn App::read_banners`, lines 1969–1977
+- `fn App::button_places`, lines 1979–1983
+- `fn mod_setting`, lines 2087–2090
 
 Changed:
 
-- `fn run_with`, lines 76–200
-- `struct Running`, lines 358–374
-- `fn Running::new`, lines 377–391
-- `fn Running::count_frame`, lines 393–406
-- `struct App`, lines 409–502
-- `fn <App as ApplicationHandler>::resumed`, lines 555–594
-- `fn App::config`, lines 656–684
-- `fn App::play`, lines 708–792
-- `fn App::key`, lines 807–874
-- `fn App::poll_gamepads`, lines 878–897
-- `fn App::touch`, lines 905–924
-- `fn App::apply_settings`, lines 991–1018
-- `fn App::apply_layout`, lines 1047–1078
-- `fn App::poll_jobs`, lines 1264–1301
-- `fn App::act`, lines 1303–1450
-- `fn App::step`, lines 1452–1561
-- `fn App::emulate`, lines 1564–1624
-- `fn App::interface`, lines 1813–1910
-- `fn App::present`, lines 1976–2007
+- `fn run_with`, lines 77–201
+- `struct Running`, lines 359–375
+- `fn Running::new`, lines 378–392
+- `fn Running::count_frame`, lines 394–407
+- `struct App`, lines 410–503
+- `fn <App as ApplicationHandler>::resumed`, lines 556–595
+- `fn App::config`, lines 657–685
+- `fn App::play`, lines 709–793
+- `fn App::key`, lines 808–875
+- `fn App::poll_gamepads`, lines 879–898
+- `fn App::touch`, lines 906–925
+- `fn App::apply_settings`, lines 992–1019
+- `fn App::apply_layout`, lines 1048–1079
+- `fn App::poll_jobs`, lines 1265–1302
+- `fn App::act`, lines 1304–1459
+- `fn App::step`, lines 1461–1570
+- `fn App::emulate`, lines 1573–1633
+- `fn App::interface`, lines 1822–1919
+- `fn App::present`, lines 1985–2016
 
 Its imports change too.
 
@@ -591,35 +593,35 @@ Changed:
 
 Added:
 
-- `enum Confirm`, lines 108–112
-- `enum SettingsTab`, lines 114–122
-- `const SETTINGS_TABS`, lines 124–130
-- `fn Menus::game_card`, lines 335–446
-- `fn Menus::keybinds_tab`, lines 814–841
-- `fn Menus::controller_tab`, lines 843–871
-- `fn system_tab`, lines 967–1009
-- `fn graphics_tab`, lines 1011–1089
-- `fn sound_tab`, lines 1091–1094
-- `const ICON`, line 1108
-- `const LONE_CARD`, line 1110
-- `const CARD_WIDTH`, line 1112
-- `fn card_height`, lines 1114–1121
-- `const BOTTOM_OVER`, line 1140
-- `enum UpdateButton`, lines 1142–1147
-- `fn frame_rate`, lines 1149–1155
-- `struct ModSetting`, lines 1157–1163
-- `fn tests::the_frame_rate_counts_the_pictures_shown`, lines 1223–1227
+- `enum Confirm`, lines 109–113
+- `enum SettingsTab`, lines 115–123
+- `const SETTINGS_TABS`, lines 125–131
+- `fn Menus::game_card`, lines 337–452
+- `fn Menus::keybinds_tab`, lines 820–847
+- `fn Menus::controller_tab`, lines 849–877
+- `fn system_tab`, lines 973–1015
+- `fn graphics_tab`, lines 1017–1095
+- `fn sound_tab`, lines 1097–1100
+- `const ICON`, line 1114
+- `const LONE_CARD`, line 1116
+- `const CARD_WIDTH`, line 1118
+- `fn card_height`, lines 1120–1127
+- `const BOTTOM_OVER`, line 1146
+- `enum UpdateButton`, lines 1148–1153
+- `fn frame_rate`, lines 1155–1161
+- `struct ModSetting`, lines 1163–1169
+- `fn tests::the_frame_rate_counts_the_pictures_shown`, lines 1229–1233
 
 Changed:
 
-- `enum Action`, lines 18–65
-- `struct Menus`, lines 67–106
-- `fn Menus::library`, lines 233–333
-- `fn Menus::game`, lines 450–590
-- `fn Menus::cheats`, lines 593–657
-- `fn Menus::settings`, lines 775–812
-- `fn progress`, lines 1123–1138
-- `fn tests::the_settings_fit_a_short_screen`, lines 1206–1221
+- `enum Action`, lines 18–66
+- `struct Menus`, lines 68–107
+- `fn Menus::library`, lines 234–335
+- `fn Menus::game`, lines 456–596
+- `fn Menus::cheats`, lines 599–663
+- `fn Menus::settings`, lines 781–818
+- `fn progress`, lines 1129–1144
+- `fn tests::the_settings_fit_a_short_screen`, lines 1212–1227
 
 Its imports change too.
 
