@@ -41,10 +41,10 @@ Esc opens the menu, with the settings, the cheats and save states.
   one, the six battle buttons show when you press any button and fade out
   3 seconds after your last press.
 - A mod that adds feet to every characters in the game is implemented.
+  Build Feet mod, beside Build, rebuilds it alone in a few seconds.
 - The Cheats window has cheat codes and built-in tweaks such as faster
-  battles, or "Glow to the edges", which keeps the glow of the 3D scenes
-  from fading out along the edges of the screen. All the built-in tweaks are
-  on from the start, with the top screen in 16:9 and faster battles at 100%.
+  battles. All the built-in tweaks are on from the start, with the top
+  screen in 16:9 and faster battles at 100%.
 - Original mode plays the game as the console does.
 
 ## Building
@@ -59,6 +59,7 @@ git clone https://github.com/fearkov/zakuro
 git -C 3dsrecomp checkout 9db0d8b
 git -C zakuro checkout 80d78be
 git -C 3dsrecomp apply ../patches/3dsrecomp-0002-awakening-hints.patch
+git -C 3dsrecomp apply ../patches/3dsrecomp-0003-build-fixes.patch
 git -C zakuro apply ../patches/zakuro-local-changes.patch
 git -C zakuro apply ../mods/feet/zakuro-feet.patch
 (cd zakuro && cargo build --release -p zakuro)

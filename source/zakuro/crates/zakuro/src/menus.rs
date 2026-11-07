@@ -20,6 +20,7 @@ pub enum Action {
     Play(PathBuf),
     /// recompile the library's game at this index.
     Recompile(usize),
+    BuildFeet(usize),
     /// download a compiler, then recompile the library's game at this
     /// index with it.
     DownloadCompiler(usize),
@@ -386,6 +387,10 @@ impl Menus {
                             let build = egui::Button::new(RichText::new(label).size(text(20.0))).min_size(Vec2::new(px(190.0), px(64.0)));
                             if ui.add(build).on_hover_text(hover).clicked() {
                                 actions.push(Action::Recompile(index));
+                            }
+                            let feet = egui::Button::new(RichText::new("Build Feet mod").size(text(20.0))).min_size(Vec2::new(px(200.0), px(64.0)));
+                            if builds && ui.add(feet).on_hover_text("Build only the feet mod from your copy of the game, in a few seconds, without converting the game's code again. The feet show from the next time the game starts.").clicked() {
+                                actions.push(Action::BuildFeet(index));
                             }
                         }
                         let mods = egui::Button::new(RichText::new("Mods").size(text(20.0))).min_size(Vec2::new(px(130.0), px(64.0)));
@@ -1082,7 +1087,7 @@ const ICON: f32 = 180.0;
 
 const LONE_CARD: f32 = 0.75;
 
-const CARD_WIDTH: f32 = 60.0 + ICON + 56.0 + 210.0 + 20.0 + 190.0 + 20.0 + 130.0 + 60.0 + 40.0;
+const CARD_WIDTH: f32 = 60.0 + ICON + 56.0 + 210.0 + 20.0 + 190.0 + 20.0 + 130.0 + 20.0 + 200.0 + 60.0 + 40.0;
 
 fn card_height(job: Option<&Job>, scale: f32) -> f32 {
     let below = match job.map(Job::stage) {

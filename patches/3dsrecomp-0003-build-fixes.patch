@@ -1,0 +1,182 @@
+diff --git a/src/build.rs b/src/build.rs
+index 19e7cff..ebfb589 100644
+--- a/src/build.rs
++++ b/src/build.rs
+@@ -141,7 +141,7 @@ pub fn build(rom: &Path, options: &Options, events: &(dyn Fn(Event) + Sync)) ->
+         events(Event::Compiled { done, total });
+         !stopped()
+     };
+-    compile::compile(&compiler, &generated.dir, &generated.sources, &library, &progress, options.background)?;
++    compile::compile(&compiler, &generated.dir, &generated.sources, &library, &progress, &stopped, options.background)?;
+     events(Event::Built { library: library.clone(), took: start.elapsed() });
+     if options.dir.is_some() {
+         return Ok(library);
+diff --git a/src/codegen/mod.rs b/src/codegen/mod.rs
+index 0f07ff5..1f97901 100644
+--- a/src/codegen/mod.rs
++++ b/src/codegen/mod.rs
+@@ -589,7 +589,7 @@ mod tests {
+         }
+         let sources: Vec<String> = sources.iter().map(|s| s.to_string()).collect();
+         let compiler = crate::compile::check(None).expect("a C compiler");
+-        let built = crate::compile::objects(&compiler, &dir, &sources, &|_, _| true, false);
++        let built = crate::compile::objects(&compiler, &dir, &sources, &|_, _| true, &|| false, false);
+         std::fs::remove_dir_all(&dir).ok();
+         built.unwrap();
+     }
+diff --git a/src/compile.rs b/src/compile.rs
+index ad3c118..5d6e9ca 100644
+--- a/src/compile.rs
++++ b/src/compile.rs
+@@ -31,6 +31,8 @@ const RESERVE: u64 = 1 << 30;
+ /// many, answering whether to go on.
+ pub type Progress<'a> = &'a (dyn Fn(usize, usize) -> bool + Sync);
+ 
++pub type Cancelled<'a> = &'a (dyn Fn() -> bool + Sync);
++
+ /// a C compiler: a program, and the arguments that go before the rest,
+ /// none for gcc, cc for zig, whose compiler is zig cc.
+ #[derive(Debug, Clone, PartialEq, Eq)]
+@@ -75,6 +77,7 @@ impl Compiler {
+     fn command(&self) -> Command {
+         let mut command = Command::new(&self.program);
+         command.args(&self.leading);
++        windowless(&mut command);
+         command
+     }
+ 
+@@ -108,9 +111,21 @@ fn lower(command: &mut Command) {
+ fn lower(command: &mut Command) {
+     use std::os::windows::process::CommandExt;
+     const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+-    command.creation_flags(BELOW_NORMAL_PRIORITY_CLASS);
++    command.creation_flags(BELOW_NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW);
+ }
+ 
++#[cfg(windows)]
++const CREATE_NO_WINDOW: u32 = 0x0800_0000;
++
++#[cfg(windows)]
++fn windowless(command: &mut Command) {
++    use std::os::windows::process::CommandExt;
++    command.creation_flags(CREATE_NO_WINDOW);
++}
++
++#[cfg(not(windows))]
++fn windowless(_: &mut Command) {}
++
+ #[cfg(not(any(unix, windows)))]
+ fn lower(_: &mut Command) {}
+ 
+@@ -170,17 +185,17 @@ pub fn check(given: Option<&Compiler>) -> Result<Compiler, String> {
+ }
+ 
+ /// compiles sources, file names inside dir, and links them into library,
+-/// telling progress how many of them are done after each one. in the
+-/// background the compilers run below normal priority and leave a core.
++/// telling progress how many of them are done after each one.
+ pub fn compile(
+     compiler: &Compiler,
+     dir: &Path,
+     sources: &[String],
+     library: &Path,
+     progress: Progress,
++    cancelled: Cancelled,
+     background: bool,
+ ) -> Result<(), String> {
+-    shared(compiler, &objects(compiler, dir, sources, progress, background)?, library)
++    shared(compiler, &objects(compiler, dir, sources, progress, cancelled, background)?, library)
+ }
+ 
+ /// compiles sources, file names inside dir, each into an object beside it,
+@@ -193,11 +208,12 @@ pub fn objects(
+     dir: &Path,
+     sources: &[String],
+     progress: Progress,
++    cancelled: Cancelled,
+     background: bool,
+ ) -> Result<Vec<PathBuf>, String> {
+     let gcc = compiler.is_gcc();
+     let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+-    let jobs = if background { cores.saturating_sub(1).max(1) } else { cores };
++    let jobs = cores;
+     let budget = spare_memory().map(|spare| spare.saturating_sub(RESERVE));
+     let needs: Vec<u64> =
+         sources.iter().map(|source| std::fs::metadata(dir.join(source)).map_or(0, |m| m.len()) * MEMORY_PER_BYTE).collect();
+@@ -237,7 +253,7 @@ pub fn objects(
+                 if background {
+                     lower(&mut command);
+                 }
+-                let status = command
++                command
+                     .args(FLAGS)
+                     .args(if gcc { GCC_FLAGS } else { &[] })
+                     .args(if cfg!(windows) { &[][..] } else { UNIX_FLAGS })
+@@ -246,13 +262,17 @@ pub fn objects(
+                     .arg("-c")
+                     .arg(&path)
+                     .arg("-o")
+-                    .arg(path.with_extension("o"))
+-                    .status();
+-                if !status.is_ok_and(|s| s.success()) {
+-                    failures.lock().unwrap().push(source.clone());
+-                }
+-                if !progress(done.fetch_add(1, Ordering::Relaxed) + 1, sources.len()) {
+-                    stopped.store(true, Ordering::Relaxed);
++                    .arg(path.with_extension("o"));
++                match run_unless_cancelled(&mut command, cancelled) {
++                    None => stopped.store(true, Ordering::Relaxed),
++                    Some(status) => {
++                        if !status.is_ok_and(|s| s.success()) {
++                            failures.lock().unwrap().push(source.clone());
++                        }
++                        if !progress(done.fetch_add(1, Ordering::Relaxed) + 1, sources.len()) {
++                            stopped.store(true, Ordering::Relaxed);
++                        }
++                    }
+                 }
+                 let mut state = state.lock().unwrap();
+                 state.1 -= needs[index];
+@@ -271,6 +291,25 @@ pub fn objects(
+     Ok(sources.iter().map(|source| dir.join(source).with_extension("o")).collect())
+ }
+ 
++fn run_unless_cancelled(command: &mut Command, cancelled: Cancelled) -> Option<std::io::Result<ExitStatus>> {
++    let mut child = match command.spawn() {
++        Ok(child) => child,
++        Err(error) => return Some(Err(error)),
++    };
++    loop {
++        match child.try_wait() {
++            Ok(Some(status)) => return Some(Ok(status)),
++            Ok(None) if cancelled() => {
++                let _ = child.kill();
++                let _ = child.wait();
++                return None;
++            }
++            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
++            Err(error) => return Some(Err(error)),
++        }
++    }
++}
++
+ /// links objects into a shared library. on Windows gcc's runtime goes in
+ /// with it, so the DLL needs no other DLL beside it.
+ pub fn shared(compiler: &Compiler, objects: &[PathBuf], library: &Path) -> Result<(), String> {
+@@ -320,6 +359,7 @@ pub fn archive(objects: &[PathBuf], library: &Path) -> Result<(), String> {
+         .unwrap_or_else(|| "ar".to_owned());
+     let library = std::path::absolute(library).map_err(|e| format!("archiving failed, {e}"))?;
+     let mut command = Command::new(&ar);
++    windowless(&mut command);
+     let objects = from_folder(&mut command, objects);
+     finished(command.arg("rcs").arg(library).args(objects).status(), "archiving")
+ }
+@@ -356,7 +396,7 @@ mod tests {
+         let length: usize = sources.iter().map(|source| dir.join(source).with_extension("o").as_os_str().len() + 1).sum();
+         assert!(length > 32_767, "the whole paths would not fit on a command line on Windows");
+         let library = dir.join(if cfg!(windows) { "many.dll" } else { "libmany.so" });
+-        compile(&compiler, &dir, &sources, &library, &|_, _| true, false).unwrap();
++        compile(&compiler, &dir, &sources, &library, &|_, _| true, &|| false, false).unwrap();
+         assert!(library.exists());
+         std::fs::remove_dir_all(dir).unwrap();
+     }

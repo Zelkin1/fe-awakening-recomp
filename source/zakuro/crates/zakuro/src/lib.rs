@@ -1216,17 +1216,32 @@ impl App {
         self.jobs.push(Job::start(&game.path, update, game.program_id, &game.name, self.data_dir.as_deref(), toolchain));
     }
 
+    fn build_feet(&mut self, index: usize) {
+        let Some(game) = self.library.games.get(index) else { return };
+        let Some(data_dir) = self.data_dir.as_deref() else {
+            self.menus.message = Some("The feet mod needs Zakuro's data folder.".to_owned());
+            return;
+        };
+        self.jobs.retain(|job| job.program_id != game.program_id || !job.stage().finished());
+        if self.jobs.iter().any(|job| job.program_id == game.program_id) {
+            return;
+        }
+        self.jobs.push(Job::build_mods_only(&game.path, game.program_id, &game.name, data_dir));
+    }
+
     /// tells about recompiles as they finish.
     fn poll_jobs(&mut self) {
         let mut finished = Vec::new();
         for job in &mut self.jobs {
             if !job.announced && job.stage().finished() {
                 job.announced = true;
-                finished.push((job.program_id, job.name.clone(), job.stage()));
+                finished.push((job.program_id, job.name.clone(), job.stage(), job.mods_only));
             }
         }
-        for (program_id, name, stage) in finished {
+        for (program_id, name, stage, mods_only) in finished {
             match stage {
+                Stage::Done if mods_only => self.menus.message = Some(format!("The feet for {name} are built. They show from the next time the game starts.")),
+                Stage::Failed(error) if mods_only && error != "cancelled" => self.menus.message = Some(format!("Building the feet for {name} failed, {error}")),
                 Stage::Done => {
                     self.library.refresh_recompiled();
                     let playing = self.game.as_ref().is_some_and(|game| game.system.title.as_ref().is_some_and(|title| title.program_id() == program_id));
@@ -1262,6 +1277,7 @@ impl App {
                 }
             }
             Action::Recompile(index) => self.recompile(index, false),
+            Action::BuildFeet(index) => self.build_feet(index),
             Action::DownloadCompiler(index) => self.recompile(index, true),
             Action::Mods(program_id) => {
                 if let Some(data_dir) = &self.data_dir {

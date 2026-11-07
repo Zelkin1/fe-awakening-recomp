@@ -742,7 +742,7 @@ mod tests {
     #[test]
     fn a_new_player_starts_with_every_enhancement_on_and_the_controller_by_its_labels() {
         let settings = Settings::default();
-        assert_eq!(settings.enhancements["000400000009F100"], ["16:9", "Smooth map sprites", "Faster battles", "Glow to the edges"]);
+        assert_eq!(settings.enhancements["000400000009F100"], ["16:9", "Smooth map sprites", "Faster battles"]);
         assert_eq!(settings.top_shape, TopShape::Wide16x9);
         assert_eq!((settings.pad.a, settings.pad.b, settings.bottom_over_button), (Button::South, Button::East, Button::RightTrigger2));
     }

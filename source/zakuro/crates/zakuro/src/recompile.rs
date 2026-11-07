@@ -88,6 +88,7 @@ pub struct Job {
     pub name: String,
     /// the user was told how it ended.
     pub announced: bool,
+    pub mods_only: bool,
     started: Instant,
     state: Arc<Mutex<State>>,
     cancel: Arc<AtomicBool>,
@@ -154,7 +155,38 @@ impl Job {
                 state.finished_at = Some(Instant::now());
             }
         });
-        Job { program_id, name: name.to_owned(), announced: false, started: Instant::now(), state, cancel }
+        Job { program_id, name: name.to_owned(), announced: false, mods_only: false, started: Instant::now(), state, cancel }
+    }
+
+    pub fn build_mods_only(rom: &Path, program_id: u64, name: &str, data_dir: &Path) -> Job {
+        let steps: Vec<&'static ModStep> = mod_steps(program_id).collect();
+        let state = Arc::new(Mutex::new(State { stage: Stage::Mods { done: 0, total: 0 }, finished_at: None }));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (progress, stop, rom, data_dir) = (state.clone(), cancel.clone(), rom.to_owned(), data_dir.to_owned());
+        std::thread::spawn(move || {
+            let set = |stage: Stage| {
+                if let Ok(mut state) = progress.lock() {
+                    state.stage = stage;
+                }
+            };
+            let mut outcome = Stage::Done;
+            for step in &steps {
+                let told = |done: usize, total: usize| set(Stage::Mods { done, total });
+                match (step.build)(&rom, &data_dir, &told, &stop) {
+                    Ok(made) => log::info!("built {}: {made}", step.name),
+                    Err(_) if stop.load(Ordering::Relaxed) => outcome = Stage::Failed("cancelled".to_owned()),
+                    Err(error) => outcome = Stage::Failed(error),
+                }
+                if outcome != Stage::Done {
+                    break;
+                }
+            }
+            if let Ok(mut state) = progress.lock() {
+                state.stage = outcome;
+                state.finished_at = Some(Instant::now());
+            }
+        });
+        Job { program_id, name: name.to_owned(), announced: false, mods_only: true, started: Instant::now(), state, cancel }
     }
 
     pub fn stage(&self) -> Stage {

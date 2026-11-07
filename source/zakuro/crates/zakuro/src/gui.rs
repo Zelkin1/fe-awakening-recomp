@@ -345,6 +345,32 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "draws pictures to look at, ZAKURO_SNAPSHOT=folder cargo test -p zakuro snapshot -- --ignored"]
+    fn snapshot_the_library() {
+        let Some(folder) = std::env::var_os("ZAKURO_SNAPSHOT").map(std::path::PathBuf::from) else { return };
+        std::fs::create_dir_all(&folder).unwrap();
+        let mut library = crate::library::Library::default();
+        library.games.push(crate::library::Game {
+            path: "awakening.3ds".into(),
+            name: "Fire Emblem: Awakening".to_owned(),
+            program_id: 0x0004_0000_0009_F100,
+            icon: None,
+            recompiled: true,
+            problem: None,
+            update: None,
+            dlc: Vec::new(),
+            dlp_child: None,
+        });
+        let mut menus = crate::menus::Menus::default();
+        let settings = crate::settings::Settings { game_file: Some("awakening.3ds".into()), ..crate::settings::Settings::default() };
+        let ctx = crate::gui::context();
+        let picture = paint(&ctx, [1280, 800], None, |ui| {
+            menus.library(ui, &library, &settings, &[]);
+        });
+        picture.save(folder.join("library.png")).unwrap();
+    }
+
+    #[test]
     #[ignore = "draws pictures to look at, ZAKURO_SNAPSHOT=folder ZAKURO_BATTLE=folder cargo test -p zakuro snapshot -- --ignored"]
     fn snapshot_the_battle_panels() {
         let (Some(folder), Some(battle)) = (std::env::var_os("ZAKURO_SNAPSHOT"), std::env::var_os("ZAKURO_BATTLE")) else { return };

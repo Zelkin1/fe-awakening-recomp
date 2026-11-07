@@ -2096,7 +2096,7 @@ index 0000000..562ad05
 +    Ok(out)
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 638bf0e..af8b767 100644
+index 52ab5ea..cca4638 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -7,6 +7,7 @@ mod banners;
@@ -2108,7 +2108,7 @@ index 638bf0e..af8b767 100644
  mod gui;
  mod input;
 diff --git a/crates/zakuro/src/recompile.rs b/crates/zakuro/src/recompile.rs
-index 17b117c..614830d 100644
+index ed96243..b14dcf6 100644
 --- a/crates/zakuro/src/recompile.rs
 +++ b/crates/zakuro/src/recompile.rs
 @@ -25,7 +25,7 @@ pub struct ModStep {

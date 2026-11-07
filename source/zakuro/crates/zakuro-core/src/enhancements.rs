@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn a_code_says_where_it_came_from() {
         let enhancements = for_title(0x0004_0000_0009_F100, "rev0");
-        assert_eq!(enhancements.len(), 4);
+        assert_eq!(enhancements.len(), 3);
         let cheats = cheats(0x0004_0000_0009_F100, "rev0", &[], &Default::default());
         assert!(cheats[0].notes.iter().any(|note| note.contains("recomp's notes")));
 
@@ -150,10 +150,16 @@ mod tests {
         assert_eq!(wide.name, "16:9");
         assert!(wide.source.contains("recomp"));
         assert!(wide.lines.iter().all(|line| line.starts_with('0')), "32-bit writes alone");
-        assert_eq!(wide.lines.len(), 15);
+        assert_eq!(wide.lines.len(), 15 + 28);
         assert_eq!(wide.lines[0], "002FE310 EB0572FA");
         assert_eq!(wide.lines[13], "0045AF30 3F888889");
         assert_eq!(wide.lines[14], "003D57F4 3FE38E39");
+        let glow = &wide.lines[15..];
+        assert_eq!(glow[0], "002EA610 EB05C258");
+        assert_eq!(glow[9], "002D1984 EB062583");
+        let routines = glow.iter().filter(|line| line.starts_with("0045AF")).map(|line| u32::from_str_radix(&line[..8], 16).unwrap());
+        assert!(routines.clone().all(|addr| (0x0045_AF78..0x0045_B000).contains(&addr)), "past the words of Faster battles");
+        assert_eq!(routines.count(), 26);
 
         let smooth = &enhancements[1];
         assert_eq!(smooth.name, "Smooth map sprites");
@@ -175,16 +181,6 @@ mod tests {
         };
         assert_eq!((start(&[]), start(&[("Faster battles", 120)]), start(&[("Faster battles", 900)])), (Some(100), Some(120), Some(200)));
 
-        let glow = &enhancements[3];
-        assert_eq!(glow.name, "Glow to the edges");
-        assert!(glow.source.contains("recomp"));
-        assert!(glow.lines.iter().all(|line| line.starts_with('0')), "32-bit writes alone");
-        assert_eq!(glow.lines.len(), 28);
-        assert_eq!(glow.lines[0], "002EA610 EB05C258");
-        assert_eq!(glow.lines[9], "002D1984 EB062583");
-        let routines = glow.lines.iter().filter(|line| line.starts_with("0045AF")).map(|line| u32::from_str_radix(&line[..8], 16).unwrap());
-        assert!(routines.clone().all(|addr| (0x0045_AF78..0x0045_B000).contains(&addr)), "past the words of Faster battles");
-        assert_eq!(routines.count(), 26);
     }
 
     #[test]
