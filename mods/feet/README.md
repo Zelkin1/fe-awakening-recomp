@@ -17,6 +17,3 @@ meet the ground on the game's original code, revision 0.
   project's own patch. It adds the feet builder to the launcher
   (`crates/zakuro/src/feet/`) and the hook that keeps the feet on the
   ground while the game runs (`crates/zakuro-core/src/feet.rs`).
-- The Python scripts are the same builder, for development, and can draw
-  preview pictures of the feet. `build_all.py` builds every character and
-  `foot_build.py` one.

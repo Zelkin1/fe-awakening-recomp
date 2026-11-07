@@ -63,8 +63,12 @@ git -C zakuro apply ../mods/feet/zakuro-feet.patch
 ```
 
 The launcher is then `zakuro/target/release/zakuro.exe`. `tools/env.sh`
-puts a Rust toolchain kept in `tools/rust` and a MinGW gcc on PATH, if
-yours aren't there already.
+puts a Rust toolchain kept in `tools/rust` on PATH, and your MinGW gcc too
+when `MINGW` names its folder.
+
+The files the patches add or change are also in `source/`, in their final
+form and at the same paths as in Zakuro and 3dsrecomp, for reading the
+changes without applying the patches.
 
 A copy of the launcher given to others must include the licenses of the
 code it is built from. `tools/licenses.py` collects them:

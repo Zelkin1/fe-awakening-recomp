@@ -1,0 +1,148 @@
+# enhancements, one game after another:
+# = <title id> <name>
+# <enhancement> | <build> | <who made it> | <what to know about it> [| <where it came from>]
+# <code lines>
+# the build is any, rev<remaster version> for a cartridge without an update,
+# or update <major>.<minor> for a game with that update. each code here was
+# tested on its build in Zakuro, where it doubled the frames the game draws.
+# the 60 FPS codes come from the 60 FPS cheat thread on GBAtemp and Reshiban's
+# collection of them. most of these games count time in frames, so they run
+# faster too, which the note says where the code's author said so or where
+# it showed in testing. turning an enhancement off puts back what its code
+# changed, so a game goes back to its own frame rate.
+
+= 0004000000054000 Super Mario 3D Land (USA)
+60 FPS | rev0 | Hazerou | The whole game runs twice as fast with it.
+D3000000 15000000
+2091621C 00000001
+D2000000 00000000
+
+= 0004000000055D00 Pokémon X (USA)
+60 FPS | rev0 | Reshiban | The whole game runs twice as fast with it.
+28C61A85 00000000
+
+= 0004000000055E00 Pokémon Y (USA)
+60 FPS | rev0 | Reshiban | The whole game runs twice as fast with it.
+28C61A85 00000000
+
+= 000400000008C300 Tomodachi Life (USA)
+60 FPS | rev2 | Hazerou | The game runs faster with it.
+D3000000 08000000
+2020A748 0000003C
+D2000000 00000000
+
+= 000400000009F100 Fire Emblem: Awakening (EUR)
+16:9 | rev0 | Claude, for this recomp | Draws the top screen's 3D wider for 16:9, so turn the top screen's shape to 16:9 in Settings, Graphics. The 2D on the top screen, menus and text boxes, is stretched a little. The game's camera projection builder takes every top-screen camera's aspect ratio, 5:3 or close to it as in the 3D talks and the unit view, 16/15 times as wide, and the map camera's own 5:3 is 16:9. | the Fire Emblem Awakening recomp's notes
+002FE310 EB0572FA
+0045AF00 EE18CA90
+0045AF04 E59F001C
+0045AF08 E04CC000
+0045AF0C E59F0018
+0045AF10 E15C0000
+0045AF14 EEB02A68
+0045AF18 9DDF2A04
+0045AF1C 9E282AA2
+0045AF20 EE801A02
+0045AF24 E12FFF1E
+0045AF28 3FCCCCCD
+0045AF2C 00133333
+0045AF30 3F888889
+003D57F4 3FE38E39
+Smooth map sprites | rev0 | Claude, for this recomp | Keeps the units' sprites and HP bars on the map where the camera puts them, rather than on the console's whole pixels, so at a higher resolution they move with the map as it scrolls instead of jittering against it. At 1x they can look a little soft. It drops the two stores that put the units' place on the screen, cut to whole pixels, over the exact one. | the Fire Emblem Awakening recomp's notes
+003D1B18 E1A00000
+003D1B24 E1A00000
+Faster battles | rev0 | Claude, for this recomp | Plays battle animations faster than their usual speed, at the speed set under it, from 100% to 200%. Fast forward stays at twice the usual speed and the pause still stops them. The battle's speed control multiplies its target speed by 2 for fast forward and by a half for slow, undoing each on leaving it; this gives the usual speed a factor of its own too, the speed on entering it and its inverse on leaving it, through two entries of its jump tables pointed at a few instructions past the end of the text. A new speed takes from the next battle. | the Fire Emblem Awakening recomp's notes
+~ Speed 100..200 = 130 %
+0045AF40 ED951A08
+0045AF44 EDDF1A09
+0045AF48 EE211A21
+0045AF4C ED851A08
+0045AF50 EAF5EC92
+0045AF54 ED951A08
+0045AF58 EDDF1A05
+0045AF5C EE211A21
+0045AF60 ED851A08
+0045AF64 EAF5ECA0
+0045AF70 {100/x}
+0045AF74 {x/100}
+001D6168 0045AF40
+001D61B4 0045AF54
+Glow to the edges | rev0 | Claude, for this recomp | Keeps the soft glow the game lays over its 3D scenes at full strength up to the screen's edges, where the game lets it fade over the last few pixels on the left, the right and the bottom, which shows on a large screen. The glow's blur reads the scene's own edge instead of black past it: the glow's textures clamp to their edge rather than to a black border, and once the game has copied its frame into the glow's texture, the 16 rows the 3D leaves empty past the scene's left edge get the 16 rows next to them. | the Fire Emblem Awakening recomp's notes
+002EA610 EB05C258
+0045AF78 E59DC03C
+0045AF7C E24CC818
+0045AF80 E24CCA0D
+0045AF84 E35C0B02
+0045AF88 33A0C000
+0045AF8C 358DC008
+0045AF90 358DC00C
+0045AF94 EAFAB851
+002D1984 EB062583
+0045AF98 E5941004
+0045AF9C E1D113D0
+0045AFA0 E58DE010
+0045AFA4 E59DC00C
+0045AFA8 E35C0C02
+0045AFAC 1A000008
+0045AFB0 E3A0CE18
+0045AFB4 E58DC004
+0045AFB8 E3A0C010
+0045AFBC E58DC00C
+0045AFC0 E2611000
+0045AFC4 E1A00005
+0045AFC8 E3A02000
+0045AFCC E3A03E19
+0045AFD0 EBFA3D92
+0045AFD4 E59DE010
+0045AFD8 E28DD014
+0045AFDC E12FFF1E
+
+= 00040000000E5C00 Shin Megami Tensei IV (USA)
+60 FPS | rev0 | lucky | The whole game runs twice as fast with it.
+204E3BA0 00000000
+
+= 000400000011C400 Pokémon Omega Ruby (USA)
+60 FPS | rev3 | Reshiban | The whole game runs twice as fast with it.
+28C650C1 00000000
+
+= 000400000011C500 Pokémon Alpha Sapphire (USA)
+60 FPS | rev3 | Reshiban | The whole game runs twice as fast with it.
+28C650C1 00000000
+
+= 0004000000125500 The Legend of Zelda: Majora's Mask 3D (USA)
+60 FPS | rev2 | NanashiFinal13 | The whole game runs twice as fast with it.
+206A3A14 00000001
+
+= 0004000000136D00 Inazuma Eleven GO: Chrono Stones Thunderflash (EUR)
+60 FPS | rev0 | lucky | Some things may run faster with it.
+2062C929 00000001
+
+= 0004000000164800 Pokémon Sun (USA)
+60 FPS | rev0 | Reshiban | The whole game runs twice as fast with it.
+D3000000 30000000
+2417E569 00000000
+D2000000 00000000
+
+= 00040000001B5000 Pokémon Ultra Sun (USA)
+60 FPS | rev0 | Reshiban | The whole game runs twice as fast with it.
+D3000000 30000000
+23F67FE9 00000000
+D2000000 00000000
+
+= 00040000001B5100 Pokémon Ultra Moon (USA)
+60 FPS | rev0 | Reshiban | The whole game runs twice as fast with it.
+D3000000 30000000
+23F67FE9 00000000
+D2000000 00000000
+
+= 0004000000167800 Yo-kai Watch (EUR)
+60 FPS | rev0 | lucky | The game runs faster with it.
+20601951 00000001
+
+= 000400000016E700 Final Fantasy Explorers (EUR)
+60 FPS | rev0 | lucky | The whole game runs twice as fast with it.
+280927E8 00000001
+
+= 00040000001B2900 Yo-kai Watch 2: Psychic Specters (EUR)
+60 FPS | rev0 | lucky | Some things may run faster with it.
+2086128D 00000001

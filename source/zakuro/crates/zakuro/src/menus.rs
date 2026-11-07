@@ -1,0 +1,1202 @@
+//! the library, the menu over a game and the settings, drawn with egui.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{channel, Receiver};
+
+use egui::{Align, Color32, Layout, RichText, Vec2};
+use winit::keyboard::KeyCode;
+use zakuro_core::services::keyboard::Request;
+
+use crate::library::{Game, Library, ICON_SIZE};
+use crate::recompile::{Job, Stage};
+use crate::gamepad::button_name;
+use crate::theme;
+use crate::settings::{BattleUi, Filter, Keys, Language, PadButtons, Renderer, Screens, Settings, Stereo3d, TopShape};
+
+/// what the user asked for.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Action {
+    Play(PathBuf),
+    /// recompile the library's game at this index.
+    Recompile(usize),
+    /// download a compiler, then recompile the library's game at this
+    /// index with it.
+    DownloadCompiler(usize),
+    /// show the mods folder of the game with this program id.
+    Mods(u64),
+    CancelRecompile(u64),
+    ChooseGame,
+    ChooseUpdate,
+    ForgetUpdate,
+    /// save the game's state to the slot chosen, or load it from there.
+    SaveState,
+    LoadState,
+    /// open a room and join it, join another's, or leave the one joined.
+    HostRoom,
+    JoinRoom,
+    LeaveRoom,
+    /// take part in the Download Play offer at this place in the list, or
+    /// leave the one taken part in.
+    DlpJoin(usize),
+    DlpLeave,
+    Resume,
+    Reset,
+    Library,
+    Fullscreen,
+    /// copy what a report on the game wants.
+    CopyReport,
+    Quit,
+    /// the settings changed, to save and apply.
+    Settings,
+    /// close the game's keyboard with this text and the button pressed.
+    Keyboard(String, usize),
+    /// turn the running game's cheat at this index on or off.
+    Cheat(usize, bool),
+    CheatValue(usize, u16),
+    /// add a cheat, its name and its code, to the running game.
+    AddCheat(String, String),
+    /// read the running game's cheats from their file again.
+    ReloadCheats,
+    /// show the cheats folder.
+    CheatsFolder,
+}
+
+#[derive(Default)]
+pub struct Menus {
+    /// the menu over a running game.
+    pub menu_open: bool,
+    /// the cheats window, and the cheat being written in it.
+    pub cheats_open: bool,
+    cheat_name: String,
+    cheat_code: String,
+    pub settings_open: bool,
+    pub settings_tab: SettingsTab,
+    /// the binding waiting for a key, by its place in Keys::all_mut.
+    pub rebinding: Option<usize>,
+    /// the controller binding waiting for a button, by its place in
+    /// PadButtons::all_mut.
+    pub rebinding_pad: Option<usize>,
+    /// something to tell the user, until they close it.
+    pub message: Option<String>,
+    /// something to tell the user for a moment, over the game, and since
+    /// when.
+    pub toast: Option<(String, std::time::Instant)>,
+    /// the slot states are saved to and loaded from, 1 to 9.
+    pub slot: u8,
+    /// the multiplayer window, and the password typed in it.
+    pub multiplayer_open: bool,
+    pub room_password: String,
+    /// the icons of the games offered for Download Play.
+    dlp_icons: HashMap<u64, egui::TextureHandle>,
+    /// a report on the game, to copy from the message it goes with, and
+    /// from no other.
+    pub report: Option<(String, String)>,
+    /// what is being typed into the game's keyboard, and what it asked for.
+    typing: Option<(Request, String)>,
+    /// the library's game to recompile once the player agrees to download a
+    /// compiler for it.
+    pub compiler_offer: Option<usize>,
+    pub(crate) confirm: Option<Confirm>,
+    icons: HashMap<PathBuf, egui::TextureHandle>,
+    background: Background,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Confirm {
+    Reset,
+    Quit,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub enum SettingsTab {
+    #[default]
+    System,
+    Graphics,
+    Sound,
+    Keybinds,
+    Controller,
+}
+
+const SETTINGS_TABS: [(SettingsTab, &str); 5] = [
+    (SettingsTab::System, "System"),
+    (SettingsTab::Graphics, "Graphics"),
+    (SettingsTab::Sound, "Sound"),
+    (SettingsTab::Keybinds, "Keybinds"),
+    (SettingsTab::Controller, "Controller"),
+];
+
+/// the room the player is in, as the multiplayer window shows it.
+pub struct RoomView {
+    pub name: String,
+    /// each member's nickname and the game they play.
+    pub members: Vec<(String, String)>,
+    /// the port of the room this program holds open, when it is its own.
+    pub port: Option<u16>,
+    /// Download Play, while no game runs.
+    pub download_play: Option<DlpView>,
+}
+
+/// the Download Play offers in the room, and where the guest is.
+pub struct DlpView {
+    pub offers: Vec<OfferView>,
+    /// what the guest is doing, and how far along, while it takes part.
+    pub doing: Option<(String, Option<f32>)>,
+}
+
+pub struct OfferView {
+    pub child: u64,
+    pub title: String,
+    pub host: String,
+    /// RGBA, ICON_SIZE square.
+    pub icon: Option<Vec<u8>>,
+    pub guests: u8,
+    pub most: u8,
+    /// why the player can't take part, when they can't.
+    pub blocked: Option<String>,
+}
+
+/// the picture behind the library, decoded away from the interface.
+#[derive(Default)]
+struct Background {
+    /// the file shown or being read.
+    path: Option<PathBuf>,
+    texture: Option<egui::TextureHandle>,
+    loading: Option<Receiver<Result<egui::ColorImage, String>>>,
+}
+
+/// the longest side a background is kept at, bigger ones are scaled down.
+const BACKGROUND_SIDE: u32 = 2560;
+
+impl Background {
+    /// the texture for path, starting to read it when it changed, none until
+    /// it is ready or when there is no picture.
+    fn get(&mut self, ctx: &egui::Context, path: Option<&Path>) -> Result<Option<&egui::TextureHandle>, String> {
+        if self.path.as_deref() != path {
+            self.path = path.map(Path::to_owned);
+            self.texture = None;
+            self.loading = path.map(|path| {
+                let (send, receive) = channel();
+                let path = path.to_owned();
+                std::thread::spawn(move || {
+                    let _ = send.send(decode(&path));
+                });
+                receive
+            });
+        }
+        if let Some(receive) = &self.loading {
+            match receive.try_recv() {
+                Ok(image) => {
+                    self.loading = None;
+                    self.texture = Some(ctx.load_texture("library background", image?, egui::TextureOptions::LINEAR));
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint(),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.loading = None,
+            }
+        }
+        Ok(self.texture.as_ref())
+    }
+}
+
+fn decode(path: &Path) -> Result<egui::ColorImage, String> {
+    let image = image::open(path).map_err(|error| format!("could not open {}, {error}", path.display()))?;
+    let image = if image.width().max(image.height()) > BACKGROUND_SIDE {
+        image.resize(BACKGROUND_SIDE, BACKGROUND_SIDE, image::imageops::FilterType::Triangle)
+    } else {
+        image
+    };
+    let rgba = image.to_rgba8();
+    Ok(egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw()))
+}
+
+/// the part of a picture that fills an area without stretching it, cutting
+/// off what sticks out on either side.
+fn cover(area: Vec2, picture: [usize; 2]) -> egui::Rect {
+    let (width, height) = (picture[0].max(1) as f32, picture[1].max(1) as f32);
+    let area_ratio = area.x / area.y.max(1.0);
+    let picture_ratio = width / height;
+    if area_ratio > picture_ratio {
+        // wider area, the picture's top and bottom are cut
+        let shown = picture_ratio / area_ratio;
+        egui::Rect::from_min_max(egui::pos2(0.0, (1.0 - shown) / 2.0), egui::pos2(1.0, (1.0 + shown) / 2.0))
+    } else {
+        let shown = area_ratio / picture_ratio;
+        egui::Rect::from_min_max(egui::pos2((1.0 - shown) / 2.0, 0.0), egui::pos2((1.0 + shown) / 2.0, 1.0))
+    }
+}
+
+impl Menus {
+    /// the library, filling the window.
+    pub fn library(&mut self, ui: &mut egui::Ui, library: &Library, settings: &Settings, jobs: &[Job]) -> Vec<Action> {
+        ui.set_style(ui.ctx().theme().default_style());
+        let mut actions = Vec::new();
+        if library.changed {
+            self.icons.clear();
+        }
+        egui::Panel::top("library bar").show(ui, |ui| {
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Zakuro").heading().size(24.0));
+                ui.separator();
+                match (&settings.game_file, &settings.games) {
+                    (Some(file), _) => ui.label(file.display().to_string()),
+                    (None, Some(folder)) => ui.label(folder.display().to_string()),
+                    (None, None) => ui.label(RichText::new("no game chosen yet").weak()),
+                };
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button("Settings").clicked() {
+                        self.settings_open = true;
+                    }
+                    if ui.button("Multiplayer").clicked() {
+                        self.multiplayer_open = true;
+                    }
+                });
+            });
+            ui.add_space(10.0);
+        });
+        let background = match self.background.get(ui.ctx(), settings.background.as_deref()) {
+            Ok(texture) => texture.map(|texture| (texture.id(), texture.size())),
+            Err(error) => {
+                self.message = Some(error);
+                None
+            }
+        };
+        egui::CentralPanel::default().show(ui, |ui| {
+            if let Some((texture, size)) = background {
+                let area = ui.clip_rect();
+                let alpha = (settings.background_opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
+                ui.painter().image(texture, area, cover(area.size(), size), Color32::from_white_alpha(alpha));
+            }
+            if settings.game_file.is_none() && settings.games.is_none() {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(ui.available_height() / 3.0);
+                    ui.label("Choose the game's file to see it here.");
+                    if ui.button("Select game files").clicked() {
+                        actions.push(Action::ChooseGame);
+                    }
+                });
+                return;
+            }
+            if library.is_scanning() {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Looking for games…");
+                });
+                return;
+            }
+            if library.games.is_empty() {
+                ui.label("No .3ds, .cci, .cxi or .cia files in that folder.");
+                return;
+            }
+            let (scale, share) = match library.games.len() {
+                1 => ((ui.available_width() / CARD_WIDTH).clamp(0.5, 1.0) * LONE_CARD, LONE_CARD),
+                _ => (0.5, 1.0),
+            };
+            let backed = background.is_some();
+            let room = ui.available_height();
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                if let [game] = library.games.as_slice() {
+                    let job = jobs.iter().find(|job| job.program_id == game.program_id);
+                    ui.add_space(((room - card_height(job, scale)) / 3.0).max(0.0));
+                }
+                for (index, game) in library.games.iter().enumerate() {
+                    let job = jobs.iter().find(|job| job.program_id == game.program_id);
+                    self.game_card(ui, index, game, job, scale, share, backed, &mut actions);
+                    ui.add_space(12.0);
+                }
+            });
+        });
+        actions
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn game_card(&mut self, ui: &mut egui::Ui, index: usize, game: &Game, job: Option<&Job>, scale: f32, share: f32, backed: bool, actions: &mut Vec<Action>) {
+        let px = |size: f32| size * scale;
+        let text = |size: f32| (size * scale).max(14.0);
+        let (green, gold) = (Color32::from_rgb(110, 200, 120), Color32::from_rgb(220, 180, 100));
+        let fill = if backed { ui.visuals().panel_fill.gamma_multiply(0.85) } else { Color32::from_gray(32) };
+        let frame = egui::Frame::group(ui.style()).inner_margin(px(60.0)).corner_radius(8.0).fill(fill);
+        let width = ui.available_width() * share;
+        let left = ui.cursor().left() + (ui.available_width() - width) / 2.0;
+        let room = egui::Rect::from_min_size(egui::pos2(left, ui.cursor().top()), egui::vec2(width, ui.available_height()));
+        let mut card = ui.new_child(egui::UiBuilder::new().max_rect(room).layout(egui::Layout::top_down(egui::Align::Min)));
+        frame.show(&mut card, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                let icon = game.icon.as_ref().map(|pixels| {
+                    self.icons
+                        .entry(game.path.clone())
+                        .or_insert_with(|| {
+                            let image = egui::ColorImage::from_rgba_unmultiplied([ICON_SIZE, ICON_SIZE], pixels);
+                            ui.ctx().load_texture(game.path.display().to_string(), image, egui::TextureOptions::LINEAR)
+                        })
+                        .clone()
+                });
+                let icon_size = Vec2::splat(px(ICON));
+                match icon {
+                    Some(texture) => {
+                        ui.add(egui::Image::new(&texture).fit_to_exact_size(icon_size).corner_radius(px(14.0)));
+                    }
+                    None => {
+                        ui.allocate_space(icon_size);
+                    }
+                }
+                ui.add_space(px(56.0));
+                ui.vertical(|ui| {
+                    ui.add_space(px(18.0));
+                    ui.label(RichText::new(&game.name).size(text(46.0)).strong());
+                    ui.add_space(px(16.0));
+                    if let Some(problem) = &game.problem {
+                        ui.label(RichText::new(problem).size(text(19.0)).color(Color32::from_rgb(230, 160, 80)));
+                        return;
+                    }
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = px(18.0);
+                        ui.label(RichText::new(format!("{:016X}", game.program_id)).size(text(17.0)).weak().monospace());
+                        if game.recompiled {
+                            ui.label(RichText::new("recompiled").size(text(19.0)).color(green));
+                        }
+                        if let Some(update) = &game.update {
+                            let version = zakuro_fs::version_name(update.version);
+                            ui.label(RichText::new(format!("update {version}")).size(text(19.0)).color(gold));
+                        }
+                        let dlc = if game.dlc.is_empty() { gold } else { green };
+                        ui.label(RichText::new("DLC").size(text(19.0)).color(dlc));
+                    });
+                    ui.add_space(px(36.0));
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = px(20.0);
+                        let play = egui::Button::new(RichText::new("\u{25B6} Play").size(text(24.0)).color(Color32::from_gray(235)))
+                            .fill(ui.visuals().selection.bg_fill)
+                            .min_size(Vec2::new(px(210.0), px(64.0)));
+                        if ui.add(play).clicked() {
+                            actions.push(Action::Play(game.path.clone()));
+                        }
+                        if !job.is_some_and(|job| !job.stage().finished()) {
+                            let builds = crate::recompile::has_mod_steps(game.program_id);
+                            let compiler = "It takes 10 to 20 minutes and needs a C compiler, gcc or clang, or Zig, which Zakuro offers to download when the computer has neither.";
+                            let (label, hover) = match (!builds, game.recompiled) {
+                                (true, false) => ("Recompile", format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler}")),
+                                (true, true) => ("Recompile again", format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler}")),
+                                (false, recompiled) => (
+                                    if recompiled { "Build again" } else { "Build" },
+                                    format!("Build everything the game needs from your own copy of it, its code turned into native code with 3dsrecomp, which makes it run faster. {compiler}"),
+                                ),
+                            };
+                            let build = egui::Button::new(RichText::new(label).size(text(20.0))).min_size(Vec2::new(px(190.0), px(64.0)));
+                            if ui.add(build).on_hover_text(hover).clicked() {
+                                actions.push(Action::Recompile(index));
+                            }
+                        }
+                        let mods = egui::Button::new(RichText::new("Mods").size(text(20.0))).min_size(Vec2::new(px(130.0), px(64.0)));
+                        if ui.add(mods).on_hover_text("Open the game's mods folder. Files put in its romfs folder replace the game's, the way Luma3DS and Citra take mods, and a texture pack made for Citra or Azahar goes in its textures folder.").clicked() {
+                            actions.push(Action::Mods(game.program_id));
+                        }
+                    });
+                });
+            });
+            match job.map(Job::stage) {
+                Some(stage) if !stage.finished() => {
+                    let job = job.unwrap();
+                    ui.add_space(px(50.0));
+                    ui.horizontal(|ui| {
+                        let cancel = Vec2::new(px(120.0), px(40.0));
+                        let width = ui.available_width() - cancel.x - ui.spacing().item_spacing.x;
+                        progress(ui, job, width, px(40.0), text(18.0));
+                        if ui.add(egui::Button::new(RichText::new("Cancel").size(text(18.0))).min_size(cancel)).clicked() {
+                            actions.push(Action::CancelRecompile(job.program_id));
+                        }
+                    });
+                }
+                Some(Stage::Failed(error)) => {
+                    ui.add_space(px(30.0));
+                    ui.label(RichText::new(format!("Failed: {error}")).size(text(18.0)).color(Color32::LIGHT_RED));
+                }
+                _ => {}
+            }
+        });
+        ui.advance_cursor_after_rect(card.min_rect());
+    }
+
+    /// what goes over a running game, the menu when it is open and the
+    /// frame rate when asked for.
+    #[allow(clippy::too_many_arguments)]
+    pub fn game(
+        &mut self,
+        ui: &mut egui::Ui,
+        name: &str,
+        fps: Option<(f32, f32)>,
+        recompiled: bool,
+        fast: bool,
+        saved: Option<&str>,
+    ) -> Vec<Action> {
+        let mut actions = Vec::new();
+        let ctx = ui.ctx().clone();
+        if let Some((text, since)) = &self.toast {
+            if since.elapsed() < std::time::Duration::from_millis(2500) {
+                egui::Area::new(egui::Id::new("toast"))
+                    .anchor(egui::Align2::CENTER_TOP, Vec2::new(0.0, 8.0))
+                    .interactable(false)
+                    .show(&ctx, |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.label(text);
+                        });
+                    });
+                ctx.request_repaint();
+            } else {
+                self.toast = None;
+            }
+        }
+        if fast {
+            egui::Area::new(egui::Id::new("fast forward"))
+                .anchor(egui::Align2::RIGHT_TOP, Vec2::new(-8.0, 8.0))
+                .interactable(false)
+                .show(&ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.label(RichText::new("» fast forward").monospace());
+                    });
+                });
+        }
+        if let Some(fps) = fps {
+            // clicks go through to the screen under it
+            egui::Area::new(egui::Id::new("fps")).fixed_pos(egui::pos2(8.0, 8.0)).interactable(false).show(&ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.add(egui::Label::new(RichText::new(frame_rate(fps)).monospace().size(11.0)).wrap_mode(egui::TextWrapMode::Extend));
+                });
+            });
+        }
+        if !self.menu_open {
+            self.confirm = None;
+            return actions;
+        }
+        theme::window("paused")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(&ctx, |ui| {
+                ui.set_width(320.0);
+                theme::header(ui, name, None);
+                theme::menu_body(ui, |ui| {
+                    theme::hint(ui, if recompiled { "Running its recompiled code" } else { "Interpreted" });
+                    ui.add_space(6.0);
+                    theme::commands(ui, |ui| {
+                        if theme::command(ui, "\u{23F5}", "Resume", true).clicked() {
+                            actions.push(Action::Resume);
+                        }
+                        if theme::command(ui, "\u{27F3}", "Reset", true).clicked() {
+                            self.confirm = Some(Confirm::Reset);
+                        }
+                        if theme::command(ui, "\u{26F6}", "Fullscreen", true).clicked() {
+                            actions.push(Action::Fullscreen);
+                        }
+                    });
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut self.slot).range(1..=9).prefix("Slot "));
+                        theme::hint(ui, saved.unwrap_or("empty"));
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.add_sized([130.0, 28.0], egui::Button::new("Save state")).on_hover_text("F5 saves to this slot while playing.").clicked() {
+                            actions.push(Action::SaveState);
+                        }
+                        if ui
+                            .add_enabled(saved.is_some(), egui::Button::new("Load state").min_size(Vec2::new(130.0, 28.0)))
+                            .on_hover_text("F8 loads this slot while playing.")
+                            .clicked()
+                        {
+                            actions.push(Action::LoadState);
+                        }
+                    });
+                    ui.add_space(8.0);
+                    theme::commands(ui, |ui| {
+                        if theme::command(ui, "\u{2699}", "Settings", true).clicked() {
+                            self.settings_open = true;
+                        }
+                        if theme::command(ui, "\u{2728}", "Cheats", true).clicked() {
+                            self.cheats_open = true;
+                        }
+                        if theme::command(ui, "\u{1F465}", "Multiplayer", true).clicked() {
+                            self.multiplayer_open = true;
+                        }
+                        if theme::command(ui, "\u{1F4CB}", "Copy info for a report", true).clicked() {
+                            actions.push(Action::CopyReport);
+                        }
+                        if theme::command(ui, "\u{1F3E0}", "Back to the library", true).clicked() {
+                            actions.push(Action::Library);
+                        }
+                        if theme::command(ui, "\u{1F6AA}", "Quit", true).clicked() {
+                            self.confirm = Some(Confirm::Quit);
+                        }
+                    });
+                });
+            });
+        if let Some(confirm) = self.confirm {
+            let (title, text, icon, label, action) = match confirm {
+                Confirm::Reset => ("Reset the game?", "It starts over, and what wasn't saved is lost.", "\u{27F3}", "Reset", Action::Reset),
+                Confirm::Quit => ("Quit?", "The game closes, and what wasn't saved is lost.", "\u{1F6AA}", "Quit", Action::Quit),
+            };
+            let modal = egui::Modal::new(egui::Id::new("confirm")).frame(theme::frame()).show(&ctx, |ui| {
+                ui.set_width(300.0);
+                theme::header(ui, title, None);
+                theme::menu_body(ui, |ui| {
+                    theme::hint(ui, text);
+                    ui.add_space(6.0);
+                    theme::commands(ui, |ui| {
+                        let cancel = theme::command(ui, "\u{2716}", "Cancel", true);
+                        let chosen = theme::command(ui, icon, label, true);
+                        if !cancel.has_focus() && !chosen.has_focus() {
+                            cancel.request_focus();
+                        }
+                        (cancel.clicked(), chosen.clicked())
+                    })
+                })
+            });
+            let (cancelled, confirmed) = modal.inner;
+            if confirmed {
+                actions.push(action);
+                self.confirm = None;
+            } else if cancelled || modal.should_close() {
+                self.confirm = None;
+            }
+        }
+        actions
+    }
+
+    /// the cheats window over a game, when open, its cheats by name, whether
+    pub fn cheats(&mut self, ctx: &egui::Context, cheats: &[(String, bool, String, bool, Option<ModSetting>)], held: bool) -> Vec<Action> {
+        let mut actions = Vec::new();
+        let mut values = Vec::new();
+        let mut open = self.cheats_open;
+        egui::Window::new("Cheats").id(egui::Id::new("cheats")).open(&mut open).default_width(380.0).show(ctx, |ui| {
+            if held {
+                ui.label(RichText::new("Original mode is on, so these are all off.").weak());
+            }
+            ui.add_enabled_ui(!held, |ui| {
+            let mut checkbox = |ui: &mut egui::Ui, index: usize, name: &str, enabled: bool, notes: &str| {
+                let mut on = enabled;
+                let mut response = ui.checkbox(&mut on, name);
+                if !notes.is_empty() {
+                    response = response.on_hover_text(notes);
+                }
+                if response.changed() {
+                    actions.push(Action::Cheat(index, on));
+                }
+            };
+            // Zakuro's own, tested on this build of the game
+            if cheats.iter().any(|cheat| cheat.3) {
+                ui.label(RichText::new("Built in").strong());
+                for (index, (name, enabled, _, _, setting)) in cheats.iter().enumerate().filter(|(_, cheat)| cheat.3) {
+                    checkbox(ui, index, name, *enabled, "");
+                    if let (Some(setting), true) = (setting, *enabled) {
+                        ui.indent(("mod setting", index), |ui| {
+                            let mut value = setting.value;
+                            let slider = egui::Slider::new(&mut value, setting.min..=setting.max).text(&setting.name).suffix(&setting.unit);
+                            if ui.add(slider).changed() {
+                                values.push(Action::CheatValue(index, value));
+                            }
+                        });
+                    }
+                }
+                ui.separator();
+            }
+            if !cheats.iter().any(|cheat| !cheat.3) {
+                ui.label(RichText::new("No codes yet. Add one below, or put the cheat file Citra or Azahar has for this game in the cheats folder.").weak());
+            }
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                for (index, (name, enabled, notes, _, _)) in cheats.iter().enumerate().filter(|(_, cheat)| !cheat.3) {
+                    checkbox(ui, index, name, *enabled, notes);
+                }
+            });
+            ui.separator();
+            ui.label("Add a code");
+            ui.add(egui::TextEdit::singleline(&mut self.cheat_name).hint_text("Name"));
+            ui.add(egui::TextEdit::multiline(&mut self.cheat_code).hint_text("00000000 00000000").desired_rows(4).font(egui::TextStyle::Monospace));
+            ui.horizontal(|ui| {
+                if ui.button("Add").clicked() && !self.cheat_code.trim().is_empty() {
+                    actions.push(Action::AddCheat(std::mem::take(&mut self.cheat_name), std::mem::take(&mut self.cheat_code)));
+                }
+                if ui.button("Reload").on_hover_text("Read the codes again from their file, after changing it.").clicked() {
+                    actions.push(Action::ReloadCheats);
+                }
+                if ui.button("Open the cheats folder").clicked() {
+                    actions.push(Action::CheatsFolder);
+                }
+            });
+            });
+        });
+        self.cheats_open = open;
+        actions.extend(values);
+        actions
+    }
+
+    /// the multiplayer window, when open: the room the player is in, or
+    /// joining one and opening one.
+    pub fn multiplayer(&mut self, ctx: &egui::Context, settings: &mut Settings, room: Option<&RoomView>) -> Vec<Action> {
+        let mut actions = Vec::new();
+        let before = settings.clone();
+        let mut open = self.multiplayer_open;
+        egui::Window::new("Multiplayer").open(&mut open).default_width(380.0).show(ctx, |ui| {
+            ui.label(
+                RichText::new("Local wireless play with others goes through a room, which one of you opens and the others join over the network.")
+                    .weak(),
+            );
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label("Nickname");
+                ui.add(egui::TextEdit::singleline(&mut settings.nickname).char_limit(10).hint_text("Player"))
+                    .on_hover_text("The name others see, and the console's own, which games show. It changes with the next game started.");
+            });
+            ui.separator();
+            match room {
+                Some(room) => {
+                    ui.label(RichText::new(format!("In the room {}", room.name)).strong());
+                    if let Some(port) = room.port {
+                        ui.label(format!("Open on port {port}. Others join with this computer's address and that port. Over the internet the router has to let that port through."));
+                    }
+                    ui.add_space(4.0);
+                    for (nickname, game) in &room.members {
+                        match game.is_empty() {
+                            true => ui.label(nickname),
+                            false => ui.label(format!("{nickname}, playing {game}")),
+                        };
+                    }
+                    ui.add_space(4.0);
+                    let leave = if room.port.is_some() { "Close the room" } else { "Leave the room" };
+                    if ui.button(leave).clicked() {
+                        actions.push(Action::LeaveRoom);
+                    }
+                    if let Some(download_play) = &room.download_play {
+                        ui.separator();
+                        ui.label(RichText::new("Download Play").strong());
+                        match &download_play.doing {
+                            Some((doing, progress)) => {
+                                ui.label(doing);
+                                if let Some(progress) = progress {
+                                    ui.add(egui::ProgressBar::new(*progress).show_percentage());
+                                }
+                                if ui.button("Leave").clicked() {
+                                    actions.push(Action::DlpLeave);
+                                }
+                            }
+                            None if download_play.offers.is_empty() => {
+                                ui.label(RichText::new("No one in the room offers a game to download. A game offers one from its own Download Play menu.").weak());
+                            }
+                            None => {
+                                for (index, offer) in download_play.offers.iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        if let Some(pixels) = &offer.icon {
+                                            let texture = self.dlp_icons.entry(offer.child).or_insert_with(|| {
+                                                let image = egui::ColorImage::from_rgba_unmultiplied([ICON_SIZE, ICON_SIZE], pixels);
+                                                ui.ctx().load_texture(format!("download play {:016X}", offer.child), image, egui::TextureOptions::LINEAR)
+                                            });
+                                            ui.add(egui::Image::new(&*texture).fit_to_exact_size(Vec2::splat(32.0)));
+                                        }
+                                        ui.vertical(|ui| {
+                                            ui.label(RichText::new(&offer.title).strong());
+                                            ui.label(RichText::new(format!("from {}, {} of {} joined", offer.host, offer.guests, offer.most)).weak());
+                                        });
+                                        if ui.add_enabled(offer.blocked.is_none(), egui::Button::new("Join")).clicked() {
+                                            actions.push(Action::DlpJoin(index));
+                                        }
+                                    });
+                                    if let Some(why) = &offer.blocked {
+                                        ui.label(RichText::new(why).weak());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                None => {
+                    ui.label(RichText::new("Join a room").strong());
+                    ui.horizontal(|ui| {
+                        ui.label("Address");
+                        ui.add(egui::TextEdit::singleline(&mut settings.room_address).hint_text("192.168.0.10:24873"));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Password");
+                        ui.add(egui::TextEdit::singleline(&mut self.room_password).password(true).hint_text("none"));
+                    });
+                    if ui.add_enabled(!settings.room_address.trim().is_empty(), egui::Button::new("Join")).clicked() {
+                        actions.push(Action::JoinRoom);
+                    }
+                    ui.separator();
+                    ui.label(RichText::new("Open a room").strong());
+                    ui.horizontal(|ui| {
+                        ui.label("Name");
+                        ui.add(egui::TextEdit::singleline(&mut settings.room_name).hint_text("Zakuro"));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Port");
+                        ui.add(egui::DragValue::new(&mut settings.room_port).range(1024..=65535));
+                    });
+                    ui.label(RichText::new("The password above, when there is one, is the room's.").weak());
+                    if ui.button("Open").clicked() {
+                        actions.push(Action::HostRoom);
+                    }
+                }
+            }
+        });
+        self.multiplayer_open = open;
+        if *settings != before {
+            actions.push(Action::Settings);
+        }
+        actions
+    }
+
+    /// the settings window, when open.
+    pub fn settings(&mut self, ctx: &egui::Context, settings: &mut Settings) -> Vec<Action> {
+        let mut actions = Vec::new();
+        let before = settings.clone();
+        let mut open = self.settings_open;
+        // taller than a screen has room for, so it scrolls, and it can be
+        // dragged to any size that fits
+        let room = ctx.content_rect().height() - 16.0;
+        if open {
+            let mut kept = true;
+            theme::window("settings").default_size([560.0, room.min(640.0)]).min_width(560.0).max_height(room).show(ctx, |ui| {
+                theme::header(ui, "Settings", Some(&mut kept));
+                theme::tabs(ui, &mut self.settings_tab, &SETTINGS_TABS);
+                let tab = self.settings_tab;
+                egui::ScrollArea::vertical().id_salt(tab).max_height(room - 80.0).show(ui, |ui| {
+                    ui.set_min_height((room - 80.0).min(520.0));
+                    theme::body(ui, |ui| match tab {
+                        SettingsTab::System => system_tab(ui, settings, &mut actions),
+                        SettingsTab::Graphics => graphics_tab(ui, settings),
+                        SettingsTab::Sound => sound_tab(ui, settings),
+                        SettingsTab::Keybinds => self.keybinds_tab(ui, settings),
+                        SettingsTab::Controller => self.controller_tab(ui, settings),
+                    })
+                });
+            });
+            if !kept {
+                open = false;
+            }
+        }
+        self.settings_open = open;
+        if !open {
+            self.rebinding = None;
+            self.rebinding_pad = None;
+        }
+        if *settings != before {
+            actions.push(Action::Settings);
+        }
+        actions
+    }
+
+    fn keybinds_tab(&mut self, ui: &mut egui::Ui, settings: &mut Settings) {
+        egui::Grid::new("controls").num_columns(4).spacing([12.0, 4.0]).show(ui, |ui| {
+            for (i, (name, key)) in settings.keys.all_mut().into_iter().enumerate() {
+                ui.label(name);
+                let text = if self.rebinding == Some(i) { "press a key…".to_owned() } else { key_name(*key) };
+                if ui.add_sized([110.0, 20.0], egui::Button::new(text)).clicked() {
+                    self.rebinding = Some(i);
+                    self.rebinding_pad = None;
+                }
+                if i % 2 == 1 {
+                    ui.end_row();
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Bottom screen over the top one");
+            let text = if self.rebinding == Some(BOTTOM_OVER) { "press a key…".to_owned() } else { key_name(settings.bottom_over_key) };
+            if ui.add_sized([110.0, 20.0], egui::Button::new(text)).clicked() {
+                self.rebinding = Some(BOTTOM_OVER);
+                self.rebinding_pad = None;
+            }
+        });
+        if ui.button("Default controls").clicked() {
+            settings.keys = Keys::default();
+            settings.bottom_over_key = crate::settings::BOTTOM_OVER_KEY;
+            self.rebinding = None;
+        }
+    }
+
+    fn controller_tab(&mut self, ui: &mut egui::Ui, settings: &mut Settings) {
+        egui::Grid::new("controller").num_columns(4).spacing([12.0, 4.0]).show(ui, |ui| {
+            for (i, (name, button)) in settings.pad.all_mut().into_iter().enumerate() {
+                ui.label(name);
+                let text = if self.rebinding_pad == Some(i) { "press a button…" } else { button_name(*button) };
+                if ui.add_sized([110.0, 20.0], egui::Button::new(text)).clicked() {
+                    self.rebinding_pad = Some(i);
+                    self.rebinding = None;
+                }
+                if i % 2 == 1 {
+                    ui.end_row();
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Bottom screen over the top one");
+            let text = if self.rebinding_pad == Some(BOTTOM_OVER) { "press a button…" } else { button_name(settings.bottom_over_button) };
+            if ui.add_sized([110.0, 20.0], egui::Button::new(text)).clicked() {
+                self.rebinding_pad = Some(BOTTOM_OVER);
+                self.rebinding = None;
+            }
+        });
+        theme::hint(ui, "The circle pad is mapped to the left stick, and the Home button opens the in-game menu.");
+        if ui.button("Default controller").clicked() {
+            settings.pad = PadButtons::default();
+            settings.bottom_over_button = crate::settings::BOTTOM_OVER_BUTTON;
+            self.rebinding_pad = None;
+        }
+    }
+
+    /// a message box, when there is something to tell.
+    /// the keyboard a game opened to have text typed in, it waits until a
+    /// button closes it.
+    pub fn keyboard(&mut self, ctx: &egui::Context, request: &Request) -> Option<Action> {
+        let fresh = self.typing.as_ref().is_none_or(|(asked, _)| asked != request);
+        if fresh {
+            self.typing = Some((request.clone(), request.text.clone()));
+        }
+        let (_, text) = self.typing.as_mut()?;
+        let confirm = request.buttons.len() - 1;
+        let mut action = None;
+        egui::Window::new("Keyboard")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                let field = ui.add(
+                    egui::TextEdit::singleline(text)
+                        .hint_text(&request.hint)
+                        .char_limit(request.max_length)
+                        .desired_width(260.0),
+                );
+                if fresh {
+                    field.request_focus();
+                }
+                let valid = request.accepts(text);
+                ui.horizontal(|ui| {
+                    for (button, label) in request.buttons.iter().enumerate() {
+                        if ui.add_enabled(button != confirm || valid, egui::Button::new(label)).clicked() {
+                            action = Some(Action::Keyboard(text.clone(), button));
+                        }
+                    }
+                });
+                // enter confirms, when the text will do
+                if valid && field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                    action = Some(Action::Keyboard(text.clone(), confirm));
+                }
+            });
+        if action.is_some() {
+            self.typing = None;
+        }
+        action
+    }
+
+    /// asks whether to download a compiler, there being none to recompile
+    /// with.
+    pub fn compiler_offer(&mut self, ctx: &egui::Context) -> Option<Action> {
+        let index = self.compiler_offer?;
+        let size = crate::zig::download_size().map_or_else(String::new, |size| format!(", {} MB to download and around 400 MB once unpacked", size / 1_000_000));
+        let mut action = None;
+        egui::Window::new("Recompile")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Recompiling needs a C compiler, and Zakuro didn't find one on this computer. It can download Zig, a compiler that needs no installing, into its own folder{size}."
+                ));
+                ui.horizontal(|ui| {
+                    if ui.button("Download it and recompile").clicked() {
+                        action = Some(Action::DownloadCompiler(index));
+                        self.compiler_offer = None;
+                    }
+                    if ui.button("Not now").clicked() {
+                        self.compiler_offer = None;
+                    }
+                });
+            });
+        action
+    }
+
+    pub fn message(&mut self, ctx: &egui::Context) {
+        let Some(text) = self.message.clone() else { return };
+        egui::Window::new("Zakuro")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(text.as_str());
+                ui.horizontal(|ui| {
+                    if let Some((_, report)) = self.report.as_ref().filter(|(about, _)| *about == text) {
+                        if ui.button("Copy info for a report").clicked() {
+                            ui.ctx().copy_text(report.clone());
+                        }
+                    }
+                    if ui.button("OK").clicked() {
+                        self.message = None;
+                        self.report = None;
+                    }
+                });
+            });
+    }
+}
+
+/// a line a GameOverlay keeps over the game, in the bottom right corner.
+fn system_tab(ui: &mut egui::Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
+    let name = |file: &Option<std::path::PathBuf>| {
+        file.as_ref().and_then(|file| file.file_name()).map(|name| name.to_string_lossy().into_owned())
+    };
+    ui.label("Game");
+    ui.horizontal(|ui| {
+        match name(&settings.game_file) {
+            Some(file) => ui.label(file),
+            None => ui.label(RichText::new("none chosen").weak()),
+        };
+        if ui.button("Choose…").clicked() {
+            actions.push(Action::ChooseGame);
+        }
+    });
+    theme::hint(ui, "This is Fire Emblem Awakening's file (.3ds or .cci).");
+    ui.add_space(8.0);
+    ui.label("Update");
+    ui.horizontal(|ui| {
+        match name(&settings.update_file) {
+            Some(file) => ui.label(file),
+            None => ui.label(RichText::new("none chosen").weak()),
+        };
+        if ui.button("Choose…").clicked() {
+            actions.push(Action::ChooseUpdate);
+        }
+        if settings.update_file.is_some() && ui.button("Remove").clicked() {
+            actions.push(Action::ForgetUpdate);
+        }
+    });
+    theme::hint(ui, "This is the game's update file (.cia), if you have one. The game runs with it from the next time it starts.");
+    ui.add_space(8.0);
+    egui::ComboBox::from_label("Language").selected_text(settings.language.name()).show_ui(ui, |ui| {
+        for language in Language::ALL {
+            ui.selectable_value(&mut settings.language, language, language.name());
+        }
+    })
+    .response
+    .on_hover_text("This is the console's system language. Fire Emblem Awakening shows its text in this language.");
+    theme::hint(ui, "A new language takes effect after a reset, or the next time the game starts.");
+    ui.add_space(8.0);
+    ui.checkbox(&mut settings.show_console, "Show the console")
+        .on_hover_text("Shows a window with Zakuro's log, which helps when reporting a problem. Closing that window closes Zakuro too.");
+}
+
+fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
+    let mut original = settings.original;
+    if ui
+        .checkbox(&mut original, "Original mode")
+        .on_hover_text("Plays the game as the console does: both screens, the top one 5:3, at the console's resolution with no smoothing and no frame interpolation, without mods, codes, enhancements or anything added over the game's screens. Your own choices come back when you turn it off.")
+        .changed()
+    {
+        settings.set_original(original);
+    }
+    theme::hint(ui, "Mods change the next time the game starts; everything else changes right away.");
+    ui.add_space(8.0);
+    let free = !settings.original;
+    egui::ComboBox::from_label("Presented with")
+        .selected_text(match settings.renderer {
+            Renderer::Vulkan => "Vulkan",
+            Renderer::OpenGl => "OpenGL",
+        })
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut settings.renderer, Renderer::Vulkan, "Vulkan");
+            ui.selectable_value(&mut settings.renderer, Renderer::OpenGl, "OpenGL");
+        });
+    ui.add_enabled(free, egui::Slider::new(&mut settings.resolution, 1..=8).text("Resolution").suffix("x"))
+        .on_hover_text("Sets how many times the console's resolution the 3D is drawn at. Higher values look sharper but use much more GPU power.");
+    ui.add_enabled(free, egui::Checkbox::new(&mut settings.texture_packs, "Texture packs"))
+        .on_hover_text("Uses a texture pack made for Fire Emblem Awakening on Citra or Azahar. Put the pack in the textures folder inside the game's mods folder.");
+    let interpolates = settings.renderer == Renderer::Vulkan;
+    ui.add_enabled(free && interpolates, egui::Checkbox::new(&mut settings.frame_interpolation, "Frame interpolation"))
+        .on_hover_text("Adds a generated frame between each pair of frames, so the battles and cutscenes, which run at 30 frames per second, are shown at 60. This adds one frame of delay. It requires the Vulkan presenter.");
+    ui.add_enabled_ui(free, |ui| {
+        egui::ComboBox::from_label("Battles UI style").selected_text(settings.battle_ui.name()).show_ui(ui, |ui| {
+            for choice in BattleUi::ALL {
+                ui.selectable_value(&mut settings.battle_ui, choice, choice.name());
+            }
+        })
+    })
+    .inner
+    .response
+    .on_hover_text("With the top screen alone, what shows over a battle: the game's own panels from the bottom screen, the same information in the style of Fire Emblem: Three Houses, or nothing at all.");
+    ui.checkbox(&mut settings.show_fps, "Show the frame rate")
+        .on_hover_text("Shows the frame rate in a corner of the screen: the frames the game draws per second, then the frames shown per second.");
+    ui.add_enabled_ui(free, |ui| {
+        egui::ComboBox::from_label("Screens").selected_text(settings.layout.name()).show_ui(ui, |ui| {
+            for layout in Screens::ALL {
+                ui.selectable_value(&mut settings.layout, layout, layout.name());
+            }
+        });
+        egui::ComboBox::from_label("Filter").selected_text(settings.filter.name()).show_ui(ui, |ui| {
+            for filter in Filter::ALL {
+                ui.selectable_value(&mut settings.filter, filter, filter.name());
+            }
+        })
+        .response
+        .on_hover_text("Sets how the screens look when scaled up: smooth, sharp with soft edges, or sharp square pixels.");
+        egui::ComboBox::from_label("Top screen shape").selected_text(settings.top_shape.name()).show_ui(ui, |ui| {
+            for shape in TopShape::ALL {
+                ui.selectable_value(&mut settings.top_shape, shape, shape.name());
+            }
+        })
+        .response
+        .on_hover_text("Shows the top screen wider than on the console. Use 16:9 with the game's 16:9 mod turned on in Cheats, otherwise the picture is stretched.");
+    });
+    egui::ComboBox::from_label("3D").selected_text(settings.stereo.name()).show_ui(ui, |ui| {
+        for stereo in Stereo3d::ALL {
+            ui.selectable_value(&mut settings.stereo, stereo, stereo.name());
+        }
+    })
+    .response
+    .on_hover_text("Shows the top screen in 3D. Red and cyan is for anaglyph glasses, side by side is for 3D TVs and headsets, and alternate rows is for passive 3D monitors. When off, the game is drawn flat.");
+    let stereo = settings.stereo != Stereo3d::Off;
+    ui.add_enabled(stereo, egui::Slider::new(&mut settings.depth_3d, 0..=100).text("Depth").suffix("%"))
+        .on_hover_text("Works like the console's 3D slider and sets how deep the 3D looks.");
+    ui.add_enabled(stereo, egui::Checkbox::new(&mut settings.swap_eyes, "Swap eyes"))
+        .on_hover_text("Swaps the left and right pictures. Use this for cross-eyed viewing, or if the 3D looks inverted.");
+    theme::hint(
+        ui,
+        "Press F9 while playing to switch between screen layouts, and F10 to switch between the top and bottom screen alone. When the top screen is shown alone, the key set in Keybinds shows the bottom screen in the middle of it, and you can use the mouse on it. The game's buttons wait until the same key closes it.",
+    );
+    theme::hint(ui, "Resolution changes apply right away. A change of presenter applies the next time Zakuro starts.");
+}
+
+fn sound_tab(ui: &mut egui::Ui, settings: &mut Settings) {
+    ui.add(egui::Slider::new(&mut settings.volume, 0.0..=1.0).text("Volume").show_value(false));
+    ui.checkbox(&mut settings.mute, "Mute");
+}
+
+pub fn corner(ctx: &egui::Context, text: &str) {
+    egui::Area::new(egui::Id::new("overlay corner"))
+        .anchor(egui::Align2::RIGHT_BOTTOM, Vec2::new(-8.0, -8.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.label(text);
+            });
+        });
+}
+
+const ICON: f32 = 180.0;
+
+const LONE_CARD: f32 = 0.75;
+
+const CARD_WIDTH: f32 = 60.0 + ICON + 56.0 + 210.0 + 20.0 + 190.0 + 20.0 + 130.0 + 60.0 + 40.0;
+
+fn card_height(job: Option<&Job>, scale: f32) -> f32 {
+    let below = match job.map(Job::stage) {
+        Some(stage) if !stage.finished() => 50.0 + 40.0,
+        Some(Stage::Failed(_)) => 30.0 + 24.0,
+        _ => 0.0,
+    };
+    (60.0 + ICON.max(212.0) + below + 60.0) * scale + 2.0
+}
+
+fn progress(ui: &mut egui::Ui, job: &Job, width: f32, height: f32, size: f32) {
+    let stage = job.stage();
+    let text = match &stage {
+        Stage::Mods { .. } => "Preparing the game's files".to_owned(),
+        Stage::Downloading(arrived) => format!("Downloading the compiler, {:.0}%", arrived * 100.0),
+        Stage::Generating => "Converting the game's code to C".to_owned(),
+        Stage::Compiling { done, total } => format!("Compiling, {done} of {total} files"),
+        Stage::Installing => "Installing".to_owned(),
+        Stage::Done => "Done".to_owned(),
+        Stage::Failed(error) => format!("Failed: {error}"),
+    };
+    let minutes = job.elapsed().as_secs() / 60;
+    let seconds = job.elapsed().as_secs() % 60;
+    let label = RichText::new(format!("{text}, {minutes}:{seconds:02}")).size(size);
+    ui.add(egui::ProgressBar::new(stage.fraction()).desired_width(width).desired_height(height).corner_radius(height / 2.0).text(label));
+}
+
+pub const BOTTOM_OVER: usize = usize::MAX;
+
+fn frame_rate((own, between): (f32, f32)) -> String {
+    if between >= 0.5 {
+        format!("{own:.0}/{:.0} FPS", own + between)
+    } else {
+        format!("{own:.0} FPS")
+    }
+}
+
+pub struct ModSetting {
+    pub name: String,
+    pub min: u16,
+    pub max: u16,
+    pub value: u16,
+    pub unit: String,
+}
+
+/// a key as a person would call it.
+pub fn key_name(key: KeyCode) -> String {
+    let name = format!("{key:?}");
+    for prefix in ["Key", "Digit", "Arrow"] {
+        if let Some(rest) = name.strip_prefix(prefix) {
+            return rest.to_owned();
+        }
+    }
+    name
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_background_fills_the_area_without_stretching() {
+        // a square picture in a wide area loses its top and bottom
+        let wide = cover(Vec2::new(200.0, 100.0), [100, 100]);
+        assert_eq!((wide.min.x, wide.max.x), (0.0, 1.0));
+        assert_eq!((wide.min.y, wide.max.y), (0.25, 0.75));
+        // and in a tall one its sides
+        let tall = cover(Vec2::new(100.0, 200.0), [100, 100]);
+        assert_eq!((tall.min.x, tall.max.x), (0.25, 0.75));
+        assert_eq!((tall.min.y, tall.max.y), (0.0, 1.0));
+    }
+
+    #[test]
+    fn big_pictures_are_scaled_down_keeping_their_shape() {
+        let path = std::env::temp_dir().join(format!("zakuro-background-{}.png", std::process::id()));
+        image::RgbaImage::from_pixel(BACKGROUND_SIDE * 2, BACKGROUND_SIDE, image::Rgba([10, 20, 30, 255])).save(&path).unwrap();
+        let decoded = decode(&path);
+        std::fs::remove_file(&path).ok();
+        let decoded = decoded.unwrap();
+        assert_eq!(decoded.size, [BACKGROUND_SIDE as usize, BACKGROUND_SIDE as usize / 2]);
+        assert_eq!(decoded.pixels[0].to_array(), [10, 20, 30, 255]);
+        assert!(decode(Path::new("/nowhere/at/all.png")).is_err());
+    }
+
+    /// the settings stay inside a short screen, scrolling in it instead of
+    /// running past its bottom.
+    #[test]
+    fn the_settings_fit_a_short_screen() {
+        let ctx = crate::gui::context();
+        let mut menus = Menus { settings_open: true, ..Menus::default() };
+        let mut settings = Settings::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
+        for _ in 0..3 {
+            let input = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                menus.settings(ui.ctx(), &mut settings);
+            })
+            .drop_without_applying_deltas();
+        }
+        let window = ctx.memory(|memory| memory.area_rect(egui::Id::new("settings"))).unwrap();
+        assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
+    }
+
+    #[test]
+    fn the_frame_rate_counts_the_pictures_shown() {
+        assert_eq!(frame_rate((60.0, 0.0)), "60 FPS", "nothing in between");
+        assert_eq!(frame_rate((29.8, 29.6)), "30/59 FPS");
+    }
+
+    #[test]
+    fn keys_have_short_names() {
+        assert_eq!(key_name(KeyCode::KeyX), "X");
+        assert_eq!(key_name(KeyCode::ArrowUp), "Up");
+        assert_eq!(key_name(KeyCode::Digit1), "1");
+        assert_eq!(key_name(KeyCode::Enter), "Enter");
+    }
+}

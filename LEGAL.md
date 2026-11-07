@@ -10,9 +10,10 @@ Intelligent Systems or any other company.
 The repository holds only the project's own files: `.gitignore`,
 `.recomp.json` (the project's entry for the recomp.fyi list),
 `README.md`, `LEGAL.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, the patches
-(`patches/*.patch`), the scripts (`tools/*.py`, `tools/*.sh`) and the feet
-mod's patch, scripts and README (`mods/feet/zakuro-feet.patch`,
-`mods/feet/*.py`, `mods/feet/README.md`).
+(`patches/*.patch`), the Zakuro and 3dsrecomp files the patches add or
+change in their final form (`source/`), two build scripts (`tools/env.sh` and
+`tools/licenses.py`) and the feet mod's patch and README
+(`mods/feet/zakuro-feet.patch` and `mods/feet/README.md`).
 `.gitignore` leaves out everything else. The launcher download is Zakuro
 built with these patches, with the licenses of the code it uses.
 
@@ -22,7 +23,8 @@ What it does hold about the game is what the patches need to find their
 place:
 
 - addresses in the game's code: where 3dsrecomp should start functions (the
-  Awakening section of `hints.txt`, in the 3dsrecomp patch), and where the
+  Awakening section of `hints.txt`, in the 3dsrecomp patch and in
+  `source/3dsrecomp/`), and where the
   built-in tweaks (`enhancements.txt`) and the feet hook (`feet.rs`) step in;
 - names: the game's title ID, its file names (such as
   `b/uBody_M_tac1_0.m.lz`), its bones' names (such as `l_leg2`) and the
@@ -68,14 +70,16 @@ or data, changed or not. Don't share or upload them:
 
 A development copy's other work files stay offline too: the Zakuro and
 3dsrecomp clones, the notes (`notes/`), the hints Zakuro records (`hints/`),
-the rest of `mods/`, the toolchain (`tools/rust/`) and logs.
+the development scripts, the toolchain (`tools/rust/`) and logs.
 
 ## Licenses and trademarks
 
 The project's own files are under the MIT license in `LICENSE`. So are the
 changes the patches make to Zakuro and 3dsrecomp, which keep fearkov's MIT
-notice (`THIRD_PARTY_NOTICES.md`). The license covers none of the game, nor
-anything made from it. The launcher download lists the licenses of the
+notice (`THIRD_PARTY_NOTICES.md`). The files in `source/` hold those
+changes together with fearkov's code around them, under the same notices.
+The license covers none of the game, nor anything made from it. The
+launcher download lists the licenses of the
 crates it is built from in `THIRD_PARTY_LICENSES.txt`. The Rust toolchain in
 `tools/rust/` is a download under its own licenses.
 

@@ -1,11 +1,3 @@
-"""writes the licenses of everything built into Zakuro's launcher, for a
-package of the launcher: each crate with its version and license, then the
-license and notice files the crates carry, each text once.
-
-    python tools/licenses.py <cargo metadata json> <out.txt>
-
-the json is `cargo metadata --format-version 1 --filter-platform
-x86_64-pc-windows-gnu`, run in zakuro/."""
 import json
 import os
 import sys
@@ -16,7 +8,6 @@ packages = {p["id"]: p for p in meta["packages"]}
 nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
 root = next(i for i, p in packages.items() if p["name"] == "zakuro")
 
-# what the launcher links: its dependencies, normal and build, not dev
 linked, todo = set(), [root]
 while todo:
     i = todo.pop()
@@ -34,14 +25,11 @@ for i in sorted(linked, key=lambda i: (packages[i]["name"], packages[i]["version
     p = packages[i]
     rows.append(f"{p['name']} {p['version']}: {p.get('license') or 'see its license file'}")
     folder = os.path.dirname(p["manifest_path"])
-    # in the crate's folder and the folders right in it, where fonts and
-    # bundled C code keep theirs
     files = []
     for sub in [""] + sorted(d for d in os.listdir(folder) if os.path.isdir(os.path.join(folder, d)) and d not in ("target", ".git")):
         here = os.path.join(folder, sub)
         for f in sorted(os.listdir(here)):
             name = f.lower()
-            # a font's license is the text file beside it, OFL.txt say
             font = sub.lower() == "fonts" and name.endswith(".txt")
             if (name.startswith(NAMES) or "license" in name or font) and os.path.isfile(os.path.join(here, f)):
                 files.append(os.path.join(sub, f))
