@@ -124,6 +124,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
         last_pieces: None,
         last_banners: None,
         banner_textures: overlays::BannerTextures::default(),
+        updatable: update::installable(),
         update_check: update::installable().then(update::check_in_background),
         update_offer: None,
         update_install: None,
@@ -440,6 +441,7 @@ struct App {
     last_pieces: Option<&'static [zakuro_gpu::Piece]>,
     last_banners: Option<banners::Read>,
     banner_textures: overlays::BannerTextures,
+    updatable: bool,
     update_check: Option<std::sync::mpsc::Receiver<Option<update::Release>>>,
     update_offer: Option<update::Release>,
     update_install: Option<update::Installing>,
@@ -1253,6 +1255,7 @@ impl App {
         self.menus.update = match (&self.update_install, &self.update_offer) {
             (Some(installing), _) => Some(menus::UpdateButton::Installing(installing.progress.lock().map_or(0.0, |progress| *progress))),
             (None, Some(_)) => Some(menus::UpdateButton::Available),
+            (None, None) if self.updatable => Some(menus::UpdateButton::Idle),
             (None, None) => None,
         };
     }
@@ -1306,11 +1309,12 @@ impl App {
             }
             Action::Recompile(index) => self.recompile(index, false),
             Action::BuildFeet(index) => self.build_feet(index),
-            Action::Update => {
-                if let (Some(release), None) = (self.update_offer.clone(), &self.update_install) {
-                    self.update_install = Some(update::install_in_background(release));
-                }
-            }
+            Action::Update => match (self.update_offer.clone(), &self.update_install) {
+                (_, Some(_)) => {}
+                (Some(release), None) => self.update_install = Some(update::install_in_background(release)),
+                (None, None) if self.update_check.is_some() => self.menus.message = Some("Looking for an update, try again in a moment.".to_owned()),
+                (None, None) => self.menus.message = Some("No update available.".to_owned()),
+            },
             Action::DownloadCompiler(index) => self.recompile(index, true),
             Action::Mods(program_id) => {
                 if let Some(data_dir) = &self.data_dir {

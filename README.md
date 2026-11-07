@@ -45,8 +45,8 @@ Esc opens the menu, with the settings, the cheats and save states.
 - The Cheats window has cheat codes and built-in tweaks such as faster
   battles. All the built-in tweaks are on from the start, with the top
   screen in 16:9 and faster battles at 100%.
-- Update Launcher, in the launcher's top bar, shows when a new release is out.
-  It downloads the release, puts it in place and restarts the launcher.
+- Update Launcher, in the launcher's top bar, installs the newest release and
+  restarts the launcher, or says that no update is available.
 - Original mode plays the game as the console does.
 
 ## Building

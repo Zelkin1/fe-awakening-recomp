@@ -260,6 +260,11 @@ impl Menus {
                                 actions.push(Action::Update);
                             }
                         }
+                        Some(UpdateButton::Idle) => {
+                            if ui.button("Update Launcher").on_hover_text("Look for a newer launcher on GitHub.").clicked() {
+                                actions.push(Action::Update);
+                            }
+                        }
                         Some(UpdateButton::Installing(fraction)) => {
                             ui.add(egui::ProgressBar::new(*fraction).desired_width(170.0).text(format!("Updating, {:.0}%", fraction * 100.0)));
                         }
@@ -1133,6 +1138,7 @@ pub const BOTTOM_OVER: usize = usize::MAX;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateButton {
+    Idle,
     Available,
     Installing(f32),
 }

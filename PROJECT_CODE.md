@@ -505,48 +505,48 @@ Added:
 - `mod sounds`, line 21
 - `mod theme`, line 22
 - `mod update`, line 23
-- `fn App::touch_on_pieces`, lines 924–940
-- `fn App::marker_spans`, lines 942–944
-- `fn App::library_source`, lines 1078–1084
-- `fn App::save_and_rescan`, lines 1086–1091
-- `fn App::shown_layout`, lines 1093–1112
-- `fn App::bottom_over_layout`, lines 1114–1119
-- `fn App::current_scene`, lines 1121–1132
-- `fn App::place_bottom_over`, lines 1134–1160
-- `fn App::close_bottom_over_with_cancel`, lines 1162–1165
-- `fn App::toggle_bottom_over`, lines 1167–1178
-- `fn App::build_feet`, lines 1229–1240
-- `fn App::poll_update`, lines 1242–1258
-- `fn App::window_layout`, lines 1908–1911
-- `fn App::bottom_over_frame`, lines 1913–1921
-- `fn App::placed_pieces`, lines 1923–1926
-- `fn App::bottom_screen_cuts`, lines 1928–1947
-- `fn App::banners_on`, lines 1949–1954
-- `fn App::read_banners`, lines 1956–1964
-- `fn App::button_places`, lines 1966–1970
-- `fn mod_setting`, lines 2074–2077
+- `fn App::touch_on_pieces`, lines 926–942
+- `fn App::marker_spans`, lines 944–946
+- `fn App::library_source`, lines 1080–1086
+- `fn App::save_and_rescan`, lines 1088–1093
+- `fn App::shown_layout`, lines 1095–1114
+- `fn App::bottom_over_layout`, lines 1116–1121
+- `fn App::current_scene`, lines 1123–1134
+- `fn App::place_bottom_over`, lines 1136–1162
+- `fn App::close_bottom_over_with_cancel`, lines 1164–1167
+- `fn App::toggle_bottom_over`, lines 1169–1180
+- `fn App::build_feet`, lines 1231–1242
+- `fn App::poll_update`, lines 1244–1261
+- `fn App::window_layout`, lines 1912–1915
+- `fn App::bottom_over_frame`, lines 1917–1925
+- `fn App::placed_pieces`, lines 1927–1930
+- `fn App::bottom_screen_cuts`, lines 1932–1951
+- `fn App::banners_on`, lines 1953–1958
+- `fn App::read_banners`, lines 1960–1968
+- `fn App::button_places`, lines 1970–1974
+- `fn mod_setting`, lines 2078–2081
 
 Changed:
 
-- `fn run_with`, lines 76–199
-- `struct Running`, lines 357–373
-- `fn Running::new`, lines 376–390
-- `fn Running::count_frame`, lines 392–405
-- `struct App`, lines 408–500
-- `fn <App as ApplicationHandler>::resumed`, lines 553–592
-- `fn App::config`, lines 654–682
-- `fn App::play`, lines 706–790
-- `fn App::key`, lines 805–872
-- `fn App::poll_gamepads`, lines 876–895
-- `fn App::touch`, lines 903–922
-- `fn App::apply_settings`, lines 989–1016
-- `fn App::apply_layout`, lines 1045–1076
-- `fn App::poll_jobs`, lines 1261–1298
-- `fn App::act`, lines 1300–1446
-- `fn App::step`, lines 1448–1557
-- `fn App::emulate`, lines 1560–1620
-- `fn App::interface`, lines 1809–1906
-- `fn App::present`, lines 1972–2003
+- `fn run_with`, lines 76–200
+- `struct Running`, lines 358–374
+- `fn Running::new`, lines 377–391
+- `fn Running::count_frame`, lines 393–406
+- `struct App`, lines 409–502
+- `fn <App as ApplicationHandler>::resumed`, lines 555–594
+- `fn App::config`, lines 656–684
+- `fn App::play`, lines 708–792
+- `fn App::key`, lines 807–874
+- `fn App::poll_gamepads`, lines 878–897
+- `fn App::touch`, lines 905–924
+- `fn App::apply_settings`, lines 991–1018
+- `fn App::apply_layout`, lines 1047–1078
+- `fn App::poll_jobs`, lines 1264–1301
+- `fn App::act`, lines 1303–1450
+- `fn App::step`, lines 1452–1561
+- `fn App::emulate`, lines 1564–1624
+- `fn App::interface`, lines 1813–1910
+- `fn App::present`, lines 1976–2007
 
 Its imports change too.
 
@@ -594,32 +594,32 @@ Added:
 - `enum Confirm`, lines 108–112
 - `enum SettingsTab`, lines 114–122
 - `const SETTINGS_TABS`, lines 124–130
-- `fn Menus::game_card`, lines 327–438
-- `fn Menus::keybinds_tab`, lines 806–833
-- `fn Menus::controller_tab`, lines 835–863
-- `fn system_tab`, lines 959–1001
-- `fn graphics_tab`, lines 1003–1081
-- `fn sound_tab`, lines 1083–1086
-- `const ICON`, line 1100
-- `const LONE_CARD`, line 1102
-- `const CARD_WIDTH`, line 1104
-- `fn card_height`, lines 1106–1113
-- `const BOTTOM_OVER`, line 1132
-- `enum UpdateButton`, lines 1134–1138
-- `fn frame_rate`, lines 1140–1146
-- `struct ModSetting`, lines 1148–1154
-- `fn tests::the_frame_rate_counts_the_pictures_shown`, lines 1214–1218
+- `fn Menus::game_card`, lines 332–443
+- `fn Menus::keybinds_tab`, lines 811–838
+- `fn Menus::controller_tab`, lines 840–868
+- `fn system_tab`, lines 964–1006
+- `fn graphics_tab`, lines 1008–1086
+- `fn sound_tab`, lines 1088–1091
+- `const ICON`, line 1105
+- `const LONE_CARD`, line 1107
+- `const CARD_WIDTH`, line 1109
+- `fn card_height`, lines 1111–1118
+- `const BOTTOM_OVER`, line 1137
+- `enum UpdateButton`, lines 1139–1144
+- `fn frame_rate`, lines 1146–1152
+- `struct ModSetting`, lines 1154–1160
+- `fn tests::the_frame_rate_counts_the_pictures_shown`, lines 1220–1224
 
 Changed:
 
 - `enum Action`, lines 18–65
 - `struct Menus`, lines 67–106
-- `fn Menus::library`, lines 233–325
-- `fn Menus::game`, lines 442–582
-- `fn Menus::cheats`, lines 585–649
-- `fn Menus::settings`, lines 767–804
-- `fn progress`, lines 1115–1130
-- `fn tests::the_settings_fit_a_short_screen`, lines 1197–1212
+- `fn Menus::library`, lines 233–330
+- `fn Menus::game`, lines 447–587
+- `fn Menus::cheats`, lines 590–654
+- `fn Menus::settings`, lines 772–809
+- `fn progress`, lines 1120–1135
+- `fn tests::the_settings_fit_a_short_screen`, lines 1203–1218
 
 Its imports change too.
 
