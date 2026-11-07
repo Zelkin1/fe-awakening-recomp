@@ -40,14 +40,14 @@ impl ShownButtons {
         }
     }
 
-    pub(crate) fn next(shown: Option<ShownButtons>, pieces: Option<&'static [zakuro_gpu::Piece]>, pressed: zakuro_core::services::hid::PadState, touched: bool, now: Instant) -> Option<ShownButtons> {
+    pub(crate) fn next(shown: Option<ShownButtons>, pieces: Option<&'static [zakuro_gpu::Piece]>, pressed: zakuro_core::services::hid::PadState, touched: bool, any_button: bool, now: Instant) -> Option<ShownButtons> {
         let Some(pieces) = pieces else {
             return shown.map(|shown| ShownButtons { until: shown.until.min(now), ..shown });
         };
         let opacity = shown.map_or(0.0, |shown| shown.opacity(now));
         use zakuro_core::services::hid::PadState;
         let sticks = PadState::C_STICK_RIGHT | PadState::C_STICK_LEFT | PadState::C_STICK_UP | PadState::C_STICK_DOWN | PadState::CIRCLE_RIGHT | PadState::CIRCLE_LEFT | PadState::CIRCLE_UP | PadState::CIRCLE_DOWN;
-        let asked = !pressed.difference(sticks).is_empty() || (opacity > 0.0 && touched);
+        let asked = any_button || !pressed.difference(sticks).is_empty() || (opacity > 0.0 && touched);
         if !asked {
             return shown;
         }
@@ -381,7 +381,7 @@ mod tests {
         let pieces: &'static [zakuro_gpu::Piece] = &[];
         let start = Instant::now();
         let at = |seconds: f32| start + Duration::from_secs_f32(seconds);
-        let step = |shown, pressed, touched, seconds| ShownButtons::next(shown, Some(pieces), pressed, touched, at(seconds));
+        let step = |shown, pressed, touched, seconds| ShownButtons::next(shown, Some(pieces), pressed, touched, false, at(seconds));
         assert!(step(None, PadState::CIRCLE_LEFT | PadState::C_STICK_UP, true, 0.0).is_none(), "neither the sticks nor a touch brings them");
         let near = |value: f32, wanted: f32| (value - wanted).abs() < 0.01;
         for button in [PadState::A, PadState::B, PadState::X, PadState::L, PadState::START, PadState::DOWN] {
@@ -398,7 +398,9 @@ mod tests {
         assert!(near(touched.opacity(at(5.4)), 1.0), "so does a touch while they show");
         let back = step(Some(shown), PadState::A, false, 4.0).unwrap();
         assert!(near(back.opacity(at(4.05)), 0.5), "a press once gone brings them back");
-        let gone = ShownButtons::next(Some(shown), None, PadState::B, false, at(1.0)).unwrap();
+        let any_key = ShownButtons::next(None, Some(pieces), PadState::empty(), false, true, at(0.0)).unwrap();
+        assert!(near(any_key.opacity(at(2.9)), 1.0), "so does any key or controller button");
+        let gone = ShownButtons::next(Some(shown), None, PadState::B, false, false, at(1.0)).unwrap();
         assert!(near(gone.opacity(at(1.0)), 1.0));
         assert!(near(gone.opacity(at(1.3)), 0.0), "the battle over, they go");
     }

@@ -323,7 +323,7 @@ index fe8075b..2ab9118 100644
              ranges.overwrote = cheat.builtin.then(|| std::mem::take(&mut cheat.overwrote));
              execute(system, &code, pad, &mut ranges);
 diff --git a/crates/zakuro-core/src/enhancements.rs b/crates/zakuro-core/src/enhancements.rs
-index 2a8d39e..f400ef6 100644
+index 2a8d39e..5e440b8 100644
 --- a/crates/zakuro-core/src/enhancements.rs
 +++ b/crates/zakuro-core/src/enhancements.rs
 @@ -2,13 +2,14 @@
@@ -473,7 +473,7 @@ index 2a8d39e..f400ef6 100644
 +
 +        let faster = &enhancements[2];
 +        assert_eq!(faster.name, "Faster battles");
-+        let speed = Setting { name: "Speed".into(), min: 100, max: 200, default: 130, unit: "%".into() };
++        let speed = Setting { name: "Speed".into(), min: 100, max: 200, default: 100, unit: "%".into() };
 +        assert_eq!(faster.setting, Some(speed));
 +        assert_eq!(faster.lines.len(), 14);
 +        assert_eq!(faster.lines[10..12], ["0045AF70 {100/x}", "0045AF74 {x/100}"]);
@@ -484,7 +484,7 @@ index 2a8d39e..f400ef6 100644
 +            let values = values.iter().map(|&(name, value)| (name.to_owned(), value)).collect();
 +            super::cheats(0x0004_0000_0009_F100, "rev0", &[], &values)[2].setting.as_ref().map(|setting| setting.value)
 +        };
-+        assert_eq!((start(&[]), start(&[("Faster battles", 120)]), start(&[("Faster battles", 900)])), (Some(130), Some(120), Some(200)));
++        assert_eq!((start(&[]), start(&[("Faster battles", 120)]), start(&[("Faster battles", 900)])), (Some(100), Some(120), Some(200)));
 +
 +        let glow = &enhancements[3];
 +        assert_eq!(glow.name, "Glow to the edges");
@@ -519,7 +519,7 @@ index 2a8d39e..f400ef6 100644
      }
  }
 diff --git a/crates/zakuro-core/src/enhancements.txt b/crates/zakuro-core/src/enhancements.txt
-index 7daa922..dd9a020 100644
+index 7daa922..1e89b84 100644
 --- a/crates/zakuro-core/src/enhancements.txt
 +++ b/crates/zakuro-core/src/enhancements.txt
 @@ -1,6 +1,6 @@
@@ -555,7 +555,7 @@ index 7daa922..dd9a020 100644
 +003D1B18 E1A00000
 +003D1B24 E1A00000
 +Faster battles | rev0 | Claude, for this recomp | Plays battle animations faster than their usual speed, at the speed set under it, from 100% to 200%. Fast forward stays at twice the usual speed and the pause still stops them. The battle's speed control multiplies its target speed by 2 for fast forward and by a half for slow, undoing each on leaving it; this gives the usual speed a factor of its own too, the speed on entering it and its inverse on leaving it, through two entries of its jump tables pointed at a few instructions past the end of the text. A new speed takes from the next battle. | the Fire Emblem Awakening recomp's notes
-+~ Speed 100..200 = 130 %
++~ Speed 100..200 = 100 %
 +0045AF40 ED951A08
 +0045AF44 EDDF1A09
 +0045AF48 EE211A21
@@ -4211,7 +4211,7 @@ index a5b4c18..3d5e52b 100644
  
      /// Japanese names have every character to draw with the system's
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..add2efc 100644
+index 6cf00db..638bf0e 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,17 +3,22 @@
@@ -4274,7 +4274,7 @@ index 6cf00db..add2efc 100644
  
      let data_dir = options.data.clone().map(PathBuf::from).or_else(default_data_dir);
      if let Some(dir) = &data_dir {
-@@ -97,13 +111,23 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -97,13 +111,25 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          gamepads: gamepad::Gamepads::new(settings.pad.clone()),
          scale: options.scale.unwrap_or(settings.scale).max(1),
          layout: settings.layout,
@@ -4288,6 +4288,8 @@ index 6cf00db..add2efc 100644
 +        banner_textures: overlays::BannerTextures::default(),
 +        buttons: None,
 +        last_input: (zakuro_core::services::hid::PadState::empty(), false),
++        holding_back_cancel: false,
++        any_button_pressed: false,
          top_shape: settings.top_shape,
          options,
          settings,
@@ -4299,7 +4301,7 @@ index 6cf00db..add2efc 100644
          data_dir,
          game: None,
          menus: {
-@@ -147,8 +171,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -147,8 +173,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          return;
      }
  
@@ -4310,7 +4312,7 @@ index 6cf00db..add2efc 100644
      }
      app.audio = if app.options.mute {
          None
-@@ -331,10 +355,11 @@ struct Running {
+@@ -331,10 +357,11 @@ struct Running {
      /// place of the keyboard's and the controllers', and the frames run.
      replay: Option<zakuro_core::replay::Replay>,
      frame: u64,
@@ -4323,7 +4325,7 @@ index 6cf00db..add2efc 100644
  }
  
  impl Running {
-@@ -347,8 +372,10 @@ impl Running {
+@@ -347,8 +374,10 @@ impl Running {
              replay: None,
              frame: 0,
              frames: 0,
@@ -4334,7 +4336,7 @@ index 6cf00db..add2efc 100644
          }
      }
  
-@@ -356,7 +383,12 @@ impl Running {
+@@ -356,7 +385,12 @@ impl Running {
          self.frames += 1;
          let elapsed = self.counting_since.elapsed();
          if elapsed >= Duration::from_millis(500) {
@@ -4348,7 +4350,7 @@ index 6cf00db..add2efc 100644
              self.frames = 0;
              self.counting_since = Instant::now();
          }
-@@ -390,6 +422,16 @@ struct App {
+@@ -390,6 +424,18 @@ struct App {
      scale: u32,
      /// how the screens are arranged.
      layout: Screens,
@@ -4362,10 +4364,12 @@ index 6cf00db..add2efc 100644
 +    banner_textures: overlays::BannerTextures,
 +    buttons: Option<ShownButtons>,
 +    last_input: (zakuro_core::services::hid::PadState, bool),
++    holding_back_cancel: bool,
++    any_button_pressed: bool,
      /// how wide the top screen shows.
      top_shape: settings::TopShape,
      /// the left button is down, and where the pointer is, in window pixels.
-@@ -516,7 +558,7 @@ impl ApplicationHandler for App {
+@@ -516,7 +562,7 @@ impl ApplicationHandler for App {
          match backend {
              Ok((window, mut backend)) => {
                  log::info!("presenting with the {} backend", backend.name());
@@ -4374,7 +4378,7 @@ index 6cf00db..add2efc 100644
                  backend.set_top_width(self.settings.top_shape.width());
                  backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
                  backend.set_stereo(self.settings.stereo());
-@@ -605,13 +647,16 @@ impl App {
+@@ -605,13 +651,16 @@ impl App {
              find_recompiled: !interpret,
              hardware_renderer: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
              texture_packs: self.settings.texture_packs,
@@ -4391,7 +4395,7 @@ index 6cf00db..add2efc 100644
              resolution: self.settings.resolution,
              device: self.backend.as_ref().and_then(Backend::shared_device),
              username: self.nickname(),
-@@ -661,12 +706,10 @@ impl App {
+@@ -661,12 +710,10 @@ impl App {
              config.update = game.update.as_ref().map(|update| update.path.clone());
              config.dlc = game.dlc.iter().map(|dlc| dlc.path.clone()).collect();
              config.dlp_child = game.dlp_child.as_ref().map(|child| child.path.clone());
@@ -4406,7 +4410,7 @@ index 6cf00db..add2efc 100644
          }
          // a recording starts the clock at a known time, for playing it back
          let record = std::env::var_os("ZAKURO_RECORD").map(PathBuf::from);
-@@ -698,6 +741,7 @@ impl App {
+@@ -698,6 +745,7 @@ impl App {
              .or_else(|| Some(library::Smdh::parse(system.title.as_ref()?.exefs_file("icon")?)?.name).filter(|name| !name.is_empty()))
              .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
              .unwrap_or_default();
@@ -4414,7 +4418,7 @@ index 6cf00db..add2efc 100644
          let mut game = Running::new(system, path.to_owned(), name);
          game.replay = replay;
          if let Some(record) = record {
-@@ -754,7 +798,9 @@ impl App {
+@@ -754,7 +802,9 @@ impl App {
          if let (true, Some(index)) = (pressed, self.menus.rebinding) {
              self.menus.rebinding = None;
              if code != KeyCode::Escape {
@@ -4425,19 +4429,32 @@ index 6cf00db..add2efc 100644
                      *key = code;
                  }
                  self.apply_settings();
-@@ -789,6 +835,9 @@ impl App {
+@@ -766,6 +816,7 @@ impl App {
+             self.fast_forward_key = pressed && self.game.is_some();
+         }
+         if pressed && !event.repeat {
++            self.any_button_pressed = self.game.is_some();
+             match code {
+                 KeyCode::Escape if self.game.is_some() => {
+                     self.menus.menu_open = !self.menus.menu_open;
+@@ -789,6 +840,12 @@ impl App {
                  KeyCode::F11 => self.toggle_fullscreen(),
                  KeyCode::F5 if self.game.is_some() => self.save_state(),
                  KeyCode::F8 if self.game.is_some() => self.load_state(),
 +                _ if code == self.settings.bottom_over_key && !consumed && !self.gui.as_ref().is_some_and(Gui::wants_keyboard) => {
 +                    self.toggle_bottom_over()
 +                }
++                _ if code == self.settings.keys.b && self.bottom_over && !consumed && !self.gui.as_ref().is_some_and(Gui::wants_keyboard) => {
++                    self.close_bottom_over_with_cancel()
++                }
                  _ => {}
              }
          }
-@@ -808,13 +857,17 @@ impl App {
+@@ -807,14 +864,21 @@ impl App {
+     /// it, and Home opens and closes the menu over the game.
      fn poll_gamepads(&mut self) {
          for button in self.gamepads.poll() {
++            self.any_button_pressed = self.game.is_some();
              if let Some(index) = self.menus.rebinding_pad.take() {
 -                if let Some((_, bound)) = self.settings.pad.all_mut().into_iter().nth(index) {
 +                if index == menus::BOTTOM_OVER {
@@ -4451,10 +4468,12 @@ index 6cf00db..add2efc 100644
                  self.keyboard.release();
 +            } else if button == self.settings.bottom_over_button {
 +                self.toggle_bottom_over();
++            } else if button == self.settings.pad.b && self.bottom_over {
++                self.close_bottom_over_with_cancel();
              }
          }
      }
-@@ -828,7 +881,11 @@ impl App {
+@@ -828,7 +892,11 @@ impl App {
      fn touch(&mut self) {
          let Some(window) = &self.window else { return };
          let size = window.inner_size();
@@ -4467,7 +4486,7 @@ index 6cf00db..add2efc 100644
          // with the top screen alone there is nothing to touch
          let Some(bottom) = bottom else {
              self.keyboard.touch(None);
-@@ -842,6 +899,28 @@ impl App {
+@@ -842,6 +910,28 @@ impl App {
          }));
      }
  
@@ -4496,7 +4515,7 @@ index 6cf00db..add2efc 100644
      /// tilts the console while the right button is held, toward where the
      /// pointer went and by how far, as Citra's motion emulation does,
      /// which titles were tried with. letting go stands it upright again.
-@@ -887,11 +966,20 @@ impl App {
+@@ -887,11 +977,20 @@ impl App {
      /// saves the settings and puts to use what can change right away.
      fn apply_settings(&mut self) {
          self.settings.save();
@@ -4517,7 +4536,7 @@ index 6cf00db..add2efc 100644
              // games read the 3D slider every frame
              let slider = self.settings.slider_3d();
              if game.system.config.slider_3d != slider {
-@@ -938,13 +1026,20 @@ impl App {
+@@ -938,13 +1037,20 @@ impl App {
              backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
              backend.set_stereo(self.settings.stereo());
          }
@@ -4539,7 +4558,7 @@ index 6cf00db..add2efc 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1053,103 @@ impl App {
+@@ -958,6 +1064,108 @@ impl App {
          }
      }
  
@@ -4627,6 +4646,11 @@ index 6cf00db..add2efc 100644
 +        }
 +    }
 +
++    fn close_bottom_over_with_cancel(&mut self) {
++        self.toggle_bottom_over();
++        self.holding_back_cancel = true;
++    }
++
 +    fn toggle_bottom_over(&mut self) {
 +        let Some(game) = &self.game else { return };
 +        if self.layout != Screens::TopOnly || self.settings.original {
@@ -4643,7 +4667,7 @@ index 6cf00db..add2efc 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -1021,6 +1213,9 @@ impl App {
+@@ -1021,6 +1229,9 @@ impl App {
                  Stage::Done => {
                      self.library.refresh_recompiled();
                      let playing = self.game.as_ref().is_some_and(|game| game.system.title.as_ref().is_some_and(|title| title.program_id() == program_id));
@@ -4653,7 +4677,7 @@ index 6cf00db..add2efc 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1034,7 +1229,8 @@ impl App {
+@@ -1034,7 +1245,8 @@ impl App {
                      }
                  }
                  Stage::Failed(error) if error != "cancelled" => {
@@ -4663,7 +4687,7 @@ index 6cf00db..add2efc 100644
                  }
                  _ => {}
              }
-@@ -1065,13 +1261,22 @@ impl App {
+@@ -1065,13 +1277,22 @@ impl App {
                      job.cancel();
                  }
              }
@@ -4691,7 +4715,7 @@ index 6cf00db..add2efc 100644
              Action::SaveState => self.save_state(),
              Action::LoadState => self.load_state(),
              Action::HostRoom => self.host_room(),
-@@ -1087,32 +1292,6 @@ impl App {
+@@ -1087,32 +1308,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -4724,7 +4748,7 @@ index 6cf00db..add2efc 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1329,15 @@ impl App {
+@@ -1150,6 +1345,15 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -4740,23 +4764,33 @@ index 6cf00db..add2efc 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1306,8 +1494,15 @@ impl App {
+@@ -1304,10 +1508,24 @@ impl App {
+     /// runs one frame of the game.
+     fn emulate(&mut self) {
          let Some(game) = &mut self.game else { return };
-         let input = match &mut game.replay {
+-        let input = match &mut game.replay {
++        let mut input = match &mut game.replay {
              Some(replay) => replay.input(game.frame),
 +            None if self.bottom_over => overlays::bottom_over_input(self.gamepads.apply(self.keyboard.state()), self.scene),
              None => self.gamepads.apply(self.keyboard.state()),
          };
++        if self.holding_back_cancel {
++            if input.buttons.contains(zakuro_core::services::hid::PadState::B) {
++                input.buttons.remove(zakuro_core::services::hid::PadState::B);
++            } else {
++                self.holding_back_cancel = false;
++            }
++        }
 +        let (held, touched) = std::mem::replace(&mut self.last_input, (input.buttons, input.touch.is_some()));
 +        let pieces = match self.scene {
 +            Scene::Battle(_) if !self.settings.original => game.system.battle_buttons(),
 +            _ => None,
 +        };
-+        self.buttons = ShownButtons::next(self.buttons, pieces, input.buttons.difference(held), input.touch.is_some() && !touched, Instant::now());
++        self.buttons = ShownButtons::next(self.buttons, pieces, input.buttons.difference(held), input.touch.is_some() && !touched, std::mem::take(&mut self.any_button_pressed), Instant::now());
          game.frame += 1;
          if let Some(recorder) = &mut game.recorder {
              recorder.record(input);
-@@ -1546,9 +1741,26 @@ impl App {
+@@ -1546,9 +1764,26 @@ impl App {
              .flatten()
              .and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
              .map(ago);
@@ -4784,7 +4818,7 @@ index 6cf00db..add2efc 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,18 +1773,41 @@ impl App {
+@@ -1561,18 +1796,41 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -4828,7 +4862,7 @@ index 6cf00db..add2efc 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,7 +1816,7 @@ impl App {
+@@ -1581,7 +1839,7 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -4837,7 +4871,7 @@ index 6cf00db..add2efc 100644
              }
              if let Some(request) = &keyboard {
                  actions.extend(menus.keyboard(ui.ctx(), request));
-@@ -1596,7 +1831,72 @@ impl App {
+@@ -1596,7 +1854,72 @@ impl App {
          overlay
      }
  
@@ -4910,7 +4944,7 @@ index 6cf00db..add2efc 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
-@@ -1697,6 +1997,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
+@@ -1697,6 +2020,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
  /// keeps the renderer kind referenced even when a backend feature is off.
  const _: RendererKind = RendererKind::Software;
  
@@ -5260,7 +5294,7 @@ index 8a5163d..c09ab3d 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..605ae87 100644
+index 9372f02..301e4b8 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -8,10 +8,11 @@ use egui::{Align, Color32, Layout, RichText, Vec2};
@@ -6273,7 +6307,7 @@ index 9372f02..605ae87 100644
 +        .on_hover_text("Swaps the left and right pictures. Use this for cross-eyed viewing, or if the 3D looks inverted.");
 +    theme::hint(
 +        ui,
-+        "Press F9 while playing to switch between screen layouts, and F10 to switch between the top and bottom screen alone. When the top screen is shown alone, the key set in Keybinds shows the bottom screen in the middle of it, and you can use the mouse on it. The game's buttons wait until the same key closes it.",
++        "Press F9 while playing to switch between screen layouts, and F10 to switch between the top and bottom screen alone. When the top screen is shown alone, the key set in Keybinds shows the bottom screen in the middle of it, and you can use the mouse on it. The game's buttons wait until the same key, or the game's B button, closes it.",
 +    );
 +    theme::hint(ui, "Resolution changes apply right away. A change of presenter applies the next time Zakuro starts.");
 +}
@@ -6374,10 +6408,10 @@ index 9372f02..605ae87 100644
          assert_eq!(key_name(KeyCode::KeyX), "X");
 diff --git a/crates/zakuro/src/overlays.rs b/crates/zakuro/src/overlays.rs
 new file mode 100644
-index 0000000..5d60687
+index 0000000..026969b
 --- /dev/null
 +++ b/crates/zakuro/src/overlays.rs
-@@ -0,0 +1,405 @@
+@@ -0,0 +1,407 @@
 +use std::time::{Duration, Instant};
 +
 +use egui::Color32;
@@ -6420,14 +6454,14 @@ index 0000000..5d60687
 +        }
 +    }
 +
-+    pub(crate) fn next(shown: Option<ShownButtons>, pieces: Option<&'static [zakuro_gpu::Piece]>, pressed: zakuro_core::services::hid::PadState, touched: bool, now: Instant) -> Option<ShownButtons> {
++    pub(crate) fn next(shown: Option<ShownButtons>, pieces: Option<&'static [zakuro_gpu::Piece]>, pressed: zakuro_core::services::hid::PadState, touched: bool, any_button: bool, now: Instant) -> Option<ShownButtons> {
 +        let Some(pieces) = pieces else {
 +            return shown.map(|shown| ShownButtons { until: shown.until.min(now), ..shown });
 +        };
 +        let opacity = shown.map_or(0.0, |shown| shown.opacity(now));
 +        use zakuro_core::services::hid::PadState;
 +        let sticks = PadState::C_STICK_RIGHT | PadState::C_STICK_LEFT | PadState::C_STICK_UP | PadState::C_STICK_DOWN | PadState::CIRCLE_RIGHT | PadState::CIRCLE_LEFT | PadState::CIRCLE_UP | PadState::CIRCLE_DOWN;
-+        let asked = !pressed.difference(sticks).is_empty() || (opacity > 0.0 && touched);
++        let asked = any_button || !pressed.difference(sticks).is_empty() || (opacity > 0.0 && touched);
 +        if !asked {
 +            return shown;
 +        }
@@ -6761,7 +6795,7 @@ index 0000000..5d60687
 +        let pieces: &'static [zakuro_gpu::Piece] = &[];
 +        let start = Instant::now();
 +        let at = |seconds: f32| start + Duration::from_secs_f32(seconds);
-+        let step = |shown, pressed, touched, seconds| ShownButtons::next(shown, Some(pieces), pressed, touched, at(seconds));
++        let step = |shown, pressed, touched, seconds| ShownButtons::next(shown, Some(pieces), pressed, touched, false, at(seconds));
 +        assert!(step(None, PadState::CIRCLE_LEFT | PadState::C_STICK_UP, true, 0.0).is_none(), "neither the sticks nor a touch brings them");
 +        let near = |value: f32, wanted: f32| (value - wanted).abs() < 0.01;
 +        for button in [PadState::A, PadState::B, PadState::X, PadState::L, PadState::START, PadState::DOWN] {
@@ -6778,7 +6812,9 @@ index 0000000..5d60687
 +        assert!(near(touched.opacity(at(5.4)), 1.0), "so does a touch while they show");
 +        let back = step(Some(shown), PadState::A, false, 4.0).unwrap();
 +        assert!(near(back.opacity(at(4.05)), 0.5), "a press once gone brings them back");
-+        let gone = ShownButtons::next(Some(shown), None, PadState::B, false, at(1.0)).unwrap();
++        let any_key = ShownButtons::next(None, Some(pieces), PadState::empty(), false, true, at(0.0)).unwrap();
++        assert!(near(any_key.opacity(at(2.9)), 1.0), "so does any key or controller button");
++        let gone = ShownButtons::next(Some(shown), None, PadState::B, false, false, at(1.0)).unwrap();
 +        assert!(near(gone.opacity(at(1.0)), 1.0));
 +        assert!(near(gone.opacity(at(1.3)), 0.0), "the battle over, they go");
 +    }
@@ -6920,7 +6956,7 @@ index 1640c7a..17b117c 100644
      fn modules_are_cro_files_and_static_crs() {
          assert!(is_module("cro/Battle.cro") && is_module("Battle.CRO") && is_module("static.crs"));
 diff --git a/crates/zakuro/src/settings.rs b/crates/zakuro/src/settings.rs
-index 1e9b15b..86d02a6 100644
+index 1e9b15b..c486b7f 100644
 --- a/crates/zakuro/src/settings.rs
 +++ b/crates/zakuro/src/settings.rs
 @@ -115,7 +115,7 @@ impl TopShape {
@@ -6951,6 +6987,26 @@ index 1e9b15b..86d02a6 100644
  /// the keys the console's buttons, circle pad and C-stick are on.
  #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
  #[serde(default)]
+@@ -381,8 +369,8 @@ pub struct PadButtons {
+ impl Default for PadButtons {
+     fn default() -> Self {
+         PadButtons {
+-            a: Button::East,
+-            b: Button::South,
++            a: Button::South,
++            b: Button::East,
+             x: Button::North,
+             y: Button::West,
+             l: Button::LeftTrigger,
+@@ -394,7 +382,7 @@ impl Default for PadButtons {
+             left: Button::DPadLeft,
+             right: Button::DPadRight,
+             zl: Button::LeftTrigger2,
+-            zr: Button::RightTrigger2,
++            zr: Button::RightThumb,
+         }
+     }
+ }
 @@ -444,8 +432,9 @@ impl PadButtons {
  #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
  #[serde(default)]
@@ -6974,7 +7030,7 @@ index 1e9b15b..86d02a6 100644
      /// what the console's cameras see, and the picture when it is one.
      #[serde(deserialize_with = "or_default")]
      pub camera: CameraSource,
-@@ -507,12 +498,89 @@ pub struct Settings {
+@@ -507,12 +498,95 @@ pub struct Settings {
      pub room_address: String,
      pub room_name: String,
      pub room_port: u16,
@@ -7038,7 +7094,7 @@ index 1e9b15b..86d02a6 100644
 +}
 +
 +pub const BOTTOM_OVER_KEY: KeyCode = KeyCode::KeyE;
-+pub const BOTTOM_OVER_BUTTON: Button = Button::RightThumb;
++pub const BOTTOM_OVER_BUTTON: Button = Button::RightTrigger2;
 +
 +impl Settings {
 +    pub fn set_original(&mut self, on: bool) {
@@ -7053,6 +7109,12 @@ index 1e9b15b..86d02a6 100644
 +            kept.apply_to(self);
 +        }
 +    }
++}
++
++fn all_enhancements_on() -> std::collections::BTreeMap<String, Vec<String>> {
++    let awakening = zakuro_core::game_ui::FIRE_EMBLEM_AWAKENING;
++    let names = zakuro_core::enhancements::for_title(awakening, "rev0").into_iter().map(|enhancement| enhancement.name).collect();
++    [(format!("{awakening:016X}"), names)].into_iter().collect()
  }
  
  impl Default for Settings {
@@ -7064,7 +7126,15 @@ index 1e9b15b..86d02a6 100644
              language: Language::English,
              renderer: Renderer::Vulkan,
              hardware_rasterizer: true,
-@@ -531,11 +599,15 @@ impl Default for Settings {
+@@ -524,18 +598,22 @@ impl Default for Settings {
+             layout: Screens::Stacked,
+             filter: Filter::Smooth,
+             integer_scale: false,
+-            top_shape: TopShape::Console,
++            top_shape: TopShape::Wide16x9,
+             stereo: Stereo3d::Off,
+             depth_3d: 50,
+             swap_eyes: false,
              volume: 1.0,
              mute: false,
              show_fps: false,
@@ -7073,14 +7143,15 @@ index 1e9b15b..86d02a6 100644
              background_opacity: 0.35,
              keys: Keys::default(),
              pad: PadButtons::default(),
+-            enhancements: std::collections::BTreeMap::new(),
 +            bottom_over_key: BOTTOM_OVER_KEY,
 +            bottom_over_button: BOTTOM_OVER_BUTTON,
-             enhancements: std::collections::BTreeMap::new(),
++            enhancements: all_enhancements_on(),
 +            enhancement_values: std::collections::BTreeMap::new(),
              camera: CameraSource::Webcam,
              camera_picture: None,
              nickname: String::new(),
-@@ -543,6 +615,9 @@ impl Default for Settings {
+@@ -543,6 +621,9 @@ impl Default for Settings {
              room_address: String::new(),
              room_name: String::new(),
              room_port: zakuro_core::room::DEFAULT_PORT,
@@ -7090,7 +7161,7 @@ index 1e9b15b..86d02a6 100644
          }
      }
  }
-@@ -578,7 +653,7 @@ impl Settings {
+@@ -578,7 +659,7 @@ impl Settings {
      /// the saved settings, or the defaults when there are none.
      pub fn load() -> Settings {
          let Some(path) = path() else { return Settings::default() };
@@ -7099,7 +7170,7 @@ index 1e9b15b..86d02a6 100644
              Ok(text) => toml::from_str(&text).unwrap_or_else(|error| {
                  // kept aside, the next save would write over it
                  let aside = path.with_extension("toml.bad");
-@@ -587,7 +662,11 @@ impl Settings {
+@@ -587,7 +668,11 @@ impl Settings {
                  Settings::default()
              }),
              Err(_) => Settings::default(),
@@ -7112,11 +7183,19 @@ index 1e9b15b..86d02a6 100644
      }
  
      pub fn save(&self) {
-@@ -651,6 +730,16 @@ mod tests {
+@@ -651,6 +736,24 @@ mod tests {
          assert_eq!(settings.keys.b, Keys::default().b);
          assert_eq!(settings.scale, 2);
          assert_eq!(settings.layout, Screens::Stacked);
 +        assert_eq!((settings.bottom_over_key, settings.bottom_over_button), (BOTTOM_OVER_KEY, BOTTOM_OVER_BUTTON));
++    }
++
++    #[test]
++    fn a_new_player_starts_with_every_enhancement_on_and_the_controller_by_its_labels() {
++        let settings = Settings::default();
++        assert_eq!(settings.enhancements["000400000009F100"], ["16:9", "Smooth map sprites", "Faster battles", "Glow to the edges"]);
++        assert_eq!(settings.top_shape, TopShape::Wide16x9);
++        assert_eq!((settings.pad.a, settings.pad.b, settings.bottom_over_button), (Button::South, Button::East, Button::RightTrigger2));
 +    }
 +
 +    #[test]

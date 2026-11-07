@@ -162,7 +162,7 @@ mod tests {
 
         let faster = &enhancements[2];
         assert_eq!(faster.name, "Faster battles");
-        let speed = Setting { name: "Speed".into(), min: 100, max: 200, default: 130, unit: "%".into() };
+        let speed = Setting { name: "Speed".into(), min: 100, max: 200, default: 100, unit: "%".into() };
         assert_eq!(faster.setting, Some(speed));
         assert_eq!(faster.lines.len(), 14);
         assert_eq!(faster.lines[10..12], ["0045AF70 {100/x}", "0045AF74 {x/100}"]);
@@ -173,7 +173,7 @@ mod tests {
             let values = values.iter().map(|&(name, value)| (name.to_owned(), value)).collect();
             super::cheats(0x0004_0000_0009_F100, "rev0", &[], &values)[2].setting.as_ref().map(|setting| setting.value)
         };
-        assert_eq!((start(&[]), start(&[("Faster battles", 120)]), start(&[("Faster battles", 900)])), (Some(130), Some(120), Some(200)));
+        assert_eq!((start(&[]), start(&[("Faster battles", 120)]), start(&[("Faster battles", 900)])), (Some(100), Some(120), Some(200)));
 
         let glow = &enhancements[3];
         assert_eq!(glow.name, "Glow to the edges");

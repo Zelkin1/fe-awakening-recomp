@@ -122,6 +122,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
         banner_textures: overlays::BannerTextures::default(),
         buttons: None,
         last_input: (zakuro_core::services::hid::PadState::empty(), false),
+        holding_back_cancel: false,
+        any_button_pressed: false,
         top_shape: settings.top_shape,
         options,
         settings,
@@ -433,6 +435,8 @@ struct App {
     banner_textures: overlays::BannerTextures,
     buttons: Option<ShownButtons>,
     last_input: (zakuro_core::services::hid::PadState, bool),
+    holding_back_cancel: bool,
+    any_button_pressed: bool,
     /// how wide the top screen shows.
     top_shape: settings::TopShape,
     /// the left button is down, and where the pointer is, in window pixels.
@@ -813,6 +817,7 @@ impl App {
             self.fast_forward_key = pressed && self.game.is_some();
         }
         if pressed && !event.repeat {
+            self.any_button_pressed = self.game.is_some();
             match code {
                 KeyCode::Escape if self.game.is_some() => {
                     self.menus.menu_open = !self.menus.menu_open;
@@ -839,6 +844,9 @@ impl App {
                 _ if code == self.settings.bottom_over_key && !consumed && !self.gui.as_ref().is_some_and(Gui::wants_keyboard) => {
                     self.toggle_bottom_over()
                 }
+                _ if code == self.settings.keys.b && self.bottom_over && !consumed && !self.gui.as_ref().is_some_and(Gui::wants_keyboard) => {
+                    self.close_bottom_over_with_cancel()
+                }
                 _ => {}
             }
         }
@@ -857,6 +865,7 @@ impl App {
     /// it, and Home opens and closes the menu over the game.
     fn poll_gamepads(&mut self) {
         for button in self.gamepads.poll() {
+            self.any_button_pressed = self.game.is_some();
             if let Some(index) = self.menus.rebinding_pad.take() {
                 if index == menus::BOTTOM_OVER {
                     self.settings.bottom_over_button = button;
@@ -869,6 +878,8 @@ impl App {
                 self.keyboard.release();
             } else if button == self.settings.bottom_over_button {
                 self.toggle_bottom_over();
+            } else if button == self.settings.pad.b && self.bottom_over {
+                self.close_bottom_over_with_cancel();
             }
         }
     }
@@ -1136,6 +1147,11 @@ impl App {
                 backend.set_layout(layout);
             }
         }
+    }
+
+    fn close_bottom_over_with_cancel(&mut self) {
+        self.toggle_bottom_over();
+        self.holding_back_cancel = true;
     }
 
     fn toggle_bottom_over(&mut self) {
@@ -1493,17 +1509,24 @@ impl App {
     /// runs one frame of the game.
     fn emulate(&mut self) {
         let Some(game) = &mut self.game else { return };
-        let input = match &mut game.replay {
+        let mut input = match &mut game.replay {
             Some(replay) => replay.input(game.frame),
             None if self.bottom_over => overlays::bottom_over_input(self.gamepads.apply(self.keyboard.state()), self.scene),
             None => self.gamepads.apply(self.keyboard.state()),
         };
+        if self.holding_back_cancel {
+            if input.buttons.contains(zakuro_core::services::hid::PadState::B) {
+                input.buttons.remove(zakuro_core::services::hid::PadState::B);
+            } else {
+                self.holding_back_cancel = false;
+            }
+        }
         let (held, touched) = std::mem::replace(&mut self.last_input, (input.buttons, input.touch.is_some()));
         let pieces = match self.scene {
             Scene::Battle(_) if !self.settings.original => game.system.battle_buttons(),
             _ => None,
         };
-        self.buttons = ShownButtons::next(self.buttons, pieces, input.buttons.difference(held), input.touch.is_some() && !touched, Instant::now());
+        self.buttons = ShownButtons::next(self.buttons, pieces, input.buttons.difference(held), input.touch.is_some() && !touched, std::mem::take(&mut self.any_button_pressed), Instant::now());
         game.frame += 1;
         if let Some(recorder) = &mut game.recorder {
             recorder.record(input);

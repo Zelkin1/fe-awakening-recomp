@@ -369,8 +369,8 @@ pub struct PadButtons {
 impl Default for PadButtons {
     fn default() -> Self {
         PadButtons {
-            a: Button::East,
-            b: Button::South,
+            a: Button::South,
+            b: Button::East,
             x: Button::North,
             y: Button::West,
             l: Button::LeftTrigger,
@@ -382,7 +382,7 @@ impl Default for PadButtons {
             left: Button::DPadLeft,
             right: Button::DPadRight,
             zl: Button::LeftTrigger2,
-            zr: Button::RightTrigger2,
+            zr: Button::RightThumb,
         }
     }
 }
@@ -558,7 +558,7 @@ impl Kept {
 }
 
 pub const BOTTOM_OVER_KEY: KeyCode = KeyCode::KeyE;
-pub const BOTTOM_OVER_BUTTON: Button = Button::RightThumb;
+pub const BOTTOM_OVER_BUTTON: Button = Button::RightTrigger2;
 
 impl Settings {
     pub fn set_original(&mut self, on: bool) {
@@ -573,6 +573,12 @@ impl Settings {
             kept.apply_to(self);
         }
     }
+}
+
+fn all_enhancements_on() -> std::collections::BTreeMap<String, Vec<String>> {
+    let awakening = zakuro_core::game_ui::FIRE_EMBLEM_AWAKENING;
+    let names = zakuro_core::enhancements::for_title(awakening, "rev0").into_iter().map(|enhancement| enhancement.name).collect();
+    [(format!("{awakening:016X}"), names)].into_iter().collect()
 }
 
 impl Default for Settings {
@@ -592,7 +598,7 @@ impl Default for Settings {
             layout: Screens::Stacked,
             filter: Filter::Smooth,
             integer_scale: false,
-            top_shape: TopShape::Console,
+            top_shape: TopShape::Wide16x9,
             stereo: Stereo3d::Off,
             depth_3d: 50,
             swap_eyes: false,
@@ -606,7 +612,7 @@ impl Default for Settings {
             pad: PadButtons::default(),
             bottom_over_key: BOTTOM_OVER_KEY,
             bottom_over_button: BOTTOM_OVER_BUTTON,
-            enhancements: std::collections::BTreeMap::new(),
+            enhancements: all_enhancements_on(),
             enhancement_values: std::collections::BTreeMap::new(),
             camera: CameraSource::Webcam,
             camera_picture: None,
@@ -731,6 +737,14 @@ mod tests {
         assert_eq!(settings.scale, 2);
         assert_eq!(settings.layout, Screens::Stacked);
         assert_eq!((settings.bottom_over_key, settings.bottom_over_button), (BOTTOM_OVER_KEY, BOTTOM_OVER_BUTTON));
+    }
+
+    #[test]
+    fn a_new_player_starts_with_every_enhancement_on_and_the_controller_by_its_labels() {
+        let settings = Settings::default();
+        assert_eq!(settings.enhancements["000400000009F100"], ["16:9", "Smooth map sprites", "Faster battles", "Glow to the edges"]);
+        assert_eq!(settings.top_shape, TopShape::Wide16x9);
+        assert_eq!((settings.pad.a, settings.pad.b, settings.bottom_over_button), (Button::South, Button::East, Button::RightTrigger2));
     }
 
     #[test]

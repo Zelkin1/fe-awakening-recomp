@@ -52,7 +52,7 @@ Smooth map sprites | rev0 | Claude, for this recomp | Keeps the units' sprites a
 003D1B18 E1A00000
 003D1B24 E1A00000
 Faster battles | rev0 | Claude, for this recomp | Plays battle animations faster than their usual speed, at the speed set under it, from 100% to 200%. Fast forward stays at twice the usual speed and the pause still stops them. The battle's speed control multiplies its target speed by 2 for fast forward and by a half for slow, undoing each on leaving it; this gives the usual speed a factor of its own too, the speed on entering it and its inverse on leaving it, through two entries of its jump tables pointed at a few instructions past the end of the text. A new speed takes from the next battle. | the Fire Emblem Awakening recomp's notes
-~ Speed 100..200 = 130 %
+~ Speed 100..200 = 100 %
 0045AF40 ED951A08
 0045AF44 EDDF1A09
 0045AF48 EE211A21

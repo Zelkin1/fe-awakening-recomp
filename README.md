@@ -26,7 +26,8 @@ copy of the game, on your computer.
    compiler, the launcher offers to download one.
 4. Click Play.
 
-The keyboard, the mouse (as the touch screen) and most controllers work.
+The keyboard, the mouse (as the touch screen) and most controllers work. A
+controller's A and B buttons are the console's A and B.
 Esc opens the menu, with the settings, the cheats and save states.
 
 ## Features
@@ -34,14 +35,16 @@ Esc opens the menu, with the settings, the cheats and save states.
 - The 3D is drawn at up to 8 times the console's resolution, and frame
   interpolation can show battles at 60 frames per second.
 - A 16:9 mode shows more of the battlefield, the talks and the unit views.
-- You can play on the top screen alone. The bottom screen can be displayed as an overlay with the press of a button.
+- You can play on the top screen alone. The bottom screen can be displayed as an overlay with the press of a button
+  (the right trigger, or E on the keyboard), and the same button or B closes it.
 - Battles UI has 3 styles: vanilla style, FE3H style, or no UI. In each
   one, the six battle buttons show when you press any button and fade out
   3 seconds after your last press.
 - A mod that adds feet to every characters in the game is implemented.
 - The Cheats window has cheat codes and built-in tweaks such as faster
   battles, or "Glow to the edges", which keeps the glow of the 3D scenes
-  from fading out along the edges of the screen.
+  from fading out along the edges of the screen. All the built-in tweaks are
+  on from the start, with the top screen in 16:9 and faster battles at 100%.
 - Original mode, at the top of Settings, Graphics, turns all of this off
   and plays the game as the console does.
 

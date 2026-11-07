@@ -1057,7 +1057,7 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         .on_hover_text("Swaps the left and right pictures. Use this for cross-eyed viewing, or if the 3D looks inverted.");
     theme::hint(
         ui,
-        "Press F9 while playing to switch between screen layouts, and F10 to switch between the top and bottom screen alone. When the top screen is shown alone, the key set in Keybinds shows the bottom screen in the middle of it, and you can use the mouse on it. The game's buttons wait until the same key closes it.",
+        "Press F9 while playing to switch between screen layouts, and F10 to switch between the top and bottom screen alone. When the top screen is shown alone, the key set in Keybinds shows the bottom screen in the middle of it, and you can use the mouse on it. The game's buttons wait until the same key, or the game's B button, closes it.",
     );
     theme::hint(ui, "Resolution changes apply right away. A change of presenter applies the next time Zakuro starts.");
 }
