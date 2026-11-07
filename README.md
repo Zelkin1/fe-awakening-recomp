@@ -34,10 +34,8 @@ Esc opens the menu, with the settings, the cheats and save states.
 - The 3D is drawn at up to 8 times the console's resolution, and frame
   interpolation can show battles at 60 frames per second.
 - You can play on the top screen alone. The bottom screen can be displayed as an overlay with the press of a button
-  (the right trigger, or E on the keyboard), and the same button or B closes it.
-- Battles UI has 3 styles: vanilla style, FE3H style, or no UI. In each
-  one, the six battle buttons show when you press any button and fade out
-  3 seconds after your last press.
+  (the right trigger, or E on the keyboard).
+- Battles UI has 3 styles: vanilla style, FE3H style, or no UI.
 - A mod that adds feet to every characters in the game is implemented.
 - Cheat codes and built-in tweaks such as top screen 16:9 aspect ratio and faster
   battles.
