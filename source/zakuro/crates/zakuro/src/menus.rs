@@ -21,6 +21,7 @@ pub enum Action {
     /// recompile the library's game at this index.
     Recompile(usize),
     BuildFeet(usize),
+    Shortcut(usize),
     Update,
     /// download a compiler, then recompile the library's game at this
     /// index with it.
@@ -242,6 +243,7 @@ impl Menus {
                 ui,
                 |ui| {
                     ui.label(RichText::new("Zakuro").heading().size(24.0));
+                    ui.label(RichText::new(crate::update::RELEASE).weak()).on_hover_text("The launcher's version.");
                     ui.separator();
                     match (&settings.game_file, &settings.games) {
                         (Some(file), _) => ui.label(file.display().to_string()),
@@ -418,6 +420,10 @@ impl Menus {
                         let mods = egui::Button::new(RichText::new("Mods").size(text(20.0))).min_size(Vec2::new(px(130.0), px(64.0)));
                         if ui.add(mods).on_hover_text("Open the game's mods folder. Files put in its romfs folder replace the game's, the way Luma3DS and Citra take mods, and a texture pack made for Citra or Azahar goes in its textures folder.").clicked() {
                             actions.push(Action::Mods(game.program_id));
+                        }
+                        let shortcut = egui::Button::new(RichText::new("Create shortcut").size(text(20.0))).min_size(Vec2::new(px(200.0), px(64.0)));
+                        if ui.add(shortcut).on_hover_text("Put a shortcut to the launcher on the desktop, with the game's icon.").clicked() {
+                            actions.push(Action::Shortcut(index));
                         }
                     });
                 });

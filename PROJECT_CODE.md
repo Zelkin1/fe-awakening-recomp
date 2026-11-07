@@ -10,7 +10,7 @@ This list separates the project's code from Zakuro's and 3dsrecomp's. Paths star
 | `zakuro/crates/zakuro-core/src/scenes.rs` | 146 | Scene detection from the markers the GPU sees: which scene shows, the end of a battle, marker positions, and the unit selection. |
 | `zakuro/crates/zakuro/src/banners.rs` | 221 | Reads the text of the FE3H-style banners (names, HP, weapon, stats) off the bottom screen. |
 | `zakuro/crates/zakuro/src/console.rs` | 81 | The optional console window with Zakuro's log (Settings, System). |
-| `zakuro/crates/zakuro/src/overlays.rs` | 407 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
+| `zakuro/crates/zakuro/src/overlays.rs` | 474 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
 | `zakuro/crates/zakuro/src/shortcut.rs` | 82 | Create shortcut: saves the game's icon as an .ico beside the launcher and puts a shortcut to the launcher with it on the desktop. |
 | `zakuro/crates/zakuro/src/sounds.rs` | 301 | Reads the bottom screen's open and close sounds from the game's sound archive. |
 | `zakuro/crates/zakuro/src/theme.rs` | 250 | The launcher's look: colours, fonts, window frames, tabs and buttons. |
@@ -104,8 +104,8 @@ Added:
 - `fn Setting::parse`, lines 35–43
 - `fn code_with_value`, lines 46–50
 - `fn cheat_for`, lines 101–117
-- `fn tests::a_code_says_where_it_came_from`, lines 142–184
-- `fn tests::a_new_value_rebuilds_the_code`, lines 186–194
+- `fn tests::a_code_says_where_it_came_from`, lines 142–185
+- `fn tests::a_new_value_rebuilds_the_code`, lines 187–195
 
 Changed:
 
@@ -114,7 +114,7 @@ Changed:
 - `fn for_title`, lines 62–95
 - `fn cheats`, lines 97–99
 - `fn tests::a_game_gets_the_enhancements_for_its_build`, lines 125–140
-- `fn tests::every_listed_code_is_code`, lines 196–202
+- `fn tests::every_listed_code_is_code`, lines 197–203
 
 Its imports change too.
 
@@ -478,6 +478,16 @@ Changed:
 
 Its imports change too.
 
+### `zakuro/crates/zakuro/src/gamepad.rs`
+
+Added:
+
+- `fn Gamepads::lean`, lines 53–65
+
+Changed:
+
+- `const DEADZONE`, line 10
+
 ### `zakuro/crates/zakuro/src/gui.rs`
 
 Added:
@@ -507,48 +517,49 @@ Added:
 - `mod sounds`, line 22
 - `mod theme`, line 23
 - `mod update`, line 24
-- `fn App::touch_on_pieces`, lines 927–943
-- `fn App::marker_spans`, lines 945–947
-- `fn App::library_source`, lines 1081–1087
-- `fn App::save_and_rescan`, lines 1089–1094
-- `fn App::shown_layout`, lines 1096–1115
-- `fn App::bottom_over_layout`, lines 1117–1122
-- `fn App::current_scene`, lines 1124–1135
-- `fn App::place_bottom_over`, lines 1137–1163
-- `fn App::close_bottom_over_with_cancel`, lines 1165–1168
-- `fn App::toggle_bottom_over`, lines 1170–1181
-- `fn App::build_feet`, lines 1232–1243
-- `fn App::poll_update`, lines 1245–1262
-- `fn App::window_layout`, lines 1921–1924
-- `fn App::bottom_over_frame`, lines 1926–1934
-- `fn App::placed_pieces`, lines 1936–1939
-- `fn App::bottom_screen_cuts`, lines 1941–1960
-- `fn App::banners_on`, lines 1962–1967
-- `fn App::read_banners`, lines 1969–1977
-- `fn App::button_places`, lines 1979–1983
-- `fn mod_setting`, lines 2087–2090
+- `fn App::touch_on_pieces`, lines 933–949
+- `fn App::marker_spans`, lines 951–953
+- `fn App::library_source`, lines 1087–1093
+- `fn App::save_and_rescan`, lines 1095–1100
+- `fn App::shown_layout`, lines 1102–1121
+- `fn App::bottom_over_layout`, lines 1123–1128
+- `fn App::current_scene`, lines 1130–1141
+- `fn App::place_bottom_over`, lines 1143–1169
+- `fn App::close_bottom_over_with_cancel`, lines 1171–1174
+- `fn App::toggle_bottom_over`, lines 1176–1187
+- `fn App::build_feet`, lines 1238–1249
+- `fn App::poll_update`, lines 1251–1268
+- `fn App::window_layout`, lines 1942–1945
+- `fn App::bottom_over_frame`, lines 1947–1955
+- `fn App::placed_pieces`, lines 1957–1960
+- `fn App::bottom_screen_cuts`, lines 1962–1981
+- `fn App::banners_on`, lines 1983–1988
+- `fn App::read_banners`, lines 1990–1998
+- `fn App::button_places`, lines 2000–2004
+- `fn mod_setting`, lines 2108–2111
 
 Changed:
 
-- `fn run_with`, lines 77–201
-- `struct Running`, lines 359–375
-- `fn Running::new`, lines 378–392
-- `fn Running::count_frame`, lines 394–407
-- `struct App`, lines 410–503
-- `fn <App as ApplicationHandler>::resumed`, lines 556–595
-- `fn App::config`, lines 657–685
-- `fn App::play`, lines 709–793
-- `fn App::key`, lines 808–875
-- `fn App::poll_gamepads`, lines 879–898
-- `fn App::touch`, lines 906–925
-- `fn App::apply_settings`, lines 992–1019
-- `fn App::apply_layout`, lines 1048–1079
-- `fn App::poll_jobs`, lines 1265–1302
-- `fn App::act`, lines 1304–1459
-- `fn App::step`, lines 1461–1570
-- `fn App::emulate`, lines 1573–1633
-- `fn App::interface`, lines 1822–1919
-- `fn App::present`, lines 1985–2016
+- `fn run_with`, lines 77–202
+- `struct Running`, lines 360–376
+- `fn Running::new`, lines 379–393
+- `fn Running::count_frame`, lines 395–408
+- `struct App`, lines 411–505
+- `fn <App as ApplicationHandler>::resumed`, lines 558–597
+- `fn <App as ApplicationHandler>::window_event`, lines 599–650
+- `fn App::config`, lines 662–690
+- `fn App::play`, lines 714–798
+- `fn App::key`, lines 813–880
+- `fn App::poll_gamepads`, lines 884–904
+- `fn App::touch`, lines 912–931
+- `fn App::apply_settings`, lines 998–1025
+- `fn App::apply_layout`, lines 1054–1085
+- `fn App::poll_jobs`, lines 1271–1308
+- `fn App::act`, lines 1310–1465
+- `fn App::step`, lines 1467–1581
+- `fn App::emulate`, lines 1584–1650
+- `fn App::interface`, lines 1839–1940
+- `fn App::present`, lines 2006–2037
 
 Its imports change too.
 

@@ -164,7 +164,8 @@ mod tests {
         let smooth = &enhancements[1];
         assert_eq!(smooth.name, "Smooth map sprites");
         assert!(smooth.source.contains("recomp"));
-        assert_eq!(smooth.lines, ["003D1B18 E1A00000", "003D1B24 E1A00000"]);
+        assert_eq!(smooth.lines[..2], ["003D1B18 E1A00000", "003D1B24 E1A00000"]);
+        assert_eq!(smooth.lines.len(), 11);
 
         let faster = &enhancements[2];
         assert_eq!(faster.name, "Faster battles");

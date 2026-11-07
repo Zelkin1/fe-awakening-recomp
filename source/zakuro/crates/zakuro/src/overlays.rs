@@ -58,6 +58,55 @@ impl ShownButtons {
 
 pub(crate) const BOTTOM_OVER_CORNER: f32 = 6.0;
 
+const POINTER_SPEED: f32 = 280.0;
+const POINTER_RADIUS: f32 = 10.0;
+
+pub(crate) struct PadPointer {
+    pub(crate) at: [f32; 2],
+    pub(crate) shown: bool,
+    last: Option<Instant>,
+}
+
+impl Default for PadPointer {
+    fn default() -> Self {
+        PadPointer { at: [160.0, 120.0], shown: false, last: None }
+    }
+}
+
+impl PadPointer {
+    pub(crate) fn steer(&mut self, lean: [f32; 2], now: Instant) {
+        let elapsed = self.last.replace(now).map_or(0.0, |last| now.duration_since(last).as_secs_f32().min(0.05));
+        let length = lean[0].hypot(lean[1]);
+        let deadzone = crate::gamepad::DEADZONE;
+        if length <= deadzone {
+            return;
+        }
+        self.shown = true;
+        let speed = POINTER_SPEED * ((length - deadzone) / (1.0 - deadzone)).min(1.0).powi(2) / length;
+        self.at = [(self.at[0] + lean[0] * speed * elapsed).clamp(0.0, 319.0), (self.at[1] - lean[1] * speed * elapsed).clamp(0.0, 239.0)];
+    }
+
+    pub(crate) fn rest(&mut self) {
+        self.shown = false;
+        self.last = None;
+    }
+
+    pub(crate) fn spot(&self) -> (u16, u16) {
+        (self.at[0].round() as u16, self.at[1].round() as u16)
+    }
+}
+
+pub fn pad_pointer(ctx: &egui::Context, rect: egui::Rect, at: [f32; 2], pressed: bool) {
+    let painter = ctx.layer_painter(egui::LayerId::background());
+    let scale = rect.width() / 320.0;
+    let center = rect.min + egui::vec2(at[0], at[1]) * scale;
+    let radius = POINTER_RADIUS * scale * if pressed { 0.8 } else { 1.0 };
+    let fill = Color32::from_white_alpha(if pressed { 110 } else { 25 });
+    painter.circle(center, radius, fill, egui::Stroke::new(scale.max(1.0) * 2.6, Color32::from_black_alpha(150)));
+    painter.circle_stroke(center, radius, egui::Stroke::new(scale.max(1.0) * 1.2, Color32::WHITE));
+    painter.circle(center, 1.6 * scale.max(1.0), Color32::WHITE, egui::Stroke::new(scale.max(1.0) * 0.8, Color32::from_black_alpha(150)));
+}
+
 pub(crate) fn bottom_over_input(held: InputState, scene: Scene) -> InputState {
     let buttons = match scene {
         Scene::Plain | Scene::UnitView => held.buttons.intersection(PadState::L),
@@ -374,6 +423,24 @@ pub fn bottom_over(ctx: &egui::Context, rect: egui::Rect, edge: f32, corner: f32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pointer_follows_the_stick_and_stays_on_the_screen() {
+        let start = Instant::now();
+        let mut pointer = PadPointer::default();
+        pointer.steer([0.05, 0.0], start);
+        assert!(!pointer.shown);
+        pointer.steer([1.0, 1.0], start + Duration::from_millis(40));
+        assert!(pointer.shown);
+        assert!(pointer.at[0] > 160.0 && pointer.at[1] < 120.0);
+        for step in 2..200 {
+            pointer.steer([1.0, 0.0], start + Duration::from_millis(40 * step));
+        }
+        assert_eq!(pointer.at[0], 319.0);
+        pointer.rest();
+        assert!(!pointer.shown);
+        assert_eq!(pointer.spot().0, 319);
+    }
 
     #[test]
     fn battle_buttons_come_on_any_button_and_stay_while_pressed() {

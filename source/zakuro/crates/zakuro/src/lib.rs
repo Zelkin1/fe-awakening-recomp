@@ -18,6 +18,7 @@ mod present;
 mod recompile;
 mod report;
 mod settings;
+mod shortcut;
 mod sounds;
 mod theme;
 mod update;
@@ -118,6 +119,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
         layout: settings.layout,
         bottom_over: false,
         bottom_over_key: false,
+        pad_pointer: overlays::PadPointer::default(),
         bottom_sounds: sounds::BottomScreen::default(),
         scene: Scene::Plain,
         placed: None,
@@ -435,6 +437,7 @@ struct App {
     layout: Screens,
     bottom_over: bool,
     bottom_over_key: bool,
+    pad_pointer: overlays::PadPointer,
     bottom_sounds: sounds::BottomScreen,
     scene: Scene,
     placed: Option<zakuro_gpu::ScreenLayout>,
@@ -624,6 +627,9 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } => self.key(event, consumed),
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
+                    if state == ElementState::Pressed {
+                        self.pad_pointer.shown = false;
+                    }
                     self.mouse_down = state == ElementState::Pressed && !self.pointer_taken(consumed);
                     self.touch();
                 }
@@ -890,6 +896,7 @@ impl App {
                 self.keyboard.release();
             } else if button == self.settings.bottom_over_button {
                 self.toggle_bottom_over();
+                self.pad_pointer.shown = self.bottom_over;
             } else if button == self.settings.pad.b && self.bottom_over {
                 self.close_bottom_over_with_cancel();
             }
@@ -1316,6 +1323,14 @@ impl App {
                 (None, None) => self.menus.message = Some("No update available.".to_owned()),
             },
             Action::DownloadCompiler(index) => self.recompile(index, true),
+            Action::Shortcut(index) => {
+                if let Some(game) = self.library.games.get(index) {
+                    self.menus.message = Some(match shortcut::create(&game.name, game.icon.as_deref()) {
+                        Ok(path) => format!("Shortcut created: {}", path.display()),
+                        Err(error) => format!("The shortcut can't be created: {error}"),
+                    });
+                }
+            }
             Action::Mods(program_id) => {
                 if let Some(data_dir) = &self.data_dir {
                     let folder = zakuro_core::mods::dir(data_dir, program_id);
@@ -1462,6 +1477,11 @@ impl App {
         self.poll_jobs();
         self.poll_update();
         self.poll_gamepads();
+        if self.bottom_over {
+            self.pad_pointer.steer(self.gamepads.lean(), now);
+        } else {
+            self.pad_pointer.rest();
+        }
         // a room that went away takes the game's local wireless with it
         if self.room.as_ref().is_some_and(|room| !room.open()) {
             self.leave_room();
@@ -1565,7 +1585,13 @@ impl App {
         let Some(game) = &mut self.game else { return };
         let mut input = match &mut game.replay {
             Some(replay) => replay.input(game.frame),
-            None if self.bottom_over => overlays::bottom_over_input(self.gamepads.apply(self.keyboard.state()), self.scene),
+            None if self.bottom_over => {
+                let mut input = overlays::bottom_over_input(self.gamepads.apply(self.keyboard.state()), self.scene);
+                if self.pad_pointer.shown && self.gamepads.holding(self.settings.pad.a) {
+                    input.touch = Some(self.pad_pointer.spot());
+                }
+                input
+            }
             None => self.gamepads.apply(self.keyboard.state()),
         };
         if self.holding_back_cancel {
@@ -1820,6 +1846,7 @@ impl App {
             .and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
             .map(ago);
         let over = self.bottom_over_frame();
+        let pointer = (over.is_some() && self.pad_pointer.shown).then(|| (self.pad_pointer.at, self.gamepads.holding(self.settings.pad.a)));
         let showing = match self.shown_layout() {
             zakuro_gpu::ScreenLayout::TopWithPieces(pieces) => Some(pieces),
             _ => None,
@@ -1885,6 +1912,9 @@ impl App {
                         let ppp = ui.ctx().pixels_per_point();
                         let rect = egui::Rect::from_min_size(egui::pos2(bottom.x, bottom.y) / ppp, egui::vec2(bottom.width, bottom.height) / ppp);
                         overlays::bottom_over(ui.ctx(), rect, edge / ppp, corner / ppp);
+                        if let Some((at, pressed)) = pointer {
+                            overlays::pad_pointer(ui.ctx(), rect, at, pressed);
+                        }
                     }
                 }
                 None => actions.extend(menus.library(ui, library, settings, jobs)),
