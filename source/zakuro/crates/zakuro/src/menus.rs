@@ -21,6 +21,7 @@ pub enum Action {
     /// recompile the library's game at this index.
     Recompile(usize),
     BuildFeet(usize),
+    Update,
     /// download a compiler, then recompile the library's game at this
     /// index with it.
     DownloadCompiler(usize),
@@ -98,6 +99,7 @@ pub struct Menus {
     /// the library's game to recompile once the player agrees to download a
     /// compiler for it.
     pub compiler_offer: Option<usize>,
+    pub update: Option<UpdateButton>,
     pub(crate) confirm: Option<Confirm>,
     icons: HashMap<PathBuf, egui::TextureHandle>,
     background: Background,
@@ -250,6 +252,18 @@ impl Menus {
                     }
                     if ui.button("Multiplayer").clicked() {
                         self.multiplayer_open = true;
+                    }
+                    match &self.update {
+                        Some(UpdateButton::Available) => {
+                            let button = egui::Button::new(RichText::new("Update Launcher").color(Color32::from_gray(235))).fill(ui.visuals().selection.bg_fill);
+                            if ui.add(button).on_hover_text("Download the latest launcher from GitHub, put it in place of this one and restart. Your saves, settings and the game you built stay as they are.").clicked() {
+                                actions.push(Action::Update);
+                            }
+                        }
+                        Some(UpdateButton::Installing(fraction)) => {
+                            ui.add(egui::ProgressBar::new(*fraction).desired_width(170.0).text(format!("Updating, {:.0}%", fraction * 100.0)));
+                        }
+                        None => {}
                     }
                 });
             });
@@ -942,7 +956,6 @@ impl Menus {
     }
 }
 
-/// a line a GameOverlay keeps over the game, in the bottom right corner.
 fn system_tab(ui: &mut egui::Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
     let name = |file: &Option<std::path::PathBuf>| {
         file.as_ref().and_then(|file| file.file_name()).map(|name| name.to_string_lossy().into_owned())
@@ -1072,6 +1085,7 @@ fn sound_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     ui.checkbox(&mut settings.mute, "Mute");
 }
 
+/// a line a GameOverlay keeps over the game, in the bottom right corner.
 pub fn corner(ctx: &egui::Context, text: &str) {
     egui::Area::new(egui::Id::new("overlay corner"))
         .anchor(egui::Align2::RIGHT_BOTTOM, Vec2::new(-8.0, -8.0))
@@ -1116,6 +1130,12 @@ fn progress(ui: &mut egui::Ui, job: &Job, width: f32, height: f32, size: f32) {
 }
 
 pub const BOTTOM_OVER: usize = usize::MAX;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateButton {
+    Available,
+    Installing(f32),
+}
 
 fn frame_rate((own, between): (f32, f32)) -> String {
     if between >= 0.5 {

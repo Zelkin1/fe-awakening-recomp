@@ -630,7 +630,6 @@ const SCREENS: [(zakuro_common::Screen, &str); 2] = [
     (zakuro_common::Screen::Bottom, "bottom"),
 ];
 
-/// writes a screen out as a PPM and returns the distinct colors on it.
 fn frame_and_value<T>(variable: &str, parse_value: impl Fn(&str) -> Option<T>) -> Option<(u64, T)> {
     let spec = std::env::var(variable).ok()?;
     let (frame, value) = spec.split_once(':')?;
@@ -674,6 +673,7 @@ fn print_scenes(system: &zakuro_core::System, frame: u64) {
     }
 }
 
+/// writes a screen out as a PPM and returns the distinct colors on it.
 fn save_screen(
     system: &mut zakuro_core::System,
     screen: zakuro_common::Screen,

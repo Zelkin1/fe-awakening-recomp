@@ -70,13 +70,13 @@ pub fn installed(tools: &Path) -> Option<Compiler> {
 /// 10 and later mostly have, or else wget, which some Linux systems have
 /// instead.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Fetcher {
+pub(crate) enum Fetcher {
     Curl,
     Wget,
 }
 
 impl Fetcher {
-    fn find() -> Option<Fetcher> {
+    pub(crate) fn find() -> Option<Fetcher> {
         let runs = |program: &str| {
             windowless(&mut Command::new(program)).arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|status| status.success())
         };
@@ -92,7 +92,7 @@ impl Fetcher {
 
     /// a command downloading url to path, or to its output without one,
     /// giving up after seconds.
-    fn command(self, url: &str, path: Option<&Path>, seconds: u32) -> Command {
+    pub(crate) fn command(self, url: &str, path: Option<&Path>, seconds: u32) -> Command {
         let mut command = Command::new(self.program());
         windowless(&mut command);
         match self {
@@ -184,7 +184,7 @@ fn mirrors(fetcher: Fetcher) -> Vec<String> {
 }
 
 /// downloads url to path, following how much of size has arrived.
-fn fetch(fetcher: Fetcher, url: &str, path: &Path, size: u64, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<(), String> {
+pub(crate) fn fetch(fetcher: Fetcher, url: &str, path: &Path, size: u64, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<(), String> {
     let _ = std::fs::remove_file(path);
     let mut child = fetcher
         .command(url, Some(path), 1800)
@@ -233,10 +233,7 @@ fn verify(path: &Path, archive: &Archive) -> Result<(), String> {
     Ok(())
 }
 
-/// unpacks the archive into its folder in tools with tar, which reads the
-/// zip on Windows too. the archive holds a single folder, renamed to
-/// zig-<version> once it is all there.
-fn windowless(command: &mut Command) -> &mut Command {
+pub(crate) fn windowless(command: &mut Command) -> &mut Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -246,6 +243,9 @@ fn windowless(command: &mut Command) -> &mut Command {
     command
 }
 
+/// unpacks the archive into its folder in tools with tar, which reads the
+/// zip on Windows too. the archive holds a single folder, renamed to
+/// zig-<version> once it is all there.
 fn unpack(archive: &Path, tools: &Path) -> Result<(), String> {
     let staging = tools.join(format!("zig-{VERSION}.unpacking"));
     let _ = std::fs::remove_dir_all(&staging);

@@ -20,6 +20,7 @@ mod report;
 mod settings;
 mod sounds;
 mod theme;
+mod update;
 mod zig;
 
 use std::path::{Path, PathBuf};
@@ -75,6 +76,9 @@ pub fn run(linked: Option<Linked>) {
 pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
     console::attach();
     report::init();
+    if update::installable() {
+        update::tidy();
+    }
 
     let options = match cli::parse() {
         Ok(options) => options,
@@ -120,6 +124,9 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
         last_pieces: None,
         last_banners: None,
         banner_textures: overlays::BannerTextures::default(),
+        update_check: update::installable().then(update::check_in_background),
+        update_offer: None,
+        update_install: None,
         buttons: None,
         last_input: (zakuro_core::services::hid::PadState::empty(), false),
         holding_back_cancel: false,
@@ -433,6 +440,9 @@ struct App {
     last_pieces: Option<&'static [zakuro_gpu::Piece]>,
     last_banners: Option<banners::Read>,
     banner_textures: overlays::BannerTextures,
+    update_check: Option<std::sync::mpsc::Receiver<Option<update::Release>>>,
+    update_offer: Option<update::Release>,
+    update_install: Option<update::Installing>,
     buttons: Option<ShownButtons>,
     last_input: (zakuro_core::services::hid::PadState, bool),
     holding_back_cancel: bool,
@@ -1229,6 +1239,24 @@ impl App {
         self.jobs.push(Job::build_mods_only(&game.path, game.program_id, &game.name, data_dir));
     }
 
+    fn poll_update(&mut self) {
+        if let Some(found) = self.update_check.as_ref().and_then(|check| check.try_recv().ok()) {
+            self.update_check = None;
+            self.update_offer = found;
+        }
+        if let Some(result) = self.update_install.as_ref().and_then(|installing| installing.done.try_recv().ok()) {
+            self.update_install = None;
+            if let Err(error) = result.and_then(|exe| update::restart(&exe).map_err(|error| error.to_string())) {
+                self.menus.message = Some(format!("The update could not be installed, {error}"));
+            }
+        }
+        self.menus.update = match (&self.update_install, &self.update_offer) {
+            (Some(installing), _) => Some(menus::UpdateButton::Installing(installing.progress.lock().map_or(0.0, |progress| *progress))),
+            (None, Some(_)) => Some(menus::UpdateButton::Available),
+            (None, None) => None,
+        };
+    }
+
     /// tells about recompiles as they finish.
     fn poll_jobs(&mut self) {
         let mut finished = Vec::new();
@@ -1278,6 +1306,11 @@ impl App {
             }
             Action::Recompile(index) => self.recompile(index, false),
             Action::BuildFeet(index) => self.build_feet(index),
+            Action::Update => {
+                if let (Some(release), None) = (self.update_offer.clone(), &self.update_install) {
+                    self.update_install = Some(update::install_in_background(release));
+                }
+            }
             Action::DownloadCompiler(index) => self.recompile(index, true),
             Action::Mods(program_id) => {
                 if let Some(data_dir) = &self.data_dir {
@@ -1423,6 +1456,7 @@ impl App {
         }
         self.library.poll();
         self.poll_jobs();
+        self.poll_update();
         self.poll_gamepads();
         // a room that went away takes the game's local wireless with it
         if self.room.as_ref().is_some_and(|room| !room.open()) {

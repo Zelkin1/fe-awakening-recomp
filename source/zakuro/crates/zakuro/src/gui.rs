@@ -362,6 +362,7 @@ mod tests {
             dlp_child: None,
         });
         let mut menus = crate::menus::Menus::default();
+        menus.update = Some(crate::menus::UpdateButton::Available);
         let settings = crate::settings::Settings { game_file: Some("awakening.3ds".into()), ..crate::settings::Settings::default() };
         let ctx = crate::gui::context();
         let picture = paint(&ctx, [1280, 800], None, |ui| {

@@ -45,6 +45,8 @@ Esc opens the menu, with the settings, the cheats and save states.
 - The Cheats window has cheat codes and built-in tweaks such as faster
   battles. All the built-in tweaks are on from the start, with the top
   screen in 16:9 and faster battles at 100%.
+- Update Launcher, in the launcher's top bar, shows when a new release is out.
+  It downloads the release, puts it in place and restarts the launcher.
 - Original mode plays the game as the console does.
 
 ## Building
@@ -71,7 +73,9 @@ when `MINGW` names its folder.
 
 The files the patches add or change are also in `source/`, in their final
 form and at the same paths as in Zakuro and 3dsrecomp, for reading the
-changes without applying the patches.
+changes without applying the patches. [`PROJECT_CODE.md`](PROJECT_CODE.md)
+lists the files the project adds and, for each Zakuro and 3dsrecomp file it
+changes, the functions and types it adds, changes or removes, with their lines.
 
 A copy of the launcher given to others must include the licenses of the
 code it is built from. `tools/licenses.py` collects them:

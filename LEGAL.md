@@ -9,7 +9,8 @@ Intelligent Systems or any other company.
 
 The repository holds only the project's own files: `.gitignore`,
 `.recomp.json` (the project's entry for the recomp.fyi list),
-`README.md`, `LEGAL.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, the patches
+`README.md`, `LEGAL.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `PROJECT_CODE.md`
+(the list of the project's code), the patches
 (`patches/*.patch`), the Zakuro and 3dsrecomp files the patches add or
 change in their final form (`source/`), two build scripts (`tools/env.sh` and
 `tools/licenses.py`) and the feet mod's patch and README

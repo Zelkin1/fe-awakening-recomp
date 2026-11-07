@@ -305,7 +305,7 @@ pub fn banners(ctx: &egui::Context, textures: &mut BannerTextures, read: &crate:
             let value = &side.values[stat];
             painter.add(shape(cell, color(value.ground, 1.0), (2.0, white)));
             grain(&place(cell));
-            draw_text(value, at((a + b) / 2.0, 292.0), 2.2);
+            draw_text(value, at((a + b) / 2.0, 292.0), 2.6);
         }
     }
 }
