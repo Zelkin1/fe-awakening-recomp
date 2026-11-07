@@ -27,6 +27,8 @@ mod zig;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+const CURSOR_HIDES_AFTER: Duration = Duration::from_secs(3);
+
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -154,6 +156,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
         window: None,
         audio: None,
         mouse_down: false,
+        mouse_used_at: Instant::now(),
         tilting_from: None,
         cursor: (0.0, 0.0),
         last_title_update: Instant::now(),
@@ -456,6 +459,7 @@ struct App {
     top_shape: settings::TopShape,
     /// the left button is down, and where the pointer is, in window pixels.
     mouse_down: bool,
+    mouse_used_at: Instant,
     /// where the pointer was when the right button went down, which tilts
     /// the console while held.
     tilting_from: Option<(f32, f32)>,
@@ -625,7 +629,9 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => self.key(event, consumed),
+            WindowEvent::MouseWheel { .. } => self.mouse_used_at = Instant::now(),
             WindowEvent::MouseInput { state, button, .. } => {
+                self.mouse_used_at = Instant::now();
                 if button == MouseButton::Left {
                     if state == ElementState::Pressed {
                         self.pad_pointer.shown = false;
@@ -640,6 +646,7 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                self.mouse_used_at = Instant::now();
                 self.cursor = (position.x as f32, position.y as f32);
                 self.touch();
                 self.tilt();
@@ -1887,6 +1894,7 @@ impl App {
         let corner = self.overlay_corner.clone().filter(|_| game.is_some());
         let (menus, library, settings, jobs) = (&mut self.menus, &self.library, &mut self.settings, &self.jobs);
         let banner_textures = &mut self.banner_textures;
+        let cursor_idle = self.game.is_some() && self.mouse_used_at.elapsed() >= CURSOR_HIDES_AFTER;
         let mut actions = Vec::new();
         let overlay = gui.frame(window, |ui| {
             match &game {
@@ -1931,6 +1939,9 @@ impl App {
             }
             actions.extend(menus.compiler_offer(ui.ctx()));
             menus.message(ui.ctx());
+            if cursor_idle {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+            }
         });
         self.library.changed = false;
         for action in actions {

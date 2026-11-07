@@ -67,7 +67,7 @@ The files the patches add or change are also in `source/`, in their final
 form and at the same paths as in Zakuro and 3dsrecomp, for reading the
 changes without applying the patches. [`PROJECT_CODE.md`](PROJECT_CODE.md)
 lists the files the project adds and, for each Zakuro and 3dsrecomp file it
-changes, the functions and types it adds, changes or removes, with their lines.
+changes, the functions and types it adds, changes or removes.
 
 A copy of the launcher given to others must include the licenses of the
 code it is built from. `tools/licenses.py` collects them:

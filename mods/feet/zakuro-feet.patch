@@ -2096,7 +2096,7 @@ index 0000000..562ad05
 +    Ok(out)
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 8c1b384..4bec276 100644
+index 00dfdea..4470015 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -7,6 +7,7 @@ mod banners;

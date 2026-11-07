@@ -245,8 +245,8 @@ const TICKS_CLEAR: f32 = 5.0;
 const BANNER_TIP: f32 = 540.0;
 
 const PANEL_SHADOW_DROP: f32 = 3.0;
-const PANEL_SHADOW_REACH: f32 = 5.0;
-const PANEL_SHADOW_ALPHA: f32 = 0.4;
+const PANEL_SHADOW_REACH: f32 = 7.0;
+const PANEL_SHADOW_ALPHA: f32 = 0.55;
 
 pub fn banners(ctx: &egui::Context, textures: &mut BannerTextures, read: &crate::banners::Read, top: egui::Rect, opacity: f32) {
     let painter = ctx.layer_painter(egui::LayerId::background());
@@ -300,8 +300,8 @@ pub fn banners(ctx: &egui::Context, textures: &mut BannerTextures, read: &crate:
         let band = [(84.0, 0.0), (516.0, 0.0), (BANNER_TIP, 27.0), (516.0, 54.0), (84.0, 54.0), (60.0, 27.0)];
         let (bar, inside, width, height, gap) = hp_bar(side.ticks.len());
         let hp = diamond(104.0, 110.0, 48.0);
-        let weapon = [(60.0, 166.0), (BANNER_TIP, 166.0), (BANNER_TIP, 212.0), (60.0, 212.0)];
-        let boxes = |(a, b): (f32, f32)| ([(a, 230.0), (b, 230.0), (b, 270.0), (a, 270.0)], [(a, 272.0), (b, 272.0), (b, 312.0), (a, 312.0)]);
+        let weapon = [(60.0, 266.0), (BANNER_TIP, 266.0), (BANNER_TIP, 312.0), (60.0, 312.0)];
+        let boxes = |(a, b): (f32, f32)| ([(a, 166.0), (b, 166.0), (b, 206.0), (a, 206.0)], [(a, 208.0), (b, 208.0), (b, 248.0), (a, 248.0)]);
         let stat_boxes: Vec<_> = stat_columns.iter().map(|&col| boxes(col)).collect();
         let mut outlines: Vec<&[(f32, f32)]> = vec![&band, &bar, &hp, &weapon];
         for (tab, cell) in &stat_boxes {
@@ -343,18 +343,18 @@ pub fn banners(ctx: &egui::Context, textures: &mut BannerTextures, read: &crate:
         painter.add(shape(&weapon, color(side.weapon.ground, 1.0), (2.0, color([235, 235, 235], 1.0))));
         grain(&place(&weapon));
         for x in [76.0, 524.0] {
-            painter.add(shape(&diamond(x, 189.0, 6.0), color([240, 240, 240], 1.0), (0.0, Color32::TRANSPARENT)));
+            painter.add(shape(&diamond(x, 289.0, 6.0), color([240, 240, 240], 1.0), (0.0, Color32::TRANSPARENT)));
         }
-        draw_text(&side.weapon, at(300.0, 189.0), 2.4);
+        draw_text(&side.weapon, at(300.0, 289.0), 2.4);
         for (stat, (&(a, b), (tab, cell))) in stat_columns.iter().zip(&stat_boxes).enumerate() {
             let label = &read.labels[stat];
             painter.add(shape(tab, color(label.ground, 1.0), (2.0, color([235, 225, 200], 1.0))));
             grain(&place(tab));
-            draw_text(label, at((a + b) / 2.0, 250.0), 1.9);
+            draw_text(label, at((a + b) / 2.0, 186.0), 1.9);
             let value = &side.values[stat];
             painter.add(shape(cell, color(value.ground, 1.0), (2.0, white)));
             grain(&place(cell));
-            draw_text(value, at((a + b) / 2.0, 292.0), 2.6);
+            draw_text(value, at((a + b) / 2.0, 228.0), 2.6);
         }
     }
 }

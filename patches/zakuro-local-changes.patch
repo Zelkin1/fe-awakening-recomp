@@ -4280,10 +4280,10 @@ index a5b4c18..f2cf7c5 100644
  
      /// Japanese names have every character to draw with the system's
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..8c1b384 100644
+index 6cf00db..00dfdea 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
-@@ -3,17 +3,24 @@
+@@ -3,22 +3,31 @@
  //! at a time.
  
  mod audio;
@@ -4308,7 +4308,14 @@ index 6cf00db..8c1b384 100644
  mod zig;
  
  use std::path::{Path, PathBuf};
-@@ -33,6 +40,7 @@ use gui::Gui;
+ use std::time::{Duration, Instant};
+ 
++const CURSOR_HIDES_AFTER: Duration = Duration::from_secs(3);
++
+ use winit::application::ApplicationHandler;
+ use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
+ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+@@ -33,6 +42,7 @@ use gui::Gui;
  use input::Keyboard;
  use library::Library;
  use menus::{Action, Menus};
@@ -4316,7 +4323,7 @@ index 6cf00db..8c1b384 100644
  use present::Backend;
  use recompile::{Job, Stage, Toolchain};
  use settings::{CameraSource, Renderer, Screens, Settings};
-@@ -66,7 +74,11 @@ pub fn run(linked: Option<Linked>) {
+@@ -66,7 +76,11 @@ pub fn run(linked: Option<Linked>) {
  
  /// runs the emulator as run does, with an overlay over the game.
  pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
@@ -4328,7 +4335,7 @@ index 6cf00db..8c1b384 100644
  
      let options = match cli::parse() {
          Ok(options) => options,
-@@ -76,6 +88,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -76,6 +90,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          }
      };
      let mut settings = Settings::load();
@@ -4336,7 +4343,7 @@ index 6cf00db..8c1b384 100644
      // the console's own number, made the first time and kept, which tells
      // it apart from others over local wireless
      if settings.console_id == 0 {
-@@ -85,6 +98,12 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -85,6 +100,12 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          settings.console_id = hasher.finish() | 1;
          settings.save();
      }
@@ -4349,7 +4356,7 @@ index 6cf00db..8c1b384 100644
  
      let data_dir = options.data.clone().map(PathBuf::from).or_else(default_data_dir);
      if let Some(dir) = &data_dir {
-@@ -97,13 +116,30 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -97,13 +118,30 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          gamepads: gamepad::Gamepads::new(settings.pad.clone()),
          scale: options.scale.unwrap_or(settings.scale).max(1),
          layout: settings.layout,
@@ -4381,7 +4388,15 @@ index 6cf00db..8c1b384 100644
          data_dir,
          game: None,
          menus: {
-@@ -147,8 +183,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -117,6 +155,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+         window: None,
+         audio: None,
+         mouse_down: false,
++        mouse_used_at: Instant::now(),
+         tilting_from: None,
+         cursor: (0.0, 0.0),
+         last_title_update: Instant::now(),
+@@ -147,8 +186,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          return;
      }
  
@@ -4392,7 +4407,7 @@ index 6cf00db..8c1b384 100644
      }
      app.audio = if app.options.mute {
          None
-@@ -331,10 +367,11 @@ struct Running {
+@@ -331,10 +370,11 @@ struct Running {
      /// place of the keyboard's and the controllers', and the frames run.
      replay: Option<zakuro_core::replay::Replay>,
      frame: u64,
@@ -4405,7 +4420,7 @@ index 6cf00db..8c1b384 100644
  }
  
  impl Running {
-@@ -347,8 +384,10 @@ impl Running {
+@@ -347,8 +387,10 @@ impl Running {
              replay: None,
              frame: 0,
              frames: 0,
@@ -4416,7 +4431,7 @@ index 6cf00db..8c1b384 100644
          }
      }
  
-@@ -356,7 +395,12 @@ impl Running {
+@@ -356,7 +398,12 @@ impl Running {
          self.frames += 1;
          let elapsed = self.counting_since.elapsed();
          if elapsed >= Duration::from_millis(500) {
@@ -4430,7 +4445,7 @@ index 6cf00db..8c1b384 100644
              self.frames = 0;
              self.counting_since = Instant::now();
          }
-@@ -390,6 +434,23 @@ struct App {
+@@ -390,10 +437,28 @@ struct App {
      scale: u32,
      /// how the screens are arranged.
      layout: Screens,
@@ -4454,7 +4469,12 @@ index 6cf00db..8c1b384 100644
      /// how wide the top screen shows.
      top_shape: settings::TopShape,
      /// the left button is down, and where the pointer is, in window pixels.
-@@ -516,7 +577,7 @@ impl ApplicationHandler for App {
+     mouse_down: bool,
++    mouse_used_at: Instant,
+     /// where the pointer was when the right button went down, which tilts
+     /// the console while held.
+     tilting_from: Option<(f32, f32)>,
+@@ -516,7 +581,7 @@ impl ApplicationHandler for App {
          match backend {
              Ok((window, mut backend)) => {
                  log::info!("presenting with the {} backend", backend.name());
@@ -4463,9 +4483,13 @@ index 6cf00db..8c1b384 100644
                  backend.set_top_width(self.settings.top_shape.width());
                  backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
                  backend.set_stereo(self.settings.stereo());
-@@ -565,6 +626,9 @@ impl ApplicationHandler for App {
+@@ -563,8 +628,13 @@ impl ApplicationHandler for App {
+                 }
+             }
              WindowEvent::KeyboardInput { event, .. } => self.key(event, consumed),
++            WindowEvent::MouseWheel { .. } => self.mouse_used_at = Instant::now(),
              WindowEvent::MouseInput { state, button, .. } => {
++                self.mouse_used_at = Instant::now();
                  if button == MouseButton::Left {
 +                    if state == ElementState::Pressed {
 +                        self.pad_pointer.shown = false;
@@ -4473,7 +4497,15 @@ index 6cf00db..8c1b384 100644
                      self.mouse_down = state == ElementState::Pressed && !self.pointer_taken(consumed);
                      self.touch();
                  }
-@@ -605,13 +669,16 @@ impl App {
+@@ -575,6 +645,7 @@ impl ApplicationHandler for App {
+                 }
+             }
+             WindowEvent::CursorMoved { position, .. } => {
++                self.mouse_used_at = Instant::now();
+                 self.cursor = (position.x as f32, position.y as f32);
+                 self.touch();
+                 self.tilt();
+@@ -605,13 +676,16 @@ impl App {
              find_recompiled: !interpret,
              hardware_renderer: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
              texture_packs: self.settings.texture_packs,
@@ -4490,7 +4522,7 @@ index 6cf00db..8c1b384 100644
              resolution: self.settings.resolution,
              device: self.backend.as_ref().and_then(Backend::shared_device),
              username: self.nickname(),
-@@ -661,12 +728,10 @@ impl App {
+@@ -661,12 +735,10 @@ impl App {
              config.update = game.update.as_ref().map(|update| update.path.clone());
              config.dlc = game.dlc.iter().map(|dlc| dlc.path.clone()).collect();
              config.dlp_child = game.dlp_child.as_ref().map(|child| child.path.clone());
@@ -4505,7 +4537,7 @@ index 6cf00db..8c1b384 100644
          }
          // a recording starts the clock at a known time, for playing it back
          let record = std::env::var_os("ZAKURO_RECORD").map(PathBuf::from);
-@@ -698,6 +763,7 @@ impl App {
+@@ -698,6 +770,7 @@ impl App {
              .or_else(|| Some(library::Smdh::parse(system.title.as_ref()?.exefs_file("icon")?)?.name).filter(|name| !name.is_empty()))
              .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
              .unwrap_or_default();
@@ -4513,7 +4545,7 @@ index 6cf00db..8c1b384 100644
          let mut game = Running::new(system, path.to_owned(), name);
          game.replay = replay;
          if let Some(record) = record {
-@@ -754,7 +820,9 @@ impl App {
+@@ -754,7 +827,9 @@ impl App {
          if let (true, Some(index)) = (pressed, self.menus.rebinding) {
              self.menus.rebinding = None;
              if code != KeyCode::Escape {
@@ -4524,7 +4556,7 @@ index 6cf00db..8c1b384 100644
                      *key = code;
                  }
                  self.apply_settings();
-@@ -766,6 +834,7 @@ impl App {
+@@ -766,6 +841,7 @@ impl App {
              self.fast_forward_key = pressed && self.game.is_some();
          }
          if pressed && !event.repeat {
@@ -4532,7 +4564,7 @@ index 6cf00db..8c1b384 100644
              match code {
                  KeyCode::Escape if self.game.is_some() => {
                      self.menus.menu_open = !self.menus.menu_open;
-@@ -789,6 +858,12 @@ impl App {
+@@ -789,6 +865,12 @@ impl App {
                  KeyCode::F11 => self.toggle_fullscreen(),
                  KeyCode::F5 if self.game.is_some() => self.save_state(),
                  KeyCode::F8 if self.game.is_some() => self.load_state(),
@@ -4545,7 +4577,7 @@ index 6cf00db..8c1b384 100644
                  _ => {}
              }
          }
-@@ -807,14 +882,22 @@ impl App {
+@@ -807,14 +889,22 @@ impl App {
      /// it, and Home opens and closes the menu over the game.
      fn poll_gamepads(&mut self) {
          for button in self.gamepads.poll() {
@@ -4569,7 +4601,7 @@ index 6cf00db..8c1b384 100644
              }
          }
      }
-@@ -828,7 +911,11 @@ impl App {
+@@ -828,7 +918,11 @@ impl App {
      fn touch(&mut self) {
          let Some(window) = &self.window else { return };
          let size = window.inner_size();
@@ -4582,7 +4614,7 @@ index 6cf00db..8c1b384 100644
          // with the top screen alone there is nothing to touch
          let Some(bottom) = bottom else {
              self.keyboard.touch(None);
-@@ -842,6 +929,28 @@ impl App {
+@@ -842,6 +936,28 @@ impl App {
          }));
      }
  
@@ -4611,7 +4643,7 @@ index 6cf00db..8c1b384 100644
      /// tilts the console while the right button is held, toward where the
      /// pointer went and by how far, as Citra's motion emulation does,
      /// which titles were tried with. letting go stands it upright again.
-@@ -887,11 +996,20 @@ impl App {
+@@ -887,11 +1003,20 @@ impl App {
      /// saves the settings and puts to use what can change right away.
      fn apply_settings(&mut self) {
          self.settings.save();
@@ -4632,7 +4664,7 @@ index 6cf00db..8c1b384 100644
              // games read the 3D slider every frame
              let slider = self.settings.slider_3d();
              if game.system.config.slider_3d != slider {
-@@ -938,13 +1056,20 @@ impl App {
+@@ -938,13 +1063,20 @@ impl App {
              backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
              backend.set_stereo(self.settings.stereo());
          }
@@ -4654,7 +4686,7 @@ index 6cf00db..8c1b384 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1083,108 @@ impl App {
+@@ -958,6 +1090,108 @@ impl App {
          }
      }
  
@@ -4763,7 +4795,7 @@ index 6cf00db..8c1b384 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -1007,20 +1234,57 @@ impl App {
+@@ -1007,20 +1241,57 @@ impl App {
          self.jobs.push(Job::start(&game.path, update, game.program_id, &game.name, self.data_dir.as_deref(), toolchain));
      }
  
@@ -4823,7 +4855,7 @@ index 6cf00db..8c1b384 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1034,7 +1298,8 @@ impl App {
+@@ -1034,7 +1305,8 @@ impl App {
                      }
                  }
                  Stage::Failed(error) if error != "cancelled" => {
@@ -4833,7 +4865,7 @@ index 6cf00db..8c1b384 100644
                  }
                  _ => {}
              }
-@@ -1049,7 +1314,22 @@ impl App {
+@@ -1049,7 +1321,22 @@ impl App {
                  }
              }
              Action::Recompile(index) => self.recompile(index, false),
@@ -4856,7 +4888,7 @@ index 6cf00db..8c1b384 100644
              Action::Mods(program_id) => {
                  if let Some(data_dir) = &self.data_dir {
                      let folder = zakuro_core::mods::dir(data_dir, program_id);
-@@ -1065,13 +1345,22 @@ impl App {
+@@ -1065,13 +1352,22 @@ impl App {
                      job.cancel();
                  }
              }
@@ -4884,7 +4916,7 @@ index 6cf00db..8c1b384 100644
              Action::SaveState => self.save_state(),
              Action::LoadState => self.load_state(),
              Action::HostRoom => self.host_room(),
-@@ -1087,32 +1376,6 @@ impl App {
+@@ -1087,32 +1383,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -4917,7 +4949,7 @@ index 6cf00db..8c1b384 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1413,15 @@ impl App {
+@@ -1150,6 +1420,15 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -4933,7 +4965,7 @@ index 6cf00db..8c1b384 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1202,7 +1474,13 @@ impl App {
+@@ -1202,7 +1481,13 @@ impl App {
          }
          self.library.poll();
          self.poll_jobs();
@@ -4947,7 +4979,7 @@ index 6cf00db..8c1b384 100644
          // a room that went away takes the game's local wireless with it
          if self.room.as_ref().is_some_and(|room| !room.open()) {
              self.leave_room();
-@@ -1304,10 +1582,30 @@ impl App {
+@@ -1304,10 +1589,30 @@ impl App {
      /// runs one frame of the game.
      fn emulate(&mut self) {
          let Some(game) = &mut self.game else { return };
@@ -4979,7 +5011,7 @@ index 6cf00db..8c1b384 100644
          game.frame += 1;
          if let Some(recorder) = &mut game.recorder {
              recorder.record(input);
-@@ -1546,9 +1844,27 @@ impl App {
+@@ -1546,9 +1851,27 @@ impl App {
              .flatten()
              .and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
              .map(ago);
@@ -5008,7 +5040,7 @@ index 6cf00db..8c1b384 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,18 +1877,44 @@ impl App {
+@@ -1561,18 +1884,45 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -5022,6 +5054,7 @@ index 6cf00db..8c1b384 100644
          let corner = self.overlay_corner.clone().filter(|_| game.is_some());
          let (menus, library, settings, jobs) = (&mut self.menus, &self.library, &mut self.settings, &self.jobs);
 +        let banner_textures = &mut self.banner_textures;
++        let cursor_idle = self.game.is_some() && self.mouse_used_at.elapsed() >= CURSOR_HIDES_AFTER;
          let mut actions = Vec::new();
          let overlay = gui.frame(window, |ui| {
              match &game {
@@ -5055,7 +5088,7 @@ index 6cf00db..8c1b384 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,7 +1923,7 @@ impl App {
+@@ -1581,13 +1931,16 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -5064,7 +5097,16 @@ index 6cf00db..8c1b384 100644
              }
              if let Some(request) = &keyboard {
                  actions.extend(menus.keyboard(ui.ctx(), request));
-@@ -1596,7 +1938,72 @@ impl App {
+             }
+             actions.extend(menus.compiler_offer(ui.ctx()));
+             menus.message(ui.ctx());
++            if cursor_idle {
++                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
++            }
+         });
+         self.library.changed = false;
+         for action in actions {
+@@ -1596,7 +1949,72 @@ impl App {
          overlay
      }
  
@@ -5137,7 +5179,7 @@ index 6cf00db..8c1b384 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
-@@ -1697,6 +2104,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
+@@ -1697,6 +2115,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
  /// keeps the renderer kind referenced even when a backend feature is off.
  const _: RendererKind = RendererKind::Software;
  
@@ -6657,7 +6699,7 @@ index 9372f02..eb9e0e4 100644
          assert_eq!(key_name(KeyCode::KeyX), "X");
 diff --git a/crates/zakuro/src/overlays.rs b/crates/zakuro/src/overlays.rs
 new file mode 100644
-index 0000000..1d0adfc
+index 0000000..bc99f2d
 --- /dev/null
 +++ b/crates/zakuro/src/overlays.rs
 @@ -0,0 +1,474 @@
@@ -6908,8 +6950,8 @@ index 0000000..1d0adfc
 +const BANNER_TIP: f32 = 540.0;
 +
 +const PANEL_SHADOW_DROP: f32 = 3.0;
-+const PANEL_SHADOW_REACH: f32 = 5.0;
-+const PANEL_SHADOW_ALPHA: f32 = 0.4;
++const PANEL_SHADOW_REACH: f32 = 7.0;
++const PANEL_SHADOW_ALPHA: f32 = 0.55;
 +
 +pub fn banners(ctx: &egui::Context, textures: &mut BannerTextures, read: &crate::banners::Read, top: egui::Rect, opacity: f32) {
 +    let painter = ctx.layer_painter(egui::LayerId::background());
@@ -6963,8 +7005,8 @@ index 0000000..1d0adfc
 +        let band = [(84.0, 0.0), (516.0, 0.0), (BANNER_TIP, 27.0), (516.0, 54.0), (84.0, 54.0), (60.0, 27.0)];
 +        let (bar, inside, width, height, gap) = hp_bar(side.ticks.len());
 +        let hp = diamond(104.0, 110.0, 48.0);
-+        let weapon = [(60.0, 166.0), (BANNER_TIP, 166.0), (BANNER_TIP, 212.0), (60.0, 212.0)];
-+        let boxes = |(a, b): (f32, f32)| ([(a, 230.0), (b, 230.0), (b, 270.0), (a, 270.0)], [(a, 272.0), (b, 272.0), (b, 312.0), (a, 312.0)]);
++        let weapon = [(60.0, 266.0), (BANNER_TIP, 266.0), (BANNER_TIP, 312.0), (60.0, 312.0)];
++        let boxes = |(a, b): (f32, f32)| ([(a, 166.0), (b, 166.0), (b, 206.0), (a, 206.0)], [(a, 208.0), (b, 208.0), (b, 248.0), (a, 248.0)]);
 +        let stat_boxes: Vec<_> = stat_columns.iter().map(|&col| boxes(col)).collect();
 +        let mut outlines: Vec<&[(f32, f32)]> = vec![&band, &bar, &hp, &weapon];
 +        for (tab, cell) in &stat_boxes {
@@ -7006,18 +7048,18 @@ index 0000000..1d0adfc
 +        painter.add(shape(&weapon, color(side.weapon.ground, 1.0), (2.0, color([235, 235, 235], 1.0))));
 +        grain(&place(&weapon));
 +        for x in [76.0, 524.0] {
-+            painter.add(shape(&diamond(x, 189.0, 6.0), color([240, 240, 240], 1.0), (0.0, Color32::TRANSPARENT)));
++            painter.add(shape(&diamond(x, 289.0, 6.0), color([240, 240, 240], 1.0), (0.0, Color32::TRANSPARENT)));
 +        }
-+        draw_text(&side.weapon, at(300.0, 189.0), 2.4);
++        draw_text(&side.weapon, at(300.0, 289.0), 2.4);
 +        for (stat, (&(a, b), (tab, cell))) in stat_columns.iter().zip(&stat_boxes).enumerate() {
 +            let label = &read.labels[stat];
 +            painter.add(shape(tab, color(label.ground, 1.0), (2.0, color([235, 225, 200], 1.0))));
 +            grain(&place(tab));
-+            draw_text(label, at((a + b) / 2.0, 250.0), 1.9);
++            draw_text(label, at((a + b) / 2.0, 186.0), 1.9);
 +            let value = &side.values[stat];
 +            painter.add(shape(cell, color(value.ground, 1.0), (2.0, white)));
 +            grain(&place(cell));
-+            draw_text(value, at((a + b) / 2.0, 292.0), 2.6);
++            draw_text(value, at((a + b) / 2.0, 228.0), 2.6);
 +        }
 +    }
 +}
@@ -8224,7 +8266,7 @@ index 0000000..5f5fca0
 +}
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..9748e23
+index 0000000..2a29eb6
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,161 @@
@@ -8236,7 +8278,7 @@ index 0000000..9748e23
 +
 +use crate::zig::{fetch, windowless, Fetcher};
 +
-+pub const RELEASE: &str = "v0.2.9";
++pub const RELEASE: &str = "v0.2.10";
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +const ASSET_SUFFIX: &str = "-windows-x64.zip";
 +const STAGING: &str = "update";
