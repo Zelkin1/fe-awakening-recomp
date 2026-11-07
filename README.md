@@ -40,9 +40,8 @@ Esc opens the menu, with the settings, the cheats and save states.
   one, the six battle buttons show when you press any button and fade out
   3 seconds after your last press.
 - A mod that adds feet to every characters in the game is implemented.
-- The Cheats window has cheat codes and built-in tweaks such as faster
-  battles. All the built-in tweaks are on from the start, with the top
-  screen in 16:9 and faster battles option.
+- Cheat codes and built-in tweaks such as top screen 16:9 aspect ratio and faster
+  battles.
 - Original mode plays the game as the console does.
 
 ## Building
