@@ -866,8 +866,8 @@ impl System {
         self.battle_ui().map(|ui| ui.battle_banners)
     }
 
-    pub fn battle_buttons(&self) -> Option<&'static [zakuro_gpu::Piece]> {
-        self.battle_ui().map(|ui| ui.battle_buttons)
+    pub fn battle_buttons(&self, over_panels: bool) -> Option<&'static [zakuro_gpu::Piece]> {
+        self.battle_ui().map(|ui| if over_panels { ui.battle_buttons_over_panels } else { ui.battle_buttons })
     }
 
     fn battle_ui(&self) -> Option<&'static game_ui::GameUi> {

@@ -9,6 +9,7 @@ pub(crate) enum Scene {
     Battle(&'static [zakuro_gpu::Piece]),
     WorldMap,
     UnitView,
+    LevelUp,
     Forecast,
     Pieces(&'static [zakuro_gpu::Piece]),
 }
@@ -107,9 +108,77 @@ pub fn pad_pointer(ctx: &egui::Context, rect: egui::Rect, at: [f32; 2], pressed:
     painter.circle(center, 1.6 * scale.max(1.0), Color32::WHITE, egui::Stroke::new(scale.max(1.0) * 0.8, Color32::from_black_alpha(150)));
 }
 
+pub(crate) const TOUCH_KEEPS_OVER: Duration = Duration::from_secs(1);
+
+pub(crate) const MAP_BUTTON: (u16, u16) = (305, 212);
+pub(crate) const TAP_FRAMES: u8 = 6;
+
+pub(crate) fn level_up_screen(picture: &[u8]) -> bool {
+    if picture.len() < 320 * 240 * 4 {
+        return false;
+    }
+    let light = |[left, top, right, bottom]: [usize; 4]| {
+        let mut sum = 0;
+        for y in top..bottom {
+            for x in left..right {
+                let at = (y * 320 + x) * 4;
+                sum += u32::from(picture[at]) + u32::from(picture[at + 1]) + u32::from(picture[at + 2]);
+            }
+        }
+        sum / (3 * ((right - left) * (bottom - top)) as u32)
+    };
+    let (margin, panel, strip) = (light([284, 32, 318, 220]), light([60, 40, 260, 200]), light([60, 226, 260, 238]));
+    margin < 30 && panel > 150 && (25..80).contains(&strip)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum MapScreen {
+    Inventory,
+    Overview,
+}
+
+pub(crate) fn map_screen(picture: &[u8]) -> Option<MapScreen> {
+    if picture.len() < 320 * 240 * 4 {
+        return None;
+    }
+    let light = |[left, top, right, bottom]: [usize; 4]| {
+        let mut sum = 0;
+        for y in top..bottom {
+            for x in left..right {
+                let at = (y * 320 + x) * 4;
+                sum += u32::from(picture[at]) + u32::from(picture[at + 1]) + u32::from(picture[at + 2]);
+            }
+        }
+        sum / (3 * ((right - left) * (bottom - top)) as u32)
+    };
+    let (corner, icon, edge) = (light([225, 22, 300, 38]), light([292, 198, 318, 226]), light([290, 105, 318, 185]));
+    match () {
+        _ if edge >= 40 => None,
+        _ if corner > 115 && icon < 75 => Some(MapScreen::Inventory),
+        _ if corner < 85 && icon > 90 => Some(MapScreen::Overview),
+        _ => None,
+    }
+}
+
+pub(crate) fn keeps_bottom_over(moved_on: bool, opens: bool, touched_lately: bool, scene: Scene, kept: &mut Option<Scene>) -> bool {
+    if !moved_on {
+        return true;
+    }
+    if opens && touched_lately {
+        *kept = Some(scene);
+        return true;
+    }
+    if opens && *kept == Some(scene) {
+        return true;
+    }
+    *kept = None;
+    false
+}
+
 pub(crate) fn bottom_over_input(held: InputState, scene: Scene) -> InputState {
     let buttons = match scene {
         Scene::Plain | Scene::UnitView => held.buttons.intersection(PadState::L),
+        Scene::LevelUp => held.buttons,
         _ => PadState::empty(),
     };
     InputState { touch: held.touch, buttons, ..Default::default() }
@@ -423,6 +492,57 @@ pub fn bottom_over(ctx: &egui::Context, rect: egui::Rect, edge: f32, corner: f32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_level_up_screen_is_a_light_panel_between_dark_edges() {
+        let mut picture = vec![180; 320 * 240 * 4];
+        let fill = |picture: &mut Vec<u8>, [left, top, right, bottom]: [usize; 4], value: u8| {
+            for y in top..bottom {
+                for x in left..right {
+                    picture[(y * 320 + x) * 4..][..3].fill(value);
+                }
+            }
+        };
+        fill(&mut picture, [280, 0, 320, 240], 20);
+        fill(&mut picture, [0, 224, 280, 240], 50);
+        assert!(level_up_screen(&picture));
+        fill(&mut picture, [280, 0, 320, 240], 120);
+        assert!(!level_up_screen(&picture));
+        assert!(!level_up_screen(&[]));
+    }
+
+    #[test]
+    fn the_map_screens_tell_apart() {
+        let paint = |regions: &[([usize; 4], u8)]| {
+            let mut picture = vec![30; 320 * 240 * 4];
+            for &([left, top, right, bottom], value) in regions {
+                for y in top..bottom {
+                    for x in left..right {
+                        picture[(y * 320 + x) * 4..][..3].fill(value);
+                    }
+                }
+            }
+            picture
+        };
+        assert_eq!(map_screen(&paint(&[([225, 22, 300, 38], 140)])), Some(MapScreen::Inventory));
+        assert_eq!(map_screen(&paint(&[([292, 198, 318, 226], 110)])), Some(MapScreen::Overview));
+        assert_eq!(map_screen(&paint(&[([225, 22, 300, 38], 140), ([292, 198, 318, 226], 110)])), None);
+        assert_eq!(map_screen(&paint(&[([290, 105, 318, 185], 200), ([225, 22, 300, 38], 140)])), None);
+        assert_eq!(map_screen(&[]), None);
+    }
+
+    #[test]
+    fn a_touch_on_the_bottom_screen_keeps_it_through_what_it_opens() {
+        let mut kept = None;
+        assert!(keeps_bottom_over(false, true, false, Scene::WorldMap, &mut kept));
+        assert!(!keeps_bottom_over(true, true, false, Scene::Plain, &mut kept));
+        assert!(keeps_bottom_over(true, true, true, Scene::Plain, &mut kept));
+        assert!(keeps_bottom_over(true, true, false, Scene::Plain, &mut kept));
+        assert!(!keeps_bottom_over(true, true, false, Scene::WorldMap, &mut kept));
+        assert!(kept.is_none());
+        assert!(keeps_bottom_over(true, true, true, Scene::Plain, &mut kept));
+        assert!(!keeps_bottom_over(true, false, true, Scene::Forecast, &mut kept));
+    }
 
     #[test]
     fn the_pointer_follows_the_stick_and_stays_on_the_screen() {

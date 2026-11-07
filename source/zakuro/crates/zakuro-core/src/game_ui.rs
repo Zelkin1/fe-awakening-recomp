@@ -8,6 +8,7 @@ pub struct GameUi {
     pub markers: &'static [Marker],
     pub battle_panels: &'static [Piece],
     pub battle_buttons: &'static [Piece],
+    pub battle_buttons_over_panels: &'static [Piece],
     pub battle_banners: &'static Banners,
     pub title_pieces: &'static [Piece],
     pub world_map_pieces: &'static [Piece],
@@ -21,6 +22,7 @@ static AWAKENING: GameUi = GameUi {
     markers: MARKERS,
     battle_panels: BATTLE_PANELS,
     battle_buttons: BATTLE_BUTTONS,
+    battle_buttons_over_panels: BATTLE_BUTTONS_OVER_PANELS,
     battle_banners: &BATTLE_BANNERS,
     title_pieces: TITLE_PIECES,
     world_map_pieces: WORLD_MAP_PIECES,
@@ -90,35 +92,28 @@ const LEFT_PANEL_REST: [u16; 2] = [24, 4];
 const RIGHT_PANEL_REST: [u16; 2] = [184, 4];
 
 const BATTLE_PANELS: &[Piece] = &[
-    Piece { from: [68, 85, 107, 59], across: Anchor::Start(0), down: Anchor::End(0), size: 50, shapes: STATS_LEFT, follows: None },
-    Piece { from: [0, 6, 162, 70], across: Anchor::Start(53), down: Anchor::End(0), size: 50, shapes: HP_LEFT, follows: Some((LEFT_BANNER, LEFT_PANEL_REST)) },
-    Piece { from: [145, 85, 107, 59], across: Anchor::End(0), down: Anchor::End(0), size: 50, shapes: STATS_RIGHT, follows: None },
-    Piece { from: [162, 6, 162, 70], across: Anchor::End(53), down: Anchor::End(0), size: 50, shapes: HP_RIGHT, follows: Some((RIGHT_BANNER, RIGHT_PANEL_REST)) },
+    Piece { from: [70, 88, 180, 52], across: Anchor::Middle(0), down: Anchor::End(1), size: 49, shapes: STATS, follows: None },
+    Piece { from: [0, 6, 162, 70], across: Anchor::Middle(-85), down: Anchor::End(1), size: 49, shapes: HP_LEFT, follows: Some((LEFT_BANNER, LEFT_PANEL_REST)) },
+    Piece { from: [162, 6, 162, 70], across: Anchor::Middle(85), down: Anchor::End(1), size: 49, shapes: HP_RIGHT, follows: Some((RIGHT_BANNER, RIGHT_PANEL_REST)) },
 ];
 const HP_LEFT: &[Rounded] = &[
-    Rounded { shift: [4, 0], ..rounded([0, 17, 158, 59], [0, 6, 0, 0]) },
+    Rounded { shift: [4, 0], ..rounded([0, 17, 158, 59], [0, 6, 0, 6]) },
     Rounded { shift: [-153, 0], mirror: true, shadow: false, ..rounded([153, 24, 5, 52], [0; 4]) },
-    Rounded { shift: [-153, -7], mirror: true, shadow: false, ..rounded([153, 24, 5, 8], [0; 4]) },
-    Rounded { shadow: false, ..rounded([0, 17, 6, 1], [0; 4]) },
+    Rounded { shift: [-148, 0], mirror: true, shadow: false, ..rounded([148, 68, 10, 8], [0, 0, 6, 0]) },
+    Rounded { shift: [-148, 0], mirror: true, shadow: false, ..rounded([148, 17, 10, 10], [6, 0, 0, 0]) },
     Rounded { shift: [4, 0], ..rounded([24, 6, 112, 22], [8; 4]) },
 ];
 const HP_RIGHT: &[Rounded] = &[
-    rounded([162, 17, 158, 59], [6, 0, 0, 0]),
+    rounded([162, 17, 158, 59], [6, 0, 6, 0]),
     Rounded { shift: [157, 0], mirror: true, shadow: false, ..rounded([162, 24, 5, 52], [0; 4]) },
-    Rounded { shift: [157, -7], mirror: true, shadow: false, ..rounded([162, 24, 5, 8], [0; 4]) },
-    Rounded { shift: [4, 0], shadow: false, ..rounded([314, 17, 6, 1], [0; 4]) },
+    Rounded { shift: [152, 0], mirror: true, shadow: false, ..rounded([162, 68, 10, 8], [0, 0, 0, 6]) },
+    Rounded { shift: [152, 0], mirror: true, shadow: false, ..rounded([162, 17, 10, 10], [0, 6, 0, 0]) },
     rounded([184, 6, 112, 22], [8; 4]),
 ];
-const STATS_LEFT: &[Rounded] = &[
-    Rounded { shade: 205, ..rounded([68, 85, 107, 59], [0; 4]) },
-    Rounded { shade: 205, shift: [0, -53], shadow: false, ..rounded([68, 138, 107, 6], [0; 4]) },
-];
-const STATS_RIGHT: &[Rounded] = &[
-    Rounded { shade: 205, ..rounded([145, 85, 107, 59], [0; 4]) },
-    Rounded { shade: 205, shift: [0, -53], shadow: false, ..rounded([145, 138, 107, 6], [0; 4]) },
-];
+const STATS: &[Rounded] = &[rounded([70, 88, 180, 52], [4; 4])];
 
 const BATTLE_BUTTONS: &[Piece] = &[Piece { from: [6, 191, 307, 42], across: Anchor::Middle(0), down: Anchor::End(4), size: 28, shapes: BUTTONS, follows: None }];
+const BATTLE_BUTTONS_OVER_PANELS: &[Piece] = &[Piece { from: [6, 191, 307, 42], across: Anchor::Middle(0), down: Anchor::End(28), size: 28, shapes: BUTTONS, follows: None }];
 const BUTTONS: &[Rounded] = &[button(6, 43), button(54, 43), button(102, 43), button(175, 42), button(222, 43), button(270, 43)];
 
 const BATTLE_BANNERS: Banners = Banners {

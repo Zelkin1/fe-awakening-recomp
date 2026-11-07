@@ -122,6 +122,9 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
         bottom_over: false,
         bottom_over_key: false,
         pad_pointer: overlays::PadPointer::default(),
+        over_touched_at: None,
+        scripted_tap: None,
+        kept_scene: None,
         bottom_sounds: sounds::BottomScreen::default(),
         scene: Scene::Plain,
         placed: None,
@@ -441,6 +444,9 @@ struct App {
     bottom_over: bool,
     bottom_over_key: bool,
     pad_pointer: overlays::PadPointer,
+    over_touched_at: Option<Instant>,
+    scripted_tap: Option<((u16, u16), u8)>,
+    kept_scene: Option<Scene>,
     bottom_sounds: sounds::BottomScreen,
     scene: Scene,
     placed: Option<zakuro_gpu::ScreenLayout>,
@@ -866,6 +872,9 @@ impl App {
                 KeyCode::F11 => self.toggle_fullscreen(),
                 KeyCode::F5 if self.game.is_some() => self.save_state(),
                 KeyCode::F8 if self.game.is_some() => self.load_state(),
+                _ if code == self.settings.keys.select && !consumed && !self.gui.as_ref().is_some_and(Gui::wants_keyboard) => {
+                    self.map_overview()
+                }
                 _ if code == self.settings.bottom_over_key && !consumed && !self.gui.as_ref().is_some_and(Gui::wants_keyboard) => {
                     self.toggle_bottom_over()
                 }
@@ -903,9 +912,11 @@ impl App {
                 self.keyboard.release();
             } else if button == self.settings.bottom_over_button {
                 self.toggle_bottom_over();
-                self.pad_pointer.shown = self.bottom_over;
+                self.pad_pointer.shown = self.bottom_over && !matches!(self.scene, Scene::UnitView | Scene::LevelUp);
             } else if button == self.settings.pad.b && self.bottom_over {
                 self.close_bottom_over_with_cancel();
+            } else if button == self.settings.pad.select && !self.menus.menu_open {
+                self.map_overview();
             }
         }
     }
@@ -1147,12 +1158,21 @@ impl App {
         }
     }
 
+    fn showing_level_up(&mut self) -> bool {
+        self.game.as_mut().and_then(|game| game.system.bottom_picture()).is_some_and(|picture| overlays::level_up_screen(&picture))
+    }
+
     fn place_bottom_over(&mut self) {
-        let scene = self.current_scene();
+        let mut scene = self.current_scene();
         let talking = self.game.as_ref().is_some_and(|game| game.system.talking());
-        let opens = matches!(scene, Scene::Plain | Scene::WorldMap | Scene::UnitView);
-        let moved_on = scene != self.scene || (opens && talking);
-        if moved_on {
+        if scene == Scene::Plain && self.bottom_over_key && (talking || self.scene == Scene::LevelUp) && self.showing_level_up() {
+            scene = Scene::LevelUp;
+        }
+        let opens = matches!(scene, Scene::Plain | Scene::WorldMap | Scene::UnitView | Scene::LevelUp);
+        let into_level_up = scene == Scene::LevelUp && self.scene == Scene::Plain;
+        let moved_on = (scene != self.scene && !into_level_up) || (opens && talking && scene != Scene::LevelUp);
+        let touched_lately = self.bottom_over && self.over_touched_at.is_some_and(|at| at.elapsed() < overlays::TOUCH_KEEPS_OVER);
+        if !overlays::keeps_bottom_over(moved_on, opens, touched_lately, scene, &mut self.kept_scene) {
             self.bottom_over_key = false;
         }
         self.scene = scene;
@@ -1166,6 +1186,9 @@ impl App {
             audio.play(sound);
         }
         self.bottom_over = shown;
+        if !shown {
+            self.kept_scene = None;
+        }
         let layout = self.shown_layout();
         if self.placed != Some(layout) {
             self.placed = Some(layout);
@@ -1180,13 +1203,29 @@ impl App {
         self.holding_back_cancel = true;
     }
 
+    fn map_overview(&mut self) {
+        if self.bottom_over || self.layout != Screens::TopOnly || self.settings.original || self.scene != Scene::Plain {
+            return;
+        }
+        let Some(game) = &mut self.game else { return };
+        if game.system.talking() {
+            return;
+        }
+        let Some(screen) = game.system.bottom_picture().as_deref().and_then(overlays::map_screen) else { return };
+        self.bottom_over_key = true;
+        self.place_bottom_over();
+        if self.bottom_over && screen == overlays::MapScreen::Inventory {
+            self.scripted_tap = Some((overlays::MAP_BUTTON, overlays::TAP_FRAMES));
+        }
+    }
+
     fn toggle_bottom_over(&mut self) {
         let Some(game) = &self.game else { return };
         if self.layout != Screens::TopOnly || self.settings.original {
             return;
         }
         let on_unit = !game.system.follows_cursor() || game.system.cursor_on_unit() || game.system.unit_selected();
-        if !self.bottom_over_key && self.scene == Scene::Plain && !on_unit {
+        if !self.bottom_over_key && self.scene == Scene::Plain && !on_unit && !self.showing_level_up() {
             return;
         }
         self.bottom_over_key = !self.bottom_over_key;
@@ -1484,7 +1523,7 @@ impl App {
         self.poll_jobs();
         self.poll_update();
         self.poll_gamepads();
-        if self.bottom_over {
+        if self.bottom_over && !matches!(self.scene, Scene::UnitView | Scene::LevelUp) {
             self.pad_pointer.steer(self.gamepads.lean(), now);
         } else {
             self.pad_pointer.rest();
@@ -1597,6 +1636,10 @@ impl App {
                 if self.pad_pointer.shown && self.gamepads.holding(self.settings.pad.a) {
                     input.touch = Some(self.pad_pointer.spot());
                 }
+                if let Some((spot, frames)) = self.scripted_tap {
+                    input.touch = Some(spot);
+                    self.scripted_tap = frames.checked_sub(1).filter(|&left| left > 0).map(|left| (spot, left));
+                }
                 input
             }
             None => self.gamepads.apply(self.keyboard.state()),
@@ -1608,9 +1651,12 @@ impl App {
                 self.holding_back_cancel = false;
             }
         }
+        if self.bottom_over && input.touch.is_some() {
+            self.over_touched_at = Some(Instant::now());
+        }
         let (held, touched) = std::mem::replace(&mut self.last_input, (input.buttons, input.touch.is_some()));
         let pieces = match self.scene {
-            Scene::Battle(_) if !self.settings.original => game.system.battle_buttons(),
+            Scene::Battle(_) if !self.settings.original => game.system.battle_buttons(self.settings.battle_ui == settings::BattleUi::Panels),
             _ => None,
         };
         self.buttons = ShownButtons::next(self.buttons, pieces, input.buttons.difference(held), input.touch.is_some() && !touched, std::mem::take(&mut self.any_button_pressed), Instant::now());

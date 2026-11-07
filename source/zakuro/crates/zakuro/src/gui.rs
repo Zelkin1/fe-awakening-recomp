@@ -382,14 +382,18 @@ mod tests {
         let awakening = 0x0004_0000_0009_F100;
         let game_ui = zakuro_core::game_ui::for_game(awakening).unwrap();
         let read = crate::banners::read(bottom.as_raw(), game_ui.battle_banners, &[]).unwrap();
-        let (panels, buttons) = (game_ui.battle_panels, game_ui.battle_buttons);
+        let panels = game_ui.battle_panels;
         let size = [1800u32, 1080];
         let window = zakuro_gpu::Viewport { x: 0.0, y: 0.0, width: size[0] as f32, height: size[1] as f32 };
         let bottom_image = egui::ColorImage::from_rgba_unmultiplied([bottom.width() as usize, bottom.height() as usize], bottom.as_raw());
         let whole = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
         let none: &[zakuro_gpu::Piece] = &[];
-        let looks = [("battle-panels", panels, false), ("battle-banners", none, true), ("battle-buttons", none, false)];
-        let pictures = looks.into_iter().flat_map(|(name, panels, banners)| [(format!("{name}.png"), [panels, buttons], banners), (format!("{name}-hidden.png"), [panels, none], banners)]);
+        let looks = [
+            ("battle-panels", panels, game_ui.battle_buttons_over_panels, false),
+            ("battle-banners", none, game_ui.battle_buttons, true),
+            ("battle-buttons", none, game_ui.battle_buttons, false),
+        ];
+        let pictures = looks.into_iter().flat_map(|(name, panels, buttons, banners)| [(format!("{name}.png"), [panels, buttons], banners), (format!("{name}-hidden.png"), [panels, none], banners)]);
         for (name, drawn, banners) in pictures {
             let drawn = drawn.map(|pieces| {
                 let places = zakuro_gpu::piece_places(window, pieces, &[]);

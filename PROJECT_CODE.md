@@ -6,11 +6,11 @@ This list separates the project's code from Zakuro's and 3dsrecomp's. Paths star
 
 | File | Lines | What it holds |
 |---|---|---|
-| `zakuro/crates/zakuro-core/src/game_ui.rs` | 144 | Awakening's screen data: the markers that tell its scenes apart, and the rectangles of the battle panels, battle buttons, FE3H banners, title and world-map pieces. |
+| `zakuro/crates/zakuro-core/src/game_ui.rs` | 139 | Awakening's screen data: the markers that tell its scenes apart, and the rectangles of the battle panels, battle buttons, FE3H banners, title and world-map pieces. |
 | `zakuro/crates/zakuro-core/src/scenes.rs` | 146 | Scene detection from the markers the GPU sees: which scene shows, the end of a battle, marker positions, and the unit selection. |
 | `zakuro/crates/zakuro/src/banners.rs` | 221 | Reads the text of the FE3H-style banners (names, HP, weapon, stats) off the bottom screen. |
 | `zakuro/crates/zakuro/src/console.rs` | 81 | The optional console window with Zakuro's log (Settings, System). |
-| `zakuro/crates/zakuro/src/overlays.rs` | 474 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
+| `zakuro/crates/zakuro/src/overlays.rs` | 594 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
 | `zakuro/crates/zakuro/src/shortcut.rs` | 82 | Create shortcut: saves the game's icon as an .ico beside the launcher and puts a shortcut to the launcher with it on the desktop. |
 | `zakuro/crates/zakuro/src/sounds.rs` | 301 | Reads the bottom screen's open and close sounds from the game's sound archive. |
 | `zakuro/crates/zakuro/src/theme.rs` | 250 | The launcher's look: colours, fonts, window frames, tabs and buttons. |
@@ -506,8 +506,10 @@ Added:
 - `fn App::shown_layout`
 - `fn App::bottom_over_layout`
 - `fn App::current_scene`
+- `fn App::showing_level_up`
 - `fn App::place_bottom_over`
 - `fn App::close_bottom_over_with_cancel`
+- `fn App::map_overview`
 - `fn App::toggle_bottom_over`
 - `fn App::build_feet`
 - `fn App::poll_update`
