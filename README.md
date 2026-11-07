@@ -26,8 +26,7 @@ copy of the game, on your computer.
    compiler, the launcher offers to download one.
 4. Click Play.
 
-The keyboard, the mouse (as the touch screen) and most controllers work. A
-controller's A and B buttons are the console's A and B.
+The keyboard, the mouse (as the touch screen) and most controllers work.
 Esc opens the menu, with the settings, the cheats and save states.
 
 ## Features
