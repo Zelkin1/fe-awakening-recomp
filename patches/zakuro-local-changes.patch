@@ -3939,7 +3939,7 @@ index 0000000..ae3e6ac
 +    }
 +}
 diff --git a/crates/zakuro/src/gui.rs b/crates/zakuro/src/gui.rs
-index a5b4c18..8f2081c 100644
+index a5b4c18..f2cf7c5 100644
 --- a/crates/zakuro/src/gui.rs
 +++ b/crates/zakuro/src/gui.rs
 @@ -15,8 +15,7 @@ pub struct Gui {
@@ -4148,9 +4148,9 @@ index a5b4c18..8f2081c 100644
 +        });
 +        let mut menus = crate::menus::Menus::default();
 +        menus.update = Some(crate::menus::UpdateButton::Idle);
-+        let settings = crate::settings::Settings { game_file: Some("awakening.3ds".into()), ..crate::settings::Settings::default() };
++        let settings = crate::settings::Settings { game_file: Some("C:/Users/Player/Desktop/Games/ROM/ROM3DS/Fire Emblem - Awakening (Europe) (En,Fr,De,Es,It).cci".into()), ..crate::settings::Settings::default() };
 +        let ctx = crate::gui::context();
-+        let picture = paint(&ctx, [1280, 800], None, |ui| {
++        let picture = paint(&ctx, [1224, 800], None, |ui| {
 +            menus.library(ui, &library, &settings, &[]);
 +        });
 +        picture.save(folder.join("library.png")).unwrap();
@@ -5404,10 +5404,15 @@ index 8a5163d..c09ab3d 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..e51a9a8 100644
+index 9372f02..7a6bbbd 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
-@@ -8,10 +8,11 @@ use egui::{Align, Color32, Layout, RichText, Vec2};
+@@ -4,14 +4,15 @@ use std::collections::HashMap;
+ use std::path::{Path, PathBuf};
+ use std::sync::mpsc::{channel, Receiver};
+ 
+-use egui::{Align, Color32, Layout, RichText, Vec2};
++use egui::{Color32, RichText, Vec2};
  use winit::keyboard::KeyCode;
  use zakuro_core::services::keyboard::Request;
  
@@ -5504,7 +5509,7 @@ index 9372f02..e51a9a8 100644
  /// the room the player is in, as the multiplayer window shows it.
  pub struct RoomView {
      pub name: String,
-@@ -202,18 +231,20 @@ fn cover(area: Vec2, picture: [usize; 2]) -> egui::Rect {
+@@ -202,35 +231,51 @@ fn cover(area: Vec2, picture: [usize; 2]) -> egui::Rect {
  impl Menus {
      /// the library, filling the window.
      pub fn library(&mut self, ui: &mut egui::Ui, library: &Library, settings: &Settings, jobs: &[Job]) -> Vec<Action> {
@@ -5515,22 +5520,30 @@ index 9372f02..e51a9a8 100644
          }
          egui::Panel::top("library bar").show(ui, |ui| {
 -            ui.add_space(6.0);
-+            ui.add_space(10.0);
-             ui.horizontal(|ui| {
+-            ui.horizontal(|ui| {
 -                ui.heading("Zakuro");
-+                ui.label(RichText::new("Zakuro").heading().size(24.0));
-                 ui.separator();
+-                ui.separator();
 -                match &settings.games {
 -                    Some(folder) => ui.label(folder.display().to_string()),
 -                    None => ui.label(RichText::new("no games folder yet").weak()),
-+                match (&settings.game_file, &settings.games) {
-+                    (Some(file), _) => ui.label(file.display().to_string()),
-+                    (None, Some(folder)) => ui.label(folder.display().to_string()),
-+                    (None, None) => ui.label(RichText::new("no game chosen yet").weak()),
-                 };
-                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+-                };
+-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
++            ui.add_space(10.0);
++            egui::containers::Sides::new().height(32.0).shrink_left().truncate().show(
++                ui,
++                |ui| {
++                    ui.label(RichText::new("Zakuro").heading().size(24.0));
++                    ui.separator();
++                    match (&settings.game_file, &settings.games) {
++                        (Some(file), _) => ui.label(file.display().to_string()),
++                        (None, Some(folder)) => ui.label(folder.display().to_string()),
++                        (None, None) => ui.label(RichText::new("no game chosen yet").weak()),
++                    };
++                },
++                |ui| {
                      if ui.button("Settings").clicked() {
-@@ -222,15 +253,26 @@ impl Menus {
+                         self.settings_open = true;
+                     }
                      if ui.button("Multiplayer").clicked() {
                          self.multiplayer_open = true;
                      }
@@ -5556,14 +5569,16 @@ index 9372f02..e51a9a8 100644
 +                        }
 +                        None => {}
                      }
-                 });
-             });
+-                });
+-            });
 -            ui.add_space(6.0);
++                },
++            );
 +            ui.add_space(10.0);
          });
          let background = match self.background.get(ui.ctx(), settings.background.as_deref()) {
              Ok(texture) => texture.map(|texture| (texture.id(), texture.size())),
-@@ -245,12 +287,12 @@ impl Menus {
+@@ -245,12 +290,12 @@ impl Menus {
                  let alpha = (settings.background_opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
                  ui.painter().image(texture, area, cover(area.size(), size), Color32::from_white_alpha(alpha));
              }
@@ -5580,7 +5595,7 @@ index 9372f02..e51a9a8 100644
                      }
                  });
                  return;
-@@ -266,92 +308,138 @@ impl Menus {
+@@ -266,92 +311,138 @@ impl Menus {
                  ui.label("No .3ds, .cci, .cxi or .cia files in that folder.");
                  return;
              }
@@ -5796,7 +5811,7 @@ index 9372f02..e51a9a8 100644
      }
  
      /// what goes over a running game, the menu when it is open and the
-@@ -361,10 +449,9 @@ impl Menus {
+@@ -361,10 +452,9 @@ impl Menus {
          &mut self,
          ui: &mut egui::Ui,
          name: &str,
@@ -5808,7 +5823,7 @@ index 9372f02..e51a9a8 100644
          saved: Option<&str>,
      ) -> Vec<Action> {
          let mut actions = Vec::new();
-@@ -398,89 +485,117 @@ impl Menus {
+@@ -398,89 +488,117 @@ impl Menus {
              // clicks go through to the screen under it
              egui::Area::new(egui::Id::new("fps")).fixed_pos(egui::pos2(8.0, 8.0)).interactable(false).show(&ctx, |ui| {
                  egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -5991,7 +6006,7 @@ index 9372f02..e51a9a8 100644
              let mut checkbox = |ui: &mut egui::Ui, index: usize, name: &str, enabled: bool, notes: &str| {
                  let mut on = enabled;
                  let mut response = ui.checkbox(&mut on, name);
-@@ -493,40 +608,48 @@ impl Menus {
+@@ -493,40 +611,48 @@ impl Menus {
              };
              // Zakuro's own, tested on this build of the game
              if cheats.iter().any(|cheat| cheat.3) {
@@ -6049,7 +6064,7 @@ index 9372f02..e51a9a8 100644
          actions
      }
  
-@@ -653,188 +776,27 @@ impl Menus {
+@@ -653,188 +779,27 @@ impl Menus {
          // taller than a screen has room for, so it scrolls, and it can be
          // dragged to any size that fits
          let room = ctx.content_rect().height() - 16.0;
@@ -6112,7 +6127,7 @@ index 9372f02..e51a9a8 100644
 -                    for layout in Screens::ALL {
 -                        ui.selectable_value(&mut settings.layout, layout, layout.name());
 -                    }
--                });
+                 });
 -                egui::ComboBox::from_label("Filter").selected_text(settings.filter.name()).show_ui(ui, |ui| {
 -                    for filter in Filter::ALL {
 -                        ui.selectable_value(&mut settings.filter, filter, filter.name());
@@ -6242,7 +6257,7 @@ index 9372f02..e51a9a8 100644
 -                            ui.end_row();
 -                        }
 -                    }
-                 });
+-                });
 -                ui.label(RichText::new("The circle pad is the left stick, and Home opens the menu over the game.").weak());
 -                if ui.button("Default controller").clicked() {
 -                    settings.pad = PadButtons::default();
@@ -6256,7 +6271,7 @@ index 9372f02..e51a9a8 100644
          self.settings_open = open;
          if !open {
              self.rebinding = None;
-@@ -846,6 +808,65 @@ impl Menus {
+@@ -846,6 +811,65 @@ impl Menus {
          actions
      }
  
@@ -6322,7 +6337,7 @@ index 9372f02..e51a9a8 100644
      /// a message box, when there is something to tell.
      /// the keyboard a game opened to have text typed in, it waits until a
      /// button closes it.
-@@ -940,6 +961,135 @@ impl Menus {
+@@ -940,6 +964,135 @@ impl Menus {
      }
  }
  
@@ -6458,7 +6473,7 @@ index 9372f02..e51a9a8 100644
  /// a line a GameOverlay keeps over the game, in the bottom right corner.
  pub fn corner(ctx: &egui::Context, text: &str) {
      egui::Area::new(egui::Id::new("overlay corner"))
-@@ -952,20 +1102,61 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+@@ -952,20 +1105,61 @@ pub fn corner(ctx: &egui::Context, text: &str) {
          });
  }
  
@@ -6529,7 +6544,7 @@ index 9372f02..e51a9a8 100644
  }
  
  /// a key as a person would call it.
-@@ -1011,7 +1202,7 @@ mod tests {
+@@ -1011,7 +1205,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -6538,7 +6553,7 @@ index 9372f02..e51a9a8 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1217,12 @@ mod tests {
+@@ -1026,6 +1220,12 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  

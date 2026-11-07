@@ -594,32 +594,32 @@ Added:
 - `enum Confirm`, lines 108–112
 - `enum SettingsTab`, lines 114–122
 - `const SETTINGS_TABS`, lines 124–130
-- `fn Menus::game_card`, lines 332–443
-- `fn Menus::keybinds_tab`, lines 811–838
-- `fn Menus::controller_tab`, lines 840–868
-- `fn system_tab`, lines 964–1006
-- `fn graphics_tab`, lines 1008–1086
-- `fn sound_tab`, lines 1088–1091
-- `const ICON`, line 1105
-- `const LONE_CARD`, line 1107
-- `const CARD_WIDTH`, line 1109
-- `fn card_height`, lines 1111–1118
-- `const BOTTOM_OVER`, line 1137
-- `enum UpdateButton`, lines 1139–1144
-- `fn frame_rate`, lines 1146–1152
-- `struct ModSetting`, lines 1154–1160
-- `fn tests::the_frame_rate_counts_the_pictures_shown`, lines 1220–1224
+- `fn Menus::game_card`, lines 335–446
+- `fn Menus::keybinds_tab`, lines 814–841
+- `fn Menus::controller_tab`, lines 843–871
+- `fn system_tab`, lines 967–1009
+- `fn graphics_tab`, lines 1011–1089
+- `fn sound_tab`, lines 1091–1094
+- `const ICON`, line 1108
+- `const LONE_CARD`, line 1110
+- `const CARD_WIDTH`, line 1112
+- `fn card_height`, lines 1114–1121
+- `const BOTTOM_OVER`, line 1140
+- `enum UpdateButton`, lines 1142–1147
+- `fn frame_rate`, lines 1149–1155
+- `struct ModSetting`, lines 1157–1163
+- `fn tests::the_frame_rate_counts_the_pictures_shown`, lines 1223–1227
 
 Changed:
 
 - `enum Action`, lines 18–65
 - `struct Menus`, lines 67–106
-- `fn Menus::library`, lines 233–330
-- `fn Menus::game`, lines 447–587
-- `fn Menus::cheats`, lines 590–654
-- `fn Menus::settings`, lines 772–809
-- `fn progress`, lines 1120–1135
-- `fn tests::the_settings_fit_a_short_screen`, lines 1203–1218
+- `fn Menus::library`, lines 233–333
+- `fn Menus::game`, lines 450–590
+- `fn Menus::cheats`, lines 593–657
+- `fn Menus::settings`, lines 775–812
+- `fn progress`, lines 1123–1138
+- `fn tests::the_settings_fit_a_short_screen`, lines 1206–1221
 
 Its imports change too.
 

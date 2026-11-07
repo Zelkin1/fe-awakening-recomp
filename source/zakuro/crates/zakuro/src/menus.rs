@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
 
-use egui::{Align, Color32, Layout, RichText, Vec2};
+use egui::{Color32, RichText, Vec2};
 use winit::keyboard::KeyCode;
 use zakuro_core::services::keyboard::Request;
 
@@ -238,15 +238,18 @@ impl Menus {
         }
         egui::Panel::top("library bar").show(ui, |ui| {
             ui.add_space(10.0);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Zakuro").heading().size(24.0));
-                ui.separator();
-                match (&settings.game_file, &settings.games) {
-                    (Some(file), _) => ui.label(file.display().to_string()),
-                    (None, Some(folder)) => ui.label(folder.display().to_string()),
-                    (None, None) => ui.label(RichText::new("no game chosen yet").weak()),
-                };
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            egui::containers::Sides::new().height(32.0).shrink_left().truncate().show(
+                ui,
+                |ui| {
+                    ui.label(RichText::new("Zakuro").heading().size(24.0));
+                    ui.separator();
+                    match (&settings.game_file, &settings.games) {
+                        (Some(file), _) => ui.label(file.display().to_string()),
+                        (None, Some(folder)) => ui.label(folder.display().to_string()),
+                        (None, None) => ui.label(RichText::new("no game chosen yet").weak()),
+                    };
+                },
+                |ui| {
                     if ui.button("Settings").clicked() {
                         self.settings_open = true;
                     }
@@ -270,8 +273,8 @@ impl Menus {
                         }
                         None => {}
                     }
-                });
-            });
+                },
+            );
             ui.add_space(10.0);
         });
         let background = match self.background.get(ui.ctx(), settings.background.as_deref()) {

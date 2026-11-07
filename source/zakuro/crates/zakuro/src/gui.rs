@@ -363,9 +363,9 @@ mod tests {
         });
         let mut menus = crate::menus::Menus::default();
         menus.update = Some(crate::menus::UpdateButton::Idle);
-        let settings = crate::settings::Settings { game_file: Some("awakening.3ds".into()), ..crate::settings::Settings::default() };
+        let settings = crate::settings::Settings { game_file: Some("C:/Users/Player/Desktop/Games/ROM/ROM3DS/Fire Emblem - Awakening (Europe) (En,Fr,De,Es,It).cci".into()), ..crate::settings::Settings::default() };
         let ctx = crate::gui::context();
-        let picture = paint(&ctx, [1280, 800], None, |ui| {
+        let picture = paint(&ctx, [1224, 800], None, |ui| {
             menus.library(ui, &library, &settings, &[]);
         });
         picture.save(folder.join("library.png")).unwrap();
