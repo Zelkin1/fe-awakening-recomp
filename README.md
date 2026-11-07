@@ -45,8 +45,7 @@ Esc opens the menu, with the settings, the cheats and save states.
   battles, or "Glow to the edges", which keeps the glow of the 3D scenes
   from fading out along the edges of the screen. All the built-in tweaks are
   on from the start, with the top screen in 16:9 and faster battles at 100%.
-- Original mode, at the top of Settings, Graphics, turns all of this off
-  and plays the game as the console does.
+- Original mode plays the game as the console does.
 
 ## Building
 
