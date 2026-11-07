@@ -42,8 +42,7 @@ Esc opens the menu, with the settings, the cheats and save states.
 - The Cheats window has cheat codes and built-in tweaks such as faster
   battles, or "Glow to the edges", which keeps the glow of the 3D scenes
   from fading out along the edges of the screen.
-- Original mode, at the top of Settings, Graphics, turns all of this off
-  and plays the game as the console does.
+- Original mode plays the game as the console does.
 
 ## Building
 
