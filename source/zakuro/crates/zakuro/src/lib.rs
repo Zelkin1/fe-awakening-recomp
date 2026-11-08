@@ -123,6 +123,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
         pad_pointer: overlays::PadPointer::default(),
         over_touched_at: None,
         touched_scene: Scene::Plain,
+        over_touch_start: None,
         scripted_tap: None,
         pending_overview: None,
         restore_inventory: false,
@@ -450,6 +451,7 @@ struct App {
     pad_pointer: overlays::PadPointer,
     over_touched_at: Option<Instant>,
     touched_scene: Scene,
+    over_touch_start: Option<((u16, u16), bool)>,
     scripted_tap: Option<((u16, u16), u8)>,
     pending_overview: Option<u8>,
     restore_inventory: bool,
@@ -1701,6 +1703,21 @@ impl App {
             } else {
                 self.holding_back_cancel = false;
             }
+        }
+        if self.bottom_over && game.replay.is_none() {
+            if let Some(spot) = input.touch {
+                if self.over_touch_start.is_none() {
+                    let inventory = game.system.bottom_picture().as_deref().and_then(overlays::map_screen) == Some(overlays::MapScreen::Inventory);
+                    self.over_touch_start = Some((spot, inventory));
+                }
+            } else if let Some((spot, true)) = self.over_touch_start.take() {
+                if overlays::on_portrait(spot) {
+                    self.bottom_over_key = false;
+                    self.closing_by_user = true;
+                }
+            }
+        } else {
+            self.over_touch_start = None;
         }
         if self.bottom_over && input.touch.is_some() {
             self.over_touched_at = Some(Instant::now());

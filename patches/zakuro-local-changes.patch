@@ -4304,7 +4304,7 @@ index a5b4c18..c4783cc 100644
  
      /// Japanese names have every character to draw with the system's
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..db3d964 100644
+index 6cf00db..a2c236a 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,22 +3,30 @@
@@ -4379,7 +4379,7 @@ index 6cf00db..db3d964 100644
  
      let data_dir = options.data.clone().map(PathBuf::from).or_else(default_data_dir);
      if let Some(dir) = &data_dir {
-@@ -97,13 +117,38 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -97,13 +117,39 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          gamepads: gamepad::Gamepads::new(settings.pad.clone()),
          scale: options.scale.unwrap_or(settings.scale).max(1),
          layout: settings.layout,
@@ -4388,6 +4388,7 @@ index 6cf00db..db3d964 100644
 +        pad_pointer: overlays::PadPointer::default(),
 +        over_touched_at: None,
 +        touched_scene: Scene::Plain,
++        over_touch_start: None,
 +        scripted_tap: None,
 +        pending_overview: None,
 +        restore_inventory: false,
@@ -4419,7 +4420,7 @@ index 6cf00db..db3d964 100644
          data_dir,
          game: None,
          menus: {
-@@ -117,6 +162,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -117,6 +163,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          window: None,
          audio: None,
          mouse_down: false,
@@ -4427,7 +4428,7 @@ index 6cf00db..db3d964 100644
          tilting_from: None,
          cursor: (0.0, 0.0),
          last_title_update: Instant::now(),
-@@ -147,8 +193,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -147,8 +194,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          return;
      }
  
@@ -4438,7 +4439,7 @@ index 6cf00db..db3d964 100644
      }
      app.audio = if app.options.mute {
          None
-@@ -331,10 +377,11 @@ struct Running {
+@@ -331,10 +378,11 @@ struct Running {
      /// place of the keyboard's and the controllers', and the frames run.
      replay: Option<zakuro_core::replay::Replay>,
      frame: u64,
@@ -4451,7 +4452,7 @@ index 6cf00db..db3d964 100644
  }
  
  impl Running {
-@@ -347,8 +394,10 @@ impl Running {
+@@ -347,8 +395,10 @@ impl Running {
              replay: None,
              frame: 0,
              frames: 0,
@@ -4462,7 +4463,7 @@ index 6cf00db..db3d964 100644
          }
      }
  
-@@ -356,7 +405,12 @@ impl Running {
+@@ -356,7 +406,12 @@ impl Running {
          self.frames += 1;
          let elapsed = self.counting_since.elapsed();
          if elapsed >= Duration::from_millis(500) {
@@ -4476,7 +4477,7 @@ index 6cf00db..db3d964 100644
              self.frames = 0;
              self.counting_since = Instant::now();
          }
-@@ -390,10 +444,36 @@ struct App {
+@@ -390,10 +445,37 @@ struct App {
      scale: u32,
      /// how the screens are arranged.
      layout: Screens,
@@ -4485,6 +4486,7 @@ index 6cf00db..db3d964 100644
 +    pad_pointer: overlays::PadPointer,
 +    over_touched_at: Option<Instant>,
 +    touched_scene: Scene,
++    over_touch_start: Option<((u16, u16), bool)>,
 +    scripted_tap: Option<((u16, u16), u8)>,
 +    pending_overview: Option<u8>,
 +    restore_inventory: bool,
@@ -4513,7 +4515,7 @@ index 6cf00db..db3d964 100644
      /// where the pointer was when the right button went down, which tilts
      /// the console while held.
      tilting_from: Option<(f32, f32)>,
-@@ -498,7 +578,10 @@ impl ApplicationHandler for App {
+@@ -498,7 +580,10 @@ impl ApplicationHandler for App {
              return;
          }
  
@@ -4525,7 +4527,7 @@ index 6cf00db..db3d964 100644
          let attributes = Window::default_attributes().with_title("Zakuro").with_inner_size(size);
          let renderer = self.options.renderer.unwrap_or(match self.settings.renderer {
              Renderer::Vulkan => RendererKind::Vulkan,
-@@ -516,7 +599,7 @@ impl ApplicationHandler for App {
+@@ -516,7 +601,7 @@ impl ApplicationHandler for App {
          match backend {
              Ok((window, mut backend)) => {
                  log::info!("presenting with the {} backend", backend.name());
@@ -4534,7 +4536,7 @@ index 6cf00db..db3d964 100644
                  backend.set_top_width(self.settings.top_shape.width());
                  backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
                  backend.set_stereo(self.settings.stereo());
-@@ -563,8 +646,13 @@ impl ApplicationHandler for App {
+@@ -563,8 +648,13 @@ impl ApplicationHandler for App {
                  }
              }
              WindowEvent::KeyboardInput { event, .. } => self.key(event, consumed),
@@ -4548,7 +4550,7 @@ index 6cf00db..db3d964 100644
                      self.mouse_down = state == ElementState::Pressed && !self.pointer_taken(consumed);
                      self.touch();
                  }
-@@ -575,6 +663,7 @@ impl ApplicationHandler for App {
+@@ -575,6 +665,7 @@ impl ApplicationHandler for App {
                  }
              }
              WindowEvent::CursorMoved { position, .. } => {
@@ -4556,7 +4558,7 @@ index 6cf00db..db3d964 100644
                  self.cursor = (position.x as f32, position.y as f32);
                  self.touch();
                  self.tilt();
-@@ -605,13 +694,16 @@ impl App {
+@@ -605,13 +696,16 @@ impl App {
              find_recompiled: !interpret,
              hardware_renderer: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
              texture_packs: self.settings.texture_packs,
@@ -4573,7 +4575,7 @@ index 6cf00db..db3d964 100644
              resolution: self.settings.resolution,
              device: self.backend.as_ref().and_then(Backend::shared_device),
              username: self.nickname(),
-@@ -661,12 +753,10 @@ impl App {
+@@ -661,12 +755,10 @@ impl App {
              config.update = game.update.as_ref().map(|update| update.path.clone());
              config.dlc = game.dlc.iter().map(|dlc| dlc.path.clone()).collect();
              config.dlp_child = game.dlp_child.as_ref().map(|child| child.path.clone());
@@ -4588,7 +4590,7 @@ index 6cf00db..db3d964 100644
          }
          // a recording starts the clock at a known time, for playing it back
          let record = std::env::var_os("ZAKURO_RECORD").map(PathBuf::from);
-@@ -698,6 +788,7 @@ impl App {
+@@ -698,6 +790,7 @@ impl App {
              .or_else(|| Some(library::Smdh::parse(system.title.as_ref()?.exefs_file("icon")?)?.name).filter(|name| !name.is_empty()))
              .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
              .unwrap_or_default();
@@ -4596,7 +4598,7 @@ index 6cf00db..db3d964 100644
          let mut game = Running::new(system, path.to_owned(), name);
          game.replay = replay;
          if let Some(record) = record {
-@@ -727,6 +818,9 @@ impl App {
+@@ -727,6 +820,9 @@ impl App {
          self.keyboard.release();
          self.paused = false;
          self.next_frame = Instant::now();
@@ -4606,7 +4608,7 @@ index 6cf00db..db3d964 100644
          Ok(())
      }
  
-@@ -754,7 +848,9 @@ impl App {
+@@ -754,7 +850,9 @@ impl App {
          if let (true, Some(index)) = (pressed, self.menus.rebinding) {
              self.menus.rebinding = None;
              if code != KeyCode::Escape {
@@ -4617,7 +4619,7 @@ index 6cf00db..db3d964 100644
                      *key = code;
                  }
                  self.apply_settings();
-@@ -766,6 +862,7 @@ impl App {
+@@ -766,6 +864,7 @@ impl App {
              self.fast_forward_key = pressed && self.game.is_some();
          }
          if pressed && !event.repeat {
@@ -4625,7 +4627,7 @@ index 6cf00db..db3d964 100644
              match code {
                  KeyCode::Escape if self.game.is_some() => {
                      self.menus.menu_open = !self.menus.menu_open;
-@@ -789,6 +886,15 @@ impl App {
+@@ -789,6 +888,15 @@ impl App {
                  KeyCode::F11 => self.toggle_fullscreen(),
                  KeyCode::F5 if self.game.is_some() => self.save_state(),
                  KeyCode::F8 if self.game.is_some() => self.load_state(),
@@ -4641,7 +4643,7 @@ index 6cf00db..db3d964 100644
                  _ => {}
              }
          }
-@@ -807,14 +913,24 @@ impl App {
+@@ -807,14 +915,24 @@ impl App {
      /// it, and Home opens and closes the menu over the game.
      fn poll_gamepads(&mut self) {
          for button in self.gamepads.poll() {
@@ -4667,7 +4669,7 @@ index 6cf00db..db3d964 100644
              }
          }
      }
-@@ -828,7 +944,11 @@ impl App {
+@@ -828,7 +946,11 @@ impl App {
      fn touch(&mut self) {
          let Some(window) = &self.window else { return };
          let size = window.inner_size();
@@ -4680,7 +4682,7 @@ index 6cf00db..db3d964 100644
          // with the top screen alone there is nothing to touch
          let Some(bottom) = bottom else {
              self.keyboard.touch(None);
-@@ -842,6 +962,28 @@ impl App {
+@@ -842,6 +964,28 @@ impl App {
          }));
      }
  
@@ -4709,7 +4711,7 @@ index 6cf00db..db3d964 100644
      /// tilts the console while the right button is held, toward where the
      /// pointer went and by how far, as Citra's motion emulation does,
      /// which titles were tried with. letting go stands it upright again.
-@@ -887,11 +1029,20 @@ impl App {
+@@ -887,11 +1031,20 @@ impl App {
      /// saves the settings and puts to use what can change right away.
      fn apply_settings(&mut self) {
          self.settings.save();
@@ -4730,7 +4732,7 @@ index 6cf00db..db3d964 100644
              // games read the 3D slider every frame
              let slider = self.settings.slider_3d();
              if game.system.config.slider_3d != slider {
-@@ -938,13 +1089,20 @@ impl App {
+@@ -938,13 +1091,20 @@ impl App {
              backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
              backend.set_stereo(self.settings.stereo());
          }
@@ -4752,7 +4754,7 @@ index 6cf00db..db3d964 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1116,180 @@ impl App {
+@@ -958,6 +1118,180 @@ impl App {
          }
      }
  
@@ -4933,7 +4935,7 @@ index 6cf00db..db3d964 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -1007,20 +1339,57 @@ impl App {
+@@ -1007,20 +1341,57 @@ impl App {
          self.jobs.push(Job::start(&game.path, update, game.program_id, &game.name, self.data_dir.as_deref(), toolchain));
      }
  
@@ -4993,7 +4995,7 @@ index 6cf00db..db3d964 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1034,7 +1403,8 @@ impl App {
+@@ -1034,7 +1405,8 @@ impl App {
                      }
                  }
                  Stage::Failed(error) if error != "cancelled" => {
@@ -5003,7 +5005,7 @@ index 6cf00db..db3d964 100644
                  }
                  _ => {}
              }
-@@ -1049,6 +1419,13 @@ impl App {
+@@ -1049,6 +1421,13 @@ impl App {
                  }
              }
              Action::Recompile(index) => self.recompile(index, false),
@@ -5017,7 +5019,7 @@ index 6cf00db..db3d964 100644
              Action::DownloadCompiler(index) => self.recompile(index, true),
              Action::Mods(program_id) => {
                  if let Some(data_dir) = &self.data_dir {
-@@ -1065,13 +1442,22 @@ impl App {
+@@ -1065,13 +1444,22 @@ impl App {
                      job.cancel();
                  }
              }
@@ -5045,7 +5047,7 @@ index 6cf00db..db3d964 100644
              Action::SaveState => self.save_state(),
              Action::LoadState => self.load_state(),
              Action::HostRoom => self.host_room(),
-@@ -1087,32 +1473,6 @@ impl App {
+@@ -1087,32 +1475,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -5078,7 +5080,7 @@ index 6cf00db..db3d964 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1510,15 @@ impl App {
+@@ -1150,6 +1512,15 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -5094,7 +5096,7 @@ index 6cf00db..db3d964 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1202,7 +1571,13 @@ impl App {
+@@ -1202,7 +1573,13 @@ impl App {
          }
          self.library.poll();
          self.poll_jobs();
@@ -5108,7 +5110,7 @@ index 6cf00db..db3d964 100644
          // a room that went away takes the game's local wireless with it
          if self.room.as_ref().is_some_and(|room| !room.open()) {
              self.leave_room();
-@@ -1304,10 +1679,38 @@ impl App {
+@@ -1304,10 +1681,53 @@ impl App {
      /// runs one frame of the game.
      fn emulate(&mut self) {
          let Some(game) = &mut self.game else { return };
@@ -5135,6 +5137,21 @@ index 6cf00db..db3d964 100644
 +                self.holding_back_cancel = false;
 +            }
 +        }
++        if self.bottom_over && game.replay.is_none() {
++            if let Some(spot) = input.touch {
++                if self.over_touch_start.is_none() {
++                    let inventory = game.system.bottom_picture().as_deref().and_then(overlays::map_screen) == Some(overlays::MapScreen::Inventory);
++                    self.over_touch_start = Some((spot, inventory));
++                }
++            } else if let Some((spot, true)) = self.over_touch_start.take() {
++                if overlays::on_portrait(spot) {
++                    self.bottom_over_key = false;
++                    self.closing_by_user = true;
++                }
++            }
++        } else {
++            self.over_touch_start = None;
++        }
 +        if self.bottom_over && input.touch.is_some() {
 +            self.over_touched_at = Some(Instant::now());
 +            self.touched_scene = self.scene;
@@ -5148,7 +5165,7 @@ index 6cf00db..db3d964 100644
          game.frame += 1;
          if let Some(recorder) = &mut game.recorder {
              recorder.record(input);
-@@ -1539,16 +1942,37 @@ impl App {
+@@ -1539,16 +1959,37 @@ impl App {
      /// the menus, and the actions they asked for, done.
      fn interface(&mut self, event_loop: &ActiveEventLoop) -> Overlay {
          // when the slot chosen was saved to, while the menu shows it
@@ -5194,7 +5211,7 @@ index 6cf00db..db3d964 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,18 +1985,45 @@ impl App {
+@@ -1561,18 +2002,45 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -5242,7 +5259,7 @@ index 6cf00db..db3d964 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,13 +2032,16 @@ impl App {
+@@ -1581,13 +2049,16 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -5260,7 +5277,7 @@ index 6cf00db..db3d964 100644
          });
          self.library.changed = false;
          for action in actions {
-@@ -1596,7 +2050,72 @@ impl App {
+@@ -1596,7 +2067,72 @@ impl App {
          overlay
      }
  
@@ -5333,7 +5350,7 @@ index 6cf00db..db3d964 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
-@@ -1697,6 +2216,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
+@@ -1697,6 +2233,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
  /// keeps the renderer kind referenced even when a backend feature is off.
  const _: RendererKind = RendererKind::Software;
  
@@ -7005,10 +7022,10 @@ index 9372f02..f0696e7 100644
          assert_eq!(key_name(KeyCode::KeyX), "X");
 diff --git a/crates/zakuro/src/overlays.rs b/crates/zakuro/src/overlays.rs
 new file mode 100644
-index 0000000..4c8e1b4
+index 0000000..e790d63
 --- /dev/null
 +++ b/crates/zakuro/src/overlays.rs
-@@ -0,0 +1,599 @@
+@@ -0,0 +1,603 @@
 +use std::time::{Duration, Instant};
 +
 +use egui::Color32;
@@ -7123,6 +7140,10 @@ index 0000000..4c8e1b4
 +
 +pub(crate) const MAP_BUTTON: (u16, u16) = (305, 212);
 +pub(crate) const INVENTORY_TAB: (u16, u16) = (305, 70);
++
++pub(crate) fn on_portrait((x, y): (u16, u16)) -> bool {
++    x < 64 && y < 62
++}
 +pub(crate) const TAP_FRAMES: u8 = 6;
 +pub(crate) const OVERVIEW_WAIT: u8 = 45;
 +

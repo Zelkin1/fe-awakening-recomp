@@ -112,6 +112,10 @@ pub(crate) const TOUCH_KEEPS_OVER: Duration = Duration::from_secs(1);
 
 pub(crate) const MAP_BUTTON: (u16, u16) = (305, 212);
 pub(crate) const INVENTORY_TAB: (u16, u16) = (305, 70);
+
+pub(crate) fn on_portrait((x, y): (u16, u16)) -> bool {
+    x < 64 && y < 62
+}
 pub(crate) const TAP_FRAMES: u8 = 6;
 pub(crate) const OVERVIEW_WAIT: u8 = 45;
 
