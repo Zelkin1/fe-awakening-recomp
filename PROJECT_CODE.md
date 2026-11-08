@@ -386,17 +386,42 @@ Changed:
 
 Added:
 
+- `struct Slot`
+- `const POOL_BLOCK`
+- `const POOL_LARGEST`
+- `struct Pool`
+- `struct PoolBlock`
+- `impl Pool`
+- `fn Pool::take`
+- `fn Pool::give_back`
 - `fn Hardware::rescale`
+- `fn Hardware::from_pool`
+- `fn Hardware::release`
 - `fn Hardware::destroy_copy`
 - `fn Hardware::first_level`
+- `fn Hardware::level_view`
+- `fn Hardware::blit_with`
 - `fn Hardware::texture_copy`
+- `fn Hardware::texture_copy_columns`
+- `fn Hardware::transfer`
+- `fn Hardware::native_transfer`
+- `fn Hardware::level_source`
+- `fn Hardware::copy_level`
 - `fn Hardware::native_picture`
 
 Changed:
 
+- `struct Image`
 - `struct Copied`
 - `struct Hardware`
+- `fn Hardware::with_device`
+- `fn Hardware::image_levels`
+- `fn Hardware::destroy_image`
+- `fn Hardware::surface_rows`
 - `fn Hardware::reads_twin`
+- `fn Hardware::blit`
+- `fn Hardware::pipeline_for`
+- `fn Hardware::display_transfer`
 - `fn Hardware::texture_source`
 - `fn Hardware::covers`
 - `fn Hardware::holds`
@@ -408,6 +433,7 @@ Changed:
 - `fn Hardware::submit`
 - `fn Hardware::retire_oldest`
 - `fn <Hardware as Drop>::drop`
+- `fn tests::a_pixel_standing_in_for_the_shadow_keeps_what_the_bytes_would`
 
 Removed:
 
@@ -436,8 +462,11 @@ Added:
 - `const TILE_ORDER`
 - `const PARALLEL_TEXELS`
 - `fn decode_level`
+- `fn decode_levels`
+- `fn decoders`
 - `fn decode_tile`
 - `fn etc1_block`
+- `fn etc1_palettes`
 
 Changed:
 

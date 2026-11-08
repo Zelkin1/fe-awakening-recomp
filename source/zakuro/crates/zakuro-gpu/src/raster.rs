@@ -1982,12 +1982,10 @@ impl TextureCache {
             }
         }
         let total = texture_levels(format, width, height, levels).last().map_or(0, |last| last.texels + (last.width * last.height) as usize);
-        let mut texels: Arc<[[u8; 4]]> = std::iter::repeat_n([0; 4], total).collect();
+        let mut texels: Arc<[[u8; 4]]> = unsafe { Arc::new_zeroed_slice(total).assume_init() };
         let slots = Arc::get_mut(&mut texels).expect("a texture no one else holds yet");
-        for level in texture_levels(format, width, height, levels) {
-            let count = (level.width * level.height) as usize;
-            crate::texture::decode_level(&data[level.bytes..], format, level.width, level.height, &mut slots[level.texels..level.texels + count]);
-        }
+        let sizes: Vec<(usize, u32, u32)> = texture_levels(format, width, height, levels).map(|level| (level.bytes, level.width, level.height)).collect();
+        crate::texture::decode_levels(data, format, &sizes, slots);
         let count = texels.len();
         if self.texels + count > CACHED_TEXELS {
             self.entries.clear();

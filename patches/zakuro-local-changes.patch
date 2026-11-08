@@ -2239,7 +2239,7 @@ index af12308..3f68d8e 100644
          assert!(interpolation.draw(&registers(4), &unit(1.0), None, true).is_none(), "a flag flipped");
          let matches = interpolation.frame_done();
 diff --git a/crates/zakuro-gpu/src/lib.rs b/crates/zakuro-gpu/src/lib.rs
-index f294442..ea9552f 100644
+index f294442..4c56eab 100644
 --- a/crates/zakuro-gpu/src/lib.rs
 +++ b/crates/zakuro-gpu/src/lib.rs
 @@ -22,7 +22,8 @@ pub mod texture;
@@ -2252,7 +2252,7 @@ index f294442..ea9552f 100644
  pub use renderer::{DrawCall, Renderer, RendererKind, SoftwareRenderer};
  #[cfg(feature = "vulkan")]
  pub use device::SharedDevice;
-@@ -571,12 +572,29 @@ impl Gpu {
+@@ -571,12 +572,34 @@ impl Gpu {
      ) {
          let input_width = (input_gap & 0xFFFF) * 16;
          let input_skip = (input_gap >> 16) * 16;
@@ -2265,8 +2265,13 @@ index f294442..ea9552f 100644
 +        #[cfg(feature = "vulkan")]
 +        if let Some(hardware) = self.resources.hardware.as_mut() {
 +            let unbroken = |width: u32, skip: u32| width == 0 || skip == 0;
-+            if unbroken(input_width, input_skip) && unbroken(output_width, output_skip) {
-+                match hardware.texture_copy(memory, input, output, size) {
++            let copied = match (unbroken(input_width, input_skip), unbroken(output_width, output_skip)) {
++                (true, true) => Some(hardware.texture_copy(memory, input, output, size)),
++                (false, true) => Some(hardware.texture_copy_columns(memory, input, output, size, (input_width, input_skip))),
++                _ => None,
++            };
++            if let Some(copied) = copied {
++                match copied {
 +                    Ok(true) => {
 +                        log::debug!("texture copy on the GPU: 0x{input_paddr:08X} -> 0x{output_paddr:08X} size 0x{size:X}");
 +                        self.transfers += 1;
@@ -2284,7 +2289,7 @@ index f294442..ea9552f 100644
          self.sync_memory(memory, output, span(output_width, output_skip));
  
          log::debug!(
-@@ -742,6 +760,22 @@ impl Gpu {
+@@ -742,6 +765,22 @@ impl Gpu {
          on
      }
  
@@ -2307,7 +2312,7 @@ index f294442..ea9552f 100644
      /// whether frame interpolation is on.
      pub fn interpolates(&self) -> bool {
          self.interpolation.is_some()
-@@ -802,6 +836,22 @@ impl Gpu {
+@@ -802,6 +841,22 @@ impl Gpu {
          1
      }
  
@@ -2330,7 +2335,7 @@ index f294442..ea9552f 100644
      /// the newest picture the host's GPU drew for a screen's buffer, at the
      /// scale it draws at, while guest memory still holds the same picture.
      /// size is the pixels of a row the screen shows and its rows, stride the
-@@ -816,6 +866,16 @@ impl Gpu {
+@@ -816,6 +871,16 @@ impl Gpu {
          None
      }
  
@@ -2347,7 +2352,7 @@ index f294442..ea9552f 100644
      /// a screen's picture upright, RGBA the way the screen shows it, and the
      /// scale it is at, once the GPU finished it.
      pub fn scaled_picture(&mut self, screen: ScreenRef) -> Option<Picture> {
-@@ -1130,6 +1190,7 @@ impl Gpu {
+@@ -1130,6 +1195,7 @@ impl Gpu {
              return;
          }
          self.draw_calls += 1;
@@ -2355,7 +2360,7 @@ index f294442..ea9552f 100644
          renderer.draw(DrawCall {
              indexed,
              registers: &self.internal,
-@@ -1475,6 +1536,24 @@ fn external_index(gsp_offset: u32) -> Option<usize> {
+@@ -1475,6 +1541,24 @@ fn external_index(gsp_offset: u32) -> Option<usize> {
      Some(byte_offset as usize / 4)
  }
  
@@ -2381,7 +2386,7 @@ index f294442..ea9552f 100644
  mod tests {
      use super::*;
 diff --git a/crates/zakuro-gpu/src/raster.rs b/crates/zakuro-gpu/src/raster.rs
-index 2e71e86..ffceed3 100644
+index 2e71e86..fa893f7 100644
 --- a/crates/zakuro-gpu/src/raster.rs
 +++ b/crates/zakuro-gpu/src/raster.rs
 @@ -1110,6 +1110,21 @@ pub(super) fn upside_down(registers: &[u32]) -> bool {
@@ -2626,7 +2631,7 @@ index 2e71e86..ffceed3 100644
                      }
                  }
                  decoded.bytes.copy_from_slice(data);
-@@ -1783,14 +1981,13 @@ impl TextureCache {
+@@ -1783,14 +1981,11 @@ impl TextureCache {
                  return (decoded.texels.clone(), decoded.replacement.clone());
              }
          }
@@ -2639,16 +2644,14 @@ index 2e71e86..ffceed3 100644
 -            })
 -            .collect();
 +        let total = texture_levels(format, width, height, levels).last().map_or(0, |last| last.texels + (last.width * last.height) as usize);
-+        let mut texels: Arc<[[u8; 4]]> = std::iter::repeat_n([0; 4], total).collect();
++        let mut texels: Arc<[[u8; 4]]> = unsafe { Arc::new_zeroed_slice(total).assume_init() };
 +        let slots = Arc::get_mut(&mut texels).expect("a texture no one else holds yet");
-+        for level in texture_levels(format, width, height, levels) {
-+            let count = (level.width * level.height) as usize;
-+            crate::texture::decode_level(&data[level.bytes..], format, level.width, level.height, &mut slots[level.texels..level.texels + count]);
-+        }
++        let sizes: Vec<(usize, u32, u32)> = texture_levels(format, width, height, levels).map(|level| (level.bytes, level.width, level.height)).collect();
++        crate::texture::decode_levels(data, format, &sizes, slots);
          let count = texels.len();
          if self.texels + count > CACHED_TEXELS {
              self.entries.clear();
-@@ -2012,13 +2209,12 @@ fn bind_texture<M: GpuMemory>(
+@@ -2012,13 +2207,12 @@ fn bind_texture<M: GpuMemory>(
  
      let addr = memory.translate(address);
      log::trace!("texture unit {unit}: 0x{address:08X} -> 0x{addr:08X}, {width}x{height} {format:?}");
@@ -2664,7 +2667,7 @@ index 2e71e86..ffceed3 100644
          (_, Some(found)) => found,
          (_, None) => match cache.unchanged(key, size as u32, memory) {
              Some(found) => found,
-@@ -2887,7 +3083,12 @@ pub fn draw<M: GpuMemory>(
+@@ -2887,7 +3081,12 @@ pub fn draw<M: GpuMemory>(
      // the GPU decodes the arrays itself when it shades the draw, from the
      // first vertex the draw uses to the last
      #[cfg(feature = "vulkan")]
@@ -2678,7 +2681,7 @@ index 2e71e86..ffceed3 100644
          let index_short = registers[REG_INDEX_ARRAY] & 0x8000_0000 != 0;
          let first_vertex = registers[REG_VERTEX_OFFSET];
          let (first, span) = if indexed {
-@@ -3109,6 +3310,17 @@ fn assemble(topology: u32, count: usize) -> Vec<(usize, usize, usize)> {
+@@ -3109,6 +3308,17 @@ fn assemble(topology: u32, count: usize) -> Vec<(usize, usize, usize)> {
      }
  }
  
@@ -2696,7 +2699,7 @@ index 2e71e86..ffceed3 100644
  /// assembles shaded vertices into triangles the way the primitive configuration
  /// says, and fills them with the current back-end state.
  /// the triangles drawn, none for arrays the GPU could not decode, which the
-@@ -3129,9 +3341,14 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3129,9 +3339,14 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
      let viewport_top = (viewport_y + viewport_height).round() as i32;
      let (buffer_width, buffer_height) = buffer_size(registers, viewport);
      let (target_width, target_height) = (buffer_width, buffer_height);
@@ -2714,7 +2717,7 @@ index 2e71e86..ffceed3 100644
      let (bottom, top) = match upside_down(registers) {
          true => (buffer_height as i32 - top, buffer_height as i32 - bottom),
          false => (bottom, top),
-@@ -3145,11 +3362,16 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3145,11 +3360,16 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
              "draw: {vertex_count} vertices, topology reg 0x{:X}, viewport \
               {viewport_width}x{viewport_height} @({viewport_x},{viewport_y}), color buffer raw \
               0x{color_buffer_raw:08X} -> 0x{target_addr:08X} {target_format:?}, \
@@ -2732,7 +2735,7 @@ index 2e71e86..ffceed3 100644
          );
      }
  
-@@ -3167,11 +3389,8 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3167,11 +3387,8 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
      #[cfg(feature = "vulkan")]
      if let Some(hardware) = resources.hardware.as_mut() {
          for (unit, drawn) in drawn.iter_mut().enumerate() {
@@ -2745,7 +2748,7 @@ index 2e71e86..ffceed3 100644
              if let Some(texture) = drawn {
                  past[unit] = !hardware.covers(texture);
                  continue;
-@@ -3183,17 +3402,42 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3183,17 +3400,42 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
              }
          }
      }
@@ -2791,7 +2794,7 @@ index 2e71e86..ffceed3 100644
              top,
              buffer_width,
              buffer_height,
-@@ -3357,6 +3601,11 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3357,6 +3599,11 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
  
      if log::log_enabled!(log::Level::Trace) {
          let first_screen = shaded.first().and_then(|v| to_screen(v, viewport));
@@ -2803,7 +2806,7 @@ index 2e71e86..ffceed3 100644
          log::trace!(
              "draw result: {vertex_count} verts, {triangle_count} tris ({clipped_away} clipped \
               away, {culled} culled), {} pixels written ({} failed depth, {} failed stencil, {} failed alpha), \
-@@ -3408,6 +3657,67 @@ mod tests {
+@@ -3408,6 +3655,67 @@ mod tests {
          [&vertex.clip[..], &vertex.color, texcoords, &vertex.quaternion, &vertex.view, &[vertex.texcoord0_w]].concat().iter().map(|v| v.to_bits()).collect()
      }
  
@@ -2871,7 +2874,7 @@ index 2e71e86..ffceed3 100644
      /// placing a vertex's fields gives the bits reading each component
      /// does, for every type and count.
      #[test]
-@@ -3656,6 +3966,29 @@ mod tests {
+@@ -3656,6 +3964,29 @@ mod tests {
      const GREEN: Vec4 = [0.0, 1.0, 0.0, 1.0];
      const BLUE: Vec4 = [0.0, 0.0, 1.0, 1.0];
  
@@ -2901,7 +2904,7 @@ index 2e71e86..ffceed3 100644
      /// titles map depth with a scale of -1, so near is 1, and keep the
      /// nearer surface with a GREATER test against a buffer cleared to 0.
      #[test]
-@@ -4580,10 +4913,6 @@ mod tests {
+@@ -4580,10 +4911,6 @@ mod tests {
          assert!(!hardware.holds_unchanged(&mut memory, &texture), "the CPU wrote over it");
      }
  
@@ -2912,7 +2915,7 @@ index 2e71e86..ffceed3 100644
      #[cfg(feature = "vulkan")]
      #[test]
      fn a_buffer_written_back_read_with_smaller_sizes_comes_from_memory() {
-@@ -4627,6 +4956,101 @@ mod tests {
+@@ -4627,6 +4954,101 @@ mod tests {
          assert!(pixels(&mut memory).iter().all(|&p| p == [0, 255, 0, 255]), "{:?}", pixels(&mut memory)[0]);
      }
  
@@ -3015,7 +3018,7 @@ index 2e71e86..ffceed3 100644
      /// cost the wider one the rows it drew elsewhere, which memory lacks,
      /// when it is used again.
 diff --git a/crates/zakuro-gpu/src/raster/hardware.rs b/crates/zakuro-gpu/src/raster/hardware.rs
-index b3cd447..d510cf6 100644
+index b3cd447..1477057 100644
 --- a/crates/zakuro-gpu/src/raster/hardware.rs
 +++ b/crates/zakuro-gpu/src/raster/hardware.rs
 @@ -35,9 +35,7 @@ use crate::device::SharedDevice;
@@ -3029,15 +3032,84 @@ index b3cd447..d510cf6 100644
  
  const SHADE_SPIRV: &[u8] = include_bytes!("../../shaders/shade.vert.spv");
  const VERTEX_SPIRV: &[u8] = include_bytes!("../../shaders/raster.vert.spv");
-@@ -791,6 +789,7 @@ struct Local {
+@@ -275,6 +273,57 @@ struct Image {
+     image: vk::Image,
+     memory: vk::DeviceMemory,
+     view: vk::ImageView,
++    slot: Option<Slot>,
++}
++
++#[derive(Clone, Copy)]
++struct Slot {
++    block: usize,
++    offset: u64,
++    size: u64,
++}
++
++const POOL_BLOCK: u64 = 64 << 20;
++const POOL_LARGEST: u64 = 16 << 20;
++
++#[derive(Default)]
++struct Pool {
++    blocks: Vec<PoolBlock>,
++}
++
++struct PoolBlock {
++    memory: vk::DeviceMemory,
++    kind: u32,
++    free: Vec<(u64, u64)>,
++}
++
++impl Pool {
++    fn take(&mut self, kind: u32, size: u64, align: u64) -> Option<(vk::DeviceMemory, Slot)> {
++        for (block, pooled) in self.blocks.iter_mut().enumerate().filter(|(_, pooled)| pooled.kind == kind) {
++            let fits = pooled.free.iter().position(|&(start, length)| start.next_multiple_of(align) + size <= start + length);
++            let Some(index) = fits else { continue };
++            let (start, length) = pooled.free.remove(index);
++            let offset = start.next_multiple_of(align);
++            let rest = [(start, offset - start), (offset + size, start + length - offset - size)];
++            for (place, piece) in rest.into_iter().filter(|&(_, length)| length > 0).enumerate() {
++                pooled.free.insert(index + place, piece);
++            }
++            return Some((pooled.memory, Slot { block, offset, size }));
++        }
++        None
++    }
++
++    fn give_back(&mut self, slot: Slot) {
++        let free = &mut self.blocks[slot.block].free;
++        let index = free.partition_point(|&(start, _)| start < slot.offset);
++        free.insert(index, (slot.offset, slot.size));
++        if index + 1 < free.len() && free[index].0 + free[index].1 == free[index + 1].0 {
++            free[index].1 += free.remove(index + 1).1;
++        }
++        if index > 0 && free[index - 1].0 + free[index - 1].1 == free[index].0 {
++            free[index - 1].1 += free.remove(index).1;
++        }
++    }
+ }
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+@@ -791,6 +840,10 @@ struct Local {
  /// a texture copied from a surface the GPU drew.
  struct Copied {
      image: Image,
 +    base: Option<vk::ImageView>,
++    smaller: Vec<vk::ImageView>,
++    native: Vec<Option<Image>>,
++    drawn_levels: Vec<Option<(usize, u64)>>,
      surface: usize,
      /// the surface's generation when it was copied.
      generation: u64,
-@@ -1491,7 +1490,7 @@ pub struct Hardware {
+@@ -1411,6 +1464,7 @@ fn compile_pipeline(
+ pub struct Hardware {
+     /// the device, maybe the presenter's too, kept until this lets go.
+     _shared: Arc<SharedDevice>,
++    pooled: std::sync::Mutex<Pool>,
+     /// whether the presenter shares the device, and shows screens straight
+     /// from the images the GPU turns them upright into.
+     direct: bool,
+@@ -1491,7 +1545,7 @@ pub struct Hardware {
      /// by the address of the decoded texels.
      textures: HashMap<usize, Texture>,
      /// textures copied from surfaces, by what they are.
@@ -3046,7 +3118,7 @@ index b3cd447..d510cf6 100644
      /// texture pack pictures, by the hash of the textures they replace.
      replaced: HashMap<u64, Replaced>,
      /// the bytes those take, and how many they may, half the GPU's memory.
-@@ -1532,7 +1531,7 @@ pub struct Hardware {
+@@ -1532,7 +1586,7 @@ pub struct Hardware {
      /// twins once rather than once a draw.
      twin_draws: Vec<Recorded>,
      /// textures copied from twins, as copies has those from surfaces.
@@ -3055,7 +3127,18 @@ index b3cd447..d510cf6 100644
      /// the batch the draw a draw in between follows staged its vertices
      /// and its indices in, and where, which the one in between reads too.
      twinned_inputs: Option<(u64, Staged, Staged)>,
-@@ -1855,6 +1854,29 @@ impl Hardware {
+@@ -1685,8 +1739,9 @@ impl Hardware {
+                 ring: unmade(),
+                 in_flight: VecDeque::with_capacity(IN_FLIGHT),
+                 free: spares.into_iter().map(|(commands, fence)| Frame { commands, fence, ring: unmade(), pending: None }).collect(),
+-                blank: Image { image: vk::Image::null(), memory: vk::DeviceMemory::null(), view: vk::ImageView::null() },
++                blank: Image { image: vk::Image::null(), memory: vk::DeviceMemory::null(), view: vk::ImageView::null(), slot: None },
+                 _shared: shared,
++                pooled: std::sync::Mutex::new(Pool::default()),
+                 direct,
+                 device,
+                 push,
+@@ -1855,6 +1910,29 @@ impl Hardware {
          self.scale
      }
  
@@ -3085,19 +3168,105 @@ index b3cd447..d510cf6 100644
      /// a host visible buffer, mapped for as long as it lives. one the host
      /// reads back from is cached, reading uncached memory is slow.
      fn buffer(&self, size: u64, usage: vk::BufferUsageFlags, readback: bool) -> Result<Buffer, String> {
-@@ -2001,6 +2023,25 @@ impl Hardware {
-         }
+@@ -1922,6 +2000,37 @@ impl Hardware {
+         Ok((memory, types[index].property_flags))
      }
  
++    fn from_pool(&self, requirements: vk::MemoryRequirements) -> Option<(vk::DeviceMemory, Slot)> {
++        if requirements.size > POOL_LARGEST {
++            return None;
++        }
++        let types = &self.memory_types.memory_types[..self.memory_types.memory_type_count as usize];
++        let kind = types
++            .iter()
++            .enumerate()
++            .position(|(i, t)| requirements.memory_type_bits & (1 << i) != 0 && t.property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL))?
++            as u32;
++        let mut pool = self.pooled.lock().ok()?;
++        if let Some(found) = pool.take(kind, requirements.size, requirements.alignment) {
++            return Some(found);
++        }
++        let info = vk::MemoryAllocateInfo::default().allocation_size(POOL_BLOCK).memory_type_index(kind);
++        let memory = unsafe { self.device.allocate_memory(&info, None) }.ok()?;
++        pool.blocks.push(PoolBlock { memory, kind, free: vec![(0, POOL_BLOCK)] });
++        pool.take(kind, requirements.size, requirements.alignment)
++    }
++
++    fn release(&self, memory: vk::DeviceMemory, slot: Option<Slot>) {
++        match slot {
++            Some(slot) => {
++                if let Ok(mut pool) = self.pooled.lock() {
++                    pool.give_back(slot);
++                }
++            }
++            None => unsafe { self.device.free_memory(memory, None) },
++        }
++    }
++
+     /// an image in device memory, put in the general layout by the batch
+     /// being recorded, which it never leaves.
+     fn image(&self, width: u32, height: u32, format: vk::Format, usage: vk::ImageUsageFlags, aspect: vk::ImageAspectFlags) -> Result<Image, String> {
+@@ -1960,15 +2069,19 @@ impl Hardware {
+                 .map_err(vk_error("create an image"))?;
+             let requirements = self.device.get_image_memory_requirements(image);
+             // what was made goes again when a later step fails
+-            let memory = match self.allocate(requirements, vk::MemoryPropertyFlags::DEVICE_LOCAL) {
+-                Ok((memory, _)) => memory,
+-                Err(error) => {
+-                    self.device.destroy_image(image, None);
+-                    return Err(error);
+-                }
++            let (memory, slot) = match self.from_pool(requirements) {
++                Some((memory, slot)) => (memory, Some(slot)),
++                None => match self.allocate(requirements, vk::MemoryPropertyFlags::DEVICE_LOCAL) {
++                    Ok((memory, _)) => (memory, None),
++                    Err(error) => {
++                        self.device.destroy_image(image, None);
++                        return Err(error);
++                    }
++                },
+             };
++            let offset = slot.map_or(0, |slot| slot.offset);
+             let range = vk::ImageSubresourceRange::default().aspect_mask(aspect).level_count(levels).layer_count(1);
+-            let view = self.device.bind_image_memory(image, memory, 0).map_err(vk_error("bind image memory")).and_then(|()| {
++            let view = self.device.bind_image_memory(image, memory, offset).map_err(vk_error("bind image memory")).and_then(|()| {
+                 self.device
+                     .create_image_view(
+                         &vk::ImageViewCreateInfo::default()
+@@ -1984,7 +2097,7 @@ impl Hardware {
+                 Ok(view) => view,
+                 Err(error) => {
+                     self.device.destroy_image(image, None);
+-                    self.device.free_memory(memory, None);
++                    self.release(memory, slot);
+                     return Err(error);
+                 }
+             };
+@@ -1997,7 +2110,33 @@ impl Hardware {
+                 .image(image)
+                 .subresource_range(range)];
+             self.device.cmd_pipeline_barrier2(self.commands, &vk::DependencyInfo::default().image_memory_barriers(&barrier));
+-            Ok(Image { image, memory, view })
++            Ok(Image { image, memory, view, slot })
++        }
++    }
++
 +    fn destroy_copy(&self, copy: &Copied) {
-+        if let Some(view) = copy.base {
++        for &view in copy.base.iter().chain(&copy.smaller) {
 +            unsafe { self.device.destroy_image_view(view, None) };
++        }
++        for image in copy.native.iter().flatten() {
++            self.destroy_image(image);
 +        }
 +        self.destroy_image(&copy.image);
 +    }
 +
 +    fn first_level(&self, image: vk::Image, format: vk::Format) -> Result<vk::ImageView, String> {
-+        let range = vk::ImageSubresourceRange::default().aspect_mask(vk::ImageAspectFlags::COLOR).level_count(1).layer_count(1);
++        self.level_view(image, format, 0)
++    }
++
++    fn level_view(&self, image: vk::Image, format: vk::Format, level: u32) -> Result<vk::ImageView, String> {
++        let range = vk::ImageSubresourceRange::default().aspect_mask(vk::ImageAspectFlags::COLOR).base_mip_level(level).level_count(1).layer_count(1);
 +        unsafe {
 +            self.device
 +                .create_image_view(
@@ -3105,13 +3274,32 @@ index b3cd447..d510cf6 100644
 +                    None,
 +                )
 +                .map_err(vk_error("create an image view"))
-+        }
-+    }
-+
-     fn destroy_image(&self, image: &Image) {
-         // SAFETY: only called once the GPU is done with the image
+         }
+     }
+ 
+@@ -2006,7 +2145,9 @@ impl Hardware {
          unsafe {
-@@ -2512,7 +2553,7 @@ impl Hardware {
+             self.device.destroy_image_view(image.view, None);
+             self.device.destroy_image(image.image, None);
+-            self.device.free_memory(image.memory, None);
++        }
++        if image.memory != vk::DeviceMemory::null() {
++            self.release(image.memory, image.slot);
+         }
+     }
+ 
+@@ -2395,6 +2536,10 @@ impl Hardware {
+                     _ if matches!(kind, Kind::Depth(_)) && !self.depth_blits => None,
+                     _ => {
+                         let usage = vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST;
++                        let usage = match kind {
++                            Kind::Color(_) => usage | vk::ImageUsageFlags::STORAGE,
++                            Kind::Depth(_) => usage,
++                        };
+                         Some(self.image(width, height, format, usage, aspect)?)
+                     }
+                 };
+@@ -2512,7 +2657,7 @@ impl Hardware {
  
      /// whether a texture is rows of a surface with a twin.
      fn reads_twin(&self, texture: &DrawnTexture) -> bool {
@@ -3120,7 +3308,55 @@ index b3cd447..d510cf6 100644
      }
  
      /// gives a surface a twin holding what the surface does, before a draw
-@@ -4081,6 +4122,45 @@ impl Hardware {
+@@ -2680,8 +2825,16 @@ impl Hardware {
+     /// a surface with no such image, a depth buffer on a GPU that can't blit
+     /// them, is scaled on the CPU instead, see scale_up and scale_down_depth.
+     fn blit(&mut self, index: usize, up: bool) {
++        self.blit_with(index, up, false, vk::Filter::NEAREST);
++    }
++
++    fn blit_with(&mut self, index: usize, up: bool, twin: bool, filter: vk::Filter) {
+         let s = &self.surfaces[index];
+         let Some(native) = &s.native else { return };
++        let scaled = match &s.twin {
++            Some(image) if twin && s.twinned => image.image,
++            _ => s.image.image,
++        };
+         let aspect = match s.kind {
+             Kind::Color(_) => vk::ImageAspectFlags::COLOR,
+             Kind::Depth(_) => vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+@@ -2691,7 +2844,7 @@ impl Hardware {
+         let small = corner(s.width, s.height);
+         let big = corner(s.width * self.scale, s.height * self.scale);
+         let (from, to, from_corner, to_corner) =
+-            if up { (native.image, s.image.image, small, big) } else { (s.image.image, native.image, big, small) };
++            if up { (native.image, scaled, small, big) } else { (scaled, native.image, big, small) };
+         let region = [vk::ImageBlit::default()
+             .src_subresource(layers)
+             .src_offsets(from_corner)
+@@ -2708,7 +2861,7 @@ impl Hardware {
+                 to,
+                 vk::ImageLayout::GENERAL,
+                 &region,
+-                vk::Filter::NEAREST,
++                filter,
+             )
+         };
+     }
+@@ -3012,8 +3165,10 @@ impl Hardware {
+             return Ok(pipeline);
+         }
+         if !translating && self.compiler.asked.insert(key) {
+-            if let Some(pipeline) = self.cached(key) {
+-                return Ok(pipeline);
++            if self.waits {
++                if let Some(pipeline) = self.cached(key) {
++                    return Ok(pipeline);
++                }
+             }
+             // made right here when waiting for it
+             self.hand(Job::Compile(key, self.vertex_module(key.vertex)));
+@@ -4081,12 +4236,105 @@ impl Hardware {
          Ok(())
      }
  
@@ -3163,10 +3399,236 @@ index b3cd447..d510cf6 100644
 +        self.display_transfer(memory, &transfer)
 +    }
 +
++    pub(crate) fn texture_copy_columns<M: GpuMemory>(
++        &mut self,
++        memory: &mut M,
++        input: u32,
++        output: u32,
++        size: u32,
++        (run, gap): (u32, u32),
++    ) -> Result<bool, String> {
++        if run == 0 || !size.is_multiple_of(run) {
++            return Ok(false);
++        }
++        let end = input as u64 + size as u64 + (size / run - 1) as u64 * gap as u64;
++        let band = |s: &Surface| s.row_bytes() * 8;
++        let found = self
++            .surfaces
++            .iter()
++            .filter(|s| matches!(s.kind, Kind::Color(_)) && s.tiled)
++            .filter(|s| run + gap == band(s) && run.is_multiple_of(s.kind.bytes() * 64))
++            .filter(|s| input >= s.addr && end <= s.addr as u64 + s.size() as u64 && (input - s.addr).is_multiple_of(band(s)))
++            .map(|s| (s, (input - s.addr) / s.row_bytes()))
++            .max_by_key(|&(s, row)| newest(s, (row, row + size / run * 8)))
++            .map(|(s, _)| (s.kind, s.width));
++        let Some((Kind::Color(format), width)) = found else {
++            return Ok(false);
++        };
++        let (columns, rows) = (run / (format.bytes_per_pixel() as u32 * 8), size / run * 8);
++        let output_height = self
++            .surfaces
++            .iter()
++            .filter(|s| s.addr == output && s.kind == Kind::Color(format) && s.tiled && s.width == columns && s.height > rows)
++            .map(|s| s.height)
++            .max()
++            .unwrap_or(rows);
++        let transfer = Transfer {
++            input,
++            output,
++            input_width: width,
++            output_width: columns,
++            output_height,
++            copy: (columns, rows),
++            scale: (1, 1),
++            flip: false,
++            input_linear: false,
++            output_tiled: true,
++            input_format: format,
++            output_format: format,
++        };
++        self.transfer(memory, &transfer, true)
++    }
++
      /// a display transfer out of a buffer the GPU holds, one it drew or an
      /// earlier transfer wrote, done on the GPU, false when the input is
      /// anything else, for the CPU to do. the output stays on the GPU, and a
-@@ -4234,7 +4314,7 @@ impl Hardware {
+     /// copy of it heads for the host in the same batch, which goes to the
+     /// GPU right away without waiting for it.
+     pub(crate) fn display_transfer<M: GpuMemory>(&mut self, memory: &mut M, transfer: &Transfer) -> Result<bool, String> {
++        self.transfer(memory, transfer, false)
++    }
++
++    fn transfer<M: GpuMemory>(&mut self, memory: &mut M, transfer: &Transfer, at_console: bool) -> Result<bool, String> {
+         let t = transfer;
+         let input_kind = Kind::Color(t.input_format);
+         let output_kind = Kind::Color(t.output_format);
+@@ -4111,14 +4359,27 @@ impl Hardware {
+             let offset = t.input.checked_sub(s.addr).filter(|offset| offset % step_bytes == 0)? / step_bytes * step;
+             (offset + rows <= s.height).then_some(offset)
+         };
+-        let Some((addr, input_size, row)) = self
++        let head_in = |s: &Surface| {
++            let head = s.addr.checked_sub(t.input).filter(|gap| *gap > 0 && gap % step_bytes == 0)? / step_bytes * step;
++            (!t.flip && head < rows && head % t.scale.1 == 0 && rows - head <= s.height).then_some(head)
++        };
++        let fits = |s: &&Surface| s.kind == input_kind && s.tiled == tiled && s.width == t.input_width;
++        let within = self
+             .surfaces
+             .iter()
+-            .filter(|s| s.kind == input_kind && s.tiled == tiled && s.width == t.input_width)
++            .filter(fits)
+             .filter_map(|s| Some((s, row_in(s)?)))
+             .max_by_key(|&(s, row)| newest(s, (row, row + rows)))
+-            .map(|(s, row)| (s.addr, (s.width, s.height), row))
+-        else {
++            .map(|(s, row)| (s.addr, (s.width, s.height), row, 0));
++        let after_head = || {
++            self.surfaces
++                .iter()
++                .filter(fits)
++                .filter_map(|s| Some((s, head_in(s)?)))
++                .max_by_key(|&(s, head)| newest(s, (0, rows - head)))
++                .map(|(s, head)| (s.addr, (s.width, s.height), 0, head))
++        };
++        let Some((addr, input_size, row, head)) = within.or_else(after_head) else {
+             return Ok(false);
+         };
+         // rows read where the output goes, the CPU does in order. the rest
+@@ -4126,7 +4387,7 @@ impl Hardware {
+         // Ultimate puts the bottom screen right before the rows it reads, and
+         // the output drawn over them is the overdrawn below
+         let row_bytes = (input_size.0 * input_kind.bytes()) as u64;
+-        let read_start = addr as u64 + row as u64 * row_bytes;
++        let read_start = t.input as u64;
+         let read_end = read_start + rows as u64 * row_bytes;
+         let output_end = t.output as u64 + (t.output_width * t.output_height * output_kind.bytes()) as u64;
+         if read_start < output_end && (t.output as u64) < read_end {
+@@ -4134,34 +4395,51 @@ impl Hardware {
+         }
+         self.begin()?;
+         // a flush looking one of them up drops what the other had checked
+-        let (source, target) = loop {
++        let (lead, source, target) = loop {
++            let lead = match head {
++                0 => None,
++                _ => Some(self.surface(memory, t.input, (t.input_width, head), input_kind, tiled)?),
++            };
+             // the rows it reads, what is drawn over the rest stays on the GPU
+-            let source = self.surface_rows(memory, addr, input_size, input_kind, tiled, Some((row, row + rows)))?;
++            let source = self.surface_rows(memory, addr, input_size, input_kind, tiled, Some((row, row + rows - head)))?;
+             let target = self.surface(memory, t.output, output_size, output_kind, t.output_tiled)?;
+-            if self.surfaces[source].checked && self.surfaces[target].checked {
+-                break (source, target);
++            let checked = |index: usize| self.surfaces[index].checked;
++            if checked(source) && checked(target) && lead.is_none_or(checked) {
++                break (lead, source, target);
+             }
+         };
++        let sources = [Some(source), lead, Some(target)];
++        let native = self.scale > 1
++            && t.output_tiled
++            && (t.scale != (1, 1) || at_console)
++            && t.copy == (t.output_width, t.output_height)
++            && sources.into_iter().flatten().all(|index| self.surfaces[index].native.is_some());
+         // drawn scaled, every size and row is that many times more, and the
+         // pixels averaged stay as many
+-        let n = self.scale as i32;
+-        let constants: [i32; 11] = [
+-            t.copy.0 as i32 * n,
+-            t.copy.1 as i32 * n,
+-            // a flip turns the rows read over, not the whole input
+-            rows as i32 * n,
+-            t.output_height as i32 * n,
+-            t.scale.0 as i32,
+-            t.scale.1 as i32,
+-            t.flip as i32,
+-            format_index(t.input_format),
+-            format_index(t.output_format),
+-            row as i32 * n,
+-            input_size.1 as i32 * n,
+-        ];
++        let n = if native { 1 } else { self.scale as i32 };
++        let part = |copied: u32, skipped: u32, from: u32, height: u32| -> [i32; 11] {
++            [
++                t.copy.0 as i32 * n,
++                copied as i32 * n,
++                rows as i32 * n,
++                (t.output_height - skipped) as i32 * n,
++                t.scale.0 as i32,
++                t.scale.1 as i32,
++                t.flip as i32,
++                format_index(t.input_format),
++                format_index(t.output_format),
++                from as i32 * n,
++                height as i32 * n,
++            ]
++        };
++        let led = head / t.scale.1;
++        let mut parts = vec![(source, part(t.copy.1 - led, led, row, input_size.1), t.copy.1 - led)];
++        if let Some(lead) = lead {
++            parts.push((lead, part(led, 0, 0, head), led));
++        }
+         // and in between, from the input's twin into the output's, which
+         // holds what the output did before
+-        let twinned = self.twins && (self.surfaces[source].twinned || self.surfaces[target].twinned);
++        let twinned = self.twins && (parts.iter().any(|&(from, ..)| self.surfaces[from].twinned) || self.surfaces[target].twinned);
+         let twinned = twinned
+             && match self.make_twin(target) {
+                 Ok(()) => true,
+@@ -4171,11 +4449,21 @@ impl Hardware {
+                     false
+                 }
+             };
+-        let views = (self.surfaces[source].image.view, self.surfaces[target].image.view);
+-        let size = (t.copy.0 * self.scale, t.copy.1 * self.scale);
+-        self.dispatch_transfer(views, constants, size)?;
++        if native {
++            self.native_transfer(&parts, target, t.copy.0, false)?;
++            if twinned {
++                self.native_transfer(&parts, target, t.copy.0, true)?;
++            }
++        }
++        for &(from, constants, copied) in parts.iter().filter(|_| !native) {
++            let views = (self.surfaces[from].image.view, self.surfaces[target].image.view);
++            let size = (t.copy.0 * self.scale, copied * self.scale);
++            self.dispatch_transfer(views, constants, size)?;
++            if twinned {
++                self.dispatch_transfer((self.surface_view(from, true), self.surface_view(target, true)), constants, size)?;
++            }
++        }
+         if twinned {
+-            self.dispatch_transfer((self.surface_view(source, true), self.surface_view(target, true)), constants, size)?;
+             self.surfaces[target].twin_changed();
+         }
+         self.surfaces[target].changed();
+@@ -4188,10 +4476,25 @@ impl Hardware {
+         if twinned && self.direct {
+             self.upright_image(target, true)?;
+         }
+-        self.submit()?;
++        if !t.output_tiled {
++            self.submit()?;
++        }
+         Ok(true)
+     }
+ 
++    fn native_transfer(&mut self, parts: &[(usize, [i32; 11], u32)], target: usize, width: u32, twin: bool) -> Result<(), String> {
++        for &(from, ..) in parts {
++            self.blit_with(from, false, twin, vk::Filter::NEAREST);
++        }
++        for &(from, constants, copied) in parts {
++            let native = |index: usize| self.surfaces[index].native.as_ref().map(|image| image.view).expect("checked by the caller");
++            self.dispatch_transfer((native(from), native(target)), constants, (width, copied))?;
++        }
++        self.barrier();
++        self.blit_with(target, true, twin, vk::Filter::LINEAR);
++        Ok(())
++    }
++
+     /// records the transfer shader going over size pixels, from one image
+     /// to another, as the constants say.
+     fn dispatch_transfer(&mut self, (source, target): (vk::ImageView, vk::ImageView), constants: [i32; 11], size: (u32, u32)) -> Result<(), String> {
+@@ -4234,7 +4537,7 @@ impl Hardware {
      /// texture's sides are powers of two and the buffer drawn into it need
      /// not be, Inazuma Eleven GO reads 800 rows drawn as 1024, one holding
      /// all of it goes first.
@@ -3175,7 +3637,7 @@ index b3cd447..d510cf6 100644
          let depth = match texture.format {
              ColorFormat::Rgba8 => Some(Kind::Depth(4)),
              ColorFormat::Rgb8 => Some(Kind::Depth(3)),
-@@ -4248,16 +4328,26 @@ impl Hardware {
+@@ -4248,16 +4551,38 @@ impl Hardware {
                  if !(kinds.contains(&Some(s.kind)) && s.tiled && s.width == texture.width) {
                      return None;
                  }
@@ -3204,10 +3666,22 @@ index b3cd447..d510cf6 100644
      pub(crate) fn covers(&self, texture: &DrawnTexture) -> bool {
 -        self.texture_source(texture).is_some_and(|(index, row)| row + texture.height <= self.surfaces[index].height)
 +        self.texture_source(texture).is_some_and(|(index, row, lead)| lead == 0 && row + texture.height <= self.surfaces[index].height)
++    }
++
++    fn level_source(&self, texture: &DrawnTexture, level: u32) -> Option<(usize, u32)> {
++        let bytes = Kind::Color(texture.format).bytes();
++        let offset: u32 = (0..level).map(|smaller| (texture.width >> smaller) * (texture.height >> smaller) * bytes).sum();
++        let level_texture = DrawnTexture { addr: texture.addr + offset, width: texture.width >> level, height: texture.height >> level, format: texture.format };
++        if level_texture.width < 8 || level_texture.height < 8 || !self.holds(&level_texture) {
++            return None;
++        }
++        let (index, row, lead) = self.texture_source(&level_texture)?;
++        let surface = &self.surfaces[index];
++        (lead == 0 && matches!(surface.kind, Kind::Color(_)) && row + level_texture.height <= surface.height).then_some((index, row))
      }
  
      /// whether a texture is rows of a surface the GPU drew and guest memory
-@@ -4266,10 +4356,11 @@ impl Hardware {
+@@ -4266,10 +4591,11 @@ impl Hardware {
      /// changed there since, or another surface drew over them, the texture
      /// comes from memory once what was drawn is written back.
      pub(crate) fn holds(&self, texture: &DrawnTexture) -> bool {
@@ -3221,7 +3695,7 @@ index b3cd447..d510cf6 100644
              let at = surface.addr + from * surface.row_bytes();
              from < to
                  && (!surface.checked
-@@ -4277,7 +4368,7 @@ impl Hardware {
+@@ -4277,7 +4603,7 @@ impl Hardware {
          });
          // nor where a fill wrote over what it drew
          let row_bytes = surface.row_bytes();
@@ -3230,7 +3704,7 @@ index b3cd447..d510cf6 100644
          surface.dirty.is_some() && !changed && !stale
      }
  
-@@ -4289,13 +4380,13 @@ impl Hardware {
+@@ -4289,13 +4615,13 @@ impl Hardware {
      /// width, would otherwise have the console's resolution in memory take
      /// the place of the scaled frame.
      pub(crate) fn holds_unchanged<M: GpuMemory>(&self, memory: &mut M, texture: &DrawnTexture) -> bool {
@@ -3246,7 +3720,7 @@ index b3cd447..d510cf6 100644
          let (at, len) = (surface.addr + row * row_bytes, rows * row_bytes);
          // memory behind another surface drawn over it says nothing of this one
          if (0..self.surfaces.len()).any(|i| i != index && self.surfaces[i].dirty_overlaps(at, len)) {
-@@ -4316,15 +4407,18 @@ impl Hardware {
+@@ -4316,54 +4642,103 @@ impl Hardware {
      /// one is copied from the surface's twin, when it has one.
      fn copy_texture(&mut self, texture: &DrawnTexture, bound: &BoundTexture, twin: bool) -> Result<vk::ImageView, String> {
          self.mark(Work::Copy, false);
@@ -3269,16 +3743,28 @@ index b3cd447..d510cf6 100644
                  return Err("a texture reaching past the buffer drawn into it came without its texels".to_owned());
              }
              Some(bound.texels.clone())
-@@ -4332,7 +4426,7 @@ impl Hardware {
+         } else {
              None
          };
++        let drawn_levels: Vec<Option<(usize, u32, u64)>> = (1..levels)
++            .map(|level| {
++                let (index, row) = self.level_source(texture, level)?;
++                let surface = &self.surfaces[index];
++                let generation = if twin && surface.twinned { surface.twin_generation } else { surface.generation };
++                Some((index, row, generation))
++            })
++            .collect();
++        let kept_levels: Vec<Option<(usize, u64)>> = drawn_levels.iter().map(|drawn| drawn.map(|(index, _, generation)| (index, generation))).collect();
          let batch = self.batch;
 -        if let Some(copy) = self.copies(twin).get_mut(texture) {
 +        if let Some(copy) = self.copies(twin).get_mut(&key) {
              let same_memory = match (&copy.memory, &memory) {
                  (Some(kept), Some(now)) => Arc::ptr_eq(kept, now),
                  (kept, now) => kept.is_none() && now.is_none(),
-@@ -4342,28 +4436,50 @@ impl Hardware {
+             };
+-            if copy.surface == source && copy.generation == generation && same_memory {
++            if copy.surface == source && copy.generation == generation && same_memory && copy.drawn_levels == kept_levels {
+                 copy.used = batch;
                  return Ok(copy.image.view);
              }
          }
@@ -3299,7 +3785,22 @@ index b3cd447..d510cf6 100644
 +                    }
 +                },
 +            };
-+            self.copies(twin).insert(key, Copied { image, base, surface: source, generation, memory: None, used: batch });
++            let mut smaller = Vec::new();
++            for level in 1..levels {
++                match self.level_view(image.image, COLOR_FORMAT, level) {
++                    Ok(view) => smaller.push(view),
++                    Err(error) => {
++                        for view in base.into_iter().chain(smaller) {
++                            unsafe { self.device.destroy_image_view(view, None) };
++                        }
++                        self.destroy_image(&image);
++                        return Err(error);
++                    }
++                }
++            }
++            let (native, drawn_levels) = ((1..levels).map(|_| None).collect(), Vec::new());
++            let copied = Copied { image, base, smaller, native, drawn_levels, surface: source, generation, memory: None, used: batch };
++            self.copies(twin).insert(key, copied);
          }
 -        let (view, image) = (self.copies(twin)[texture].image.view, self.copies(twin)[texture].image.image);
 +        let (view, image) = (self.copies(twin)[&key].image.view, self.copies(twin)[&key].image.image);
@@ -3338,7 +3839,7 @@ index b3cd447..d510cf6 100644
              // SAFETY: recording, outside rendering, between two color images
              // in the general layout made for transfers, both their size
              unsafe {
-@@ -4380,7 +4496,7 @@ impl Hardware {
+@@ -4380,7 +4755,7 @@ impl Hardware {
              };
          }
          if let Kind::Depth(bytes) = self.surfaces[source].kind {
@@ -3347,7 +3848,7 @@ index b3cd447..d510cf6 100644
          } else {
              // the texture's rows run top first, the surface's bottom first,
              // so the copy flips them, and its pixels round to the format as
-@@ -4389,12 +4505,13 @@ impl Hardware {
+@@ -4389,22 +4764,65 @@ impl Hardware {
              let n = self.scale;
              let (width, height) = ((texture.width * n) as i32, (rows * n) as i32);
              let (row, source_height) = ((row * n) as i32, (self.surfaces[source].height * n) as i32);
@@ -3357,6 +3858,10 @@ index b3cd447..d510cf6 100644
              let from = self.surface_view(source, twin);
 -            self.dispatch_transfer((from, view), constants, (texture.width * n, rows * n))?;
 +            self.dispatch_transfer((from, first), constants, (texture.width * n, rows * n))?;
++        }
++        for (level, drawn) in (1..levels).zip(&drawn_levels) {
++            let Some(&(index, row, _)) = drawn.as_ref() else { continue };
++            self.copy_level(&key, twin, level, (index, row))?;
          }
          self.uploads = true;
 -        if let Some(copy) = self.copies(twin).get_mut(texture) {
@@ -3364,16 +3869,56 @@ index b3cd447..d510cf6 100644
              copy.surface = source;
              copy.generation = generation;
              copy.memory = memory;
-@@ -4404,7 +4521,7 @@ impl Hardware {
++            copy.drawn_levels = kept_levels;
+             copy.used = batch;
+         }
+         Ok(view)
      }
  
++    fn copy_level(&mut self, key: &(DrawnTexture, u32), twin: bool, level: u32, (index, row): (usize, u32)) -> Result<(), String> {
++        let texture = key.0;
++        let (n, slot) = (self.scale, level as usize - 1);
++        let (width, height) = (texture.width >> level, texture.height >> level);
++        if self.copies(twin)[key].native[slot].is_none() {
++            let usage = vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC;
++            let image = self.image(width, height, COLOR_FORMAT, usage, vk::ImageAspectFlags::COLOR)?;
++            self.copies(twin).get_mut(key).expect("looked up above").native[slot] = Some(image);
++        }
++        let copy = &self.copies(twin)[key];
++        let (native, target) = (copy.native[slot].as_ref().map(|image| (image.view, image.image)).expect("made above"), copy.image.image);
++        let format = format_index(texture.format);
++        let source_height = self.surfaces[index].height as i32;
++        let constants = [width as i32, height as i32, height as i32, height as i32, 1, 1, 1, format, format, row as i32, source_height];
++        let from = match self.surfaces[index].native.as_ref().map(|image| image.view) {
++            Some(view) => {
++                self.blit_with(index, false, twin, vk::Filter::NEAREST);
++                view
++            }
++            None => self.surface_view(index, twin),
++        };
++        self.dispatch_transfer((from, native.0), constants, (width, height))?;
++        self.barrier();
++        let layers = vk::ImageSubresourceLayers::default().aspect_mask(vk::ImageAspectFlags::COLOR).layer_count(1);
++        let corner = |width: u32, height: u32| [vk::Offset3D { x: 0, y: 0, z: 0 }, vk::Offset3D { x: width as i32, y: height as i32, z: 1 }];
++        let region = vk::ImageBlit::default()
++            .src_subresource(layers)
++            .src_offsets(corner(width, height))
++            .dst_subresource(layers.mip_level(level))
++            .dst_offsets(corner(width * n, height * n));
++        unsafe {
++            self.unfenced = true;
++            self.device.cmd_blit_image(self.commands, native.1, vk::ImageLayout::GENERAL, target, vk::ImageLayout::GENERAL, &[region], vk::Filter::NEAREST)
++        };
++        Ok(())
++    }
++
      /// the textures copied from surfaces, or from their twins.
 -    fn copies(&mut self, twin: bool) -> &mut HashMap<DrawnTexture, Copied> {
 +    fn copies(&mut self, twin: bool) -> &mut HashMap<(DrawnTexture, u32), Copied> {
          match twin {
              true => &mut self.twin_copies,
              false => &mut self.copies,
-@@ -4809,13 +4926,35 @@ impl Hardware {
+@@ -4809,13 +5227,35 @@ impl Hardware {
              return Ok(crop(image));
          }
          // its batch finished before a screen showed the surface
@@ -3413,7 +3958,7 @@ index b3cd447..d510cf6 100644
          let buffer = &capture.buffer;
          if buffer.incoherent {
              let range = [vk::MappedMemoryRange::default().memory(buffer.memory).offset(0).size(vk::WHOLE_SIZE)];
-@@ -5014,10 +5153,10 @@ impl Hardware {
+@@ -5014,10 +5454,10 @@ impl Hardware {
              }
          }
          for twin in [false, true] {
@@ -3426,7 +3971,7 @@ index b3cd447..d510cf6 100644
                  }
              }
          }
-@@ -5136,11 +5275,13 @@ impl Hardware {
+@@ -5136,11 +5576,13 @@ impl Hardware {
              }
          }
          // pictures for screens are read out before a later batch can draw
@@ -3444,7 +3989,7 @@ index b3cd447..d510cf6 100644
              }
          }
          Ok(())
-@@ -5415,7 +5556,7 @@ impl Drop for Hardware {
+@@ -5415,7 +5857,7 @@ impl Drop for Hardware {
                  self.destroy_image(&texture.image);
              }
              for copy in self.copies.values().chain(self.twin_copies.values()) {
@@ -3453,6 +3998,27 @@ index b3cd447..d510cf6 100644
              }
              for replaced in self.replaced.values() {
                  self.destroy_image(&replaced.image);
+@@ -5431,6 +5873,11 @@ impl Drop for Hardware {
+                 }
+             }
+             self.destroy_image(&self.blank);
++            if let Ok(pool) = self.pooled.lock() {
++                for block in &pool.blocks {
++                    self.device.free_memory(block.memory, None);
++                }
++            }
+             let captures = self.surfaces.iter().flat_map(|s| [&s.capture, &s.screen]).filter_map(|c| c.as_ref().map(|c| &c.buffer));
+             let rings = self.free.iter().chain(&self.in_flight).map(|frame| &frame.ring);
+             let buffers = [Some(&self.ring), self.readback.as_ref()].into_iter().flatten().chain(rings);
+@@ -5798,7 +6245,7 @@ mod tests {
+         let kinds = [Kind::Color(ColorFormat::Rgba8), Kind::Color(ColorFormat::Rgb8), Kind::Color(ColorFormat::Rgb565), Kind::Depth(2), Kind::Depth(3), Kind::Depth(4)];
+         for kind in kinds {
+             let (width, height) = (16, 24);
+-            let nothing = Image { image: vk::Image::null(), memory: vk::DeviceMemory::null(), view: vk::ImageView::null() };
++            let nothing = Image { image: vk::Image::null(), memory: vk::DeviceMemory::null(), view: vk::ImageView::null(), slot: None };
+             let mut surface = Surface {
+                 image: nothing,
+                 addr: 0,
 diff --git a/crates/zakuro-gpu/src/registers.rs b/crates/zakuro-gpu/src/registers.rs
 index baf0382..0d0f3ef 100644
 --- a/crates/zakuro-gpu/src/registers.rs
@@ -3481,7 +4047,7 @@ index 88477db..2fc3266 100644
      for (name, value) in flagged {
          flags.set(name, value).map_err(|error| format!("{name}, {error}"))?;
 diff --git a/crates/zakuro-gpu/src/texture.rs b/crates/zakuro-gpu/src/texture.rs
-index 9949307..e52a9d6 100644
+index 9949307..6b737f9 100644
 --- a/crates/zakuro-gpu/src/texture.rs
 +++ b/crates/zakuro-gpu/src/texture.rs
 @@ -1,6 +1,7 @@
@@ -3493,7 +4059,7 @@ index 9949307..e52a9d6 100644
  
  /// A PICA texture format, straight from GPUREG_TEXUNIT0_TYPE and the
  /// equivalent registers for units 1/2. The numbering is fixed by hardware.
-@@ -72,6 +73,73 @@ impl TextureFormat {
+@@ -72,6 +73,109 @@ impl TextureFormat {
      }
  }
  
@@ -3511,29 +4077,53 @@ index 9949307..e52a9d6 100644
 +    order
 +};
 +
-+const PARALLEL_TEXELS: usize = 128 * 128;
++const PARALLEL_TEXELS: usize = 256 * 256;
 +
 +pub fn decode_level(data: &[u8], format: TextureFormat, width: u32, height: u32, texels: &mut [[u8; 4]]) {
-+    let row_bytes = (width * 8 * format.bits_per_pixel() / 8) as usize;
-+    let tiled = width > 0 && height > 0 && width % 8 == 0 && height % 8 == 0 && data.len() >= row_bytes * (height / 8) as usize;
-+    if !tiled {
-+        for (index, texel) in texels.iter_mut().enumerate() {
-+            *texel = sample_texel(data, format, width, index as u32 % width, index as u32 / width);
++    decode_levels(data, format, &[(0, width, height)], texels);
++}
++
++pub fn decode_levels(data: &[u8], format: TextureFormat, levels: &[(usize, u32, u32)], texels: &mut [[u8; 4]]) {
++    let total = texels.len();
++    let mut rows = Vec::new();
++    let mut rest = texels;
++    for &(start, width, height) in levels {
++        let (texels, after) = std::mem::take(&mut rest).split_at_mut((width * height) as usize);
++        rest = after;
++        let data = &data[start..];
++        let row_bytes = (width * 8 * format.bits_per_pixel() / 8) as usize;
++        let tiled = width > 0 && height > 0 && width % 8 == 0 && height % 8 == 0 && data.len() >= row_bytes * (height / 8) as usize;
++        if !tiled {
++            for (index, texel) in texels.iter_mut().enumerate() {
++                *texel = sample_texel(data, format, width, index as u32 % width, index as u32 / width);
++            }
++            continue;
 +        }
-+        return;
++        let tile_bytes = row_bytes / (width / 8) as usize;
++        rows.extend(texels.chunks_mut(8 * width as usize).zip(data.chunks(row_bytes)).map(|(texels, data)| (texels, data, tile_bytes, width)));
 +    }
-+    let tile_bytes = row_bytes / (width / 8) as usize;
-+    let row = |(texels, data): (&mut [[u8; 4]], &[u8])| {
++    let row = |(texels, data, tile_bytes, width): (&mut [[u8; 4]], &[u8], usize, u32)| {
 +        for (column, tile) in data.chunks_exact(tile_bytes).enumerate() {
 +            decode_tile(tile, format, &mut texels[column * 8..], width as usize);
 +        }
 +    };
-+    let rows = 8 * width as usize;
-+    if texels.len() >= PARALLEL_TEXELS {
-+        texels.par_chunks_mut(rows).zip(data.par_chunks(row_bytes)).for_each(row);
++    if total >= PARALLEL_TEXELS {
++        decoders().install(|| rows.into_par_iter().for_each(row));
 +    } else {
-+        texels.chunks_mut(rows).zip(data.chunks(row_bytes)).for_each(row);
++        rows.into_iter().for_each(row);
 +    }
++}
++
++fn decoders() -> &'static rayon::ThreadPool {
++    static DECODERS: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
++    DECODERS.get_or_init(|| {
++        let cores = std::thread::available_parallelism().map_or(2, |cores| cores.get());
++        rayon::ThreadPoolBuilder::new()
++            .num_threads(cores)
++            .thread_name(|index| format!("texture decoder {index}"))
++            .build()
++            .expect("threads to decode textures on")
++    })
 +}
 +
 +pub fn decode_tile(tile: &[u8], format: TextureFormat, texels: &mut [[u8; 4]], width: usize) {
@@ -3543,10 +4133,22 @@ index 9949307..e52a9d6 100644
 +            for (index, block) in tile.chunks_exact(size).enumerate() {
 +                let (alpha, color) = block.split_at(size - 8);
 +                let alphas = (!alpha.is_empty()).then(|| u64::from_le_bytes(alpha.try_into().unwrap()));
++                let word = u64::from_le_bytes(color.try_into().unwrap());
++                let (low, high) = (word as u32, (word >> 32) as u32);
++                let palettes = etc1_palettes(high);
++                let flip = high & 1 != 0;
 +                let (left, top) = (index % 2 * 4, index / 2 * 4);
-+                for (pixel, [r, g, b]) in etc1_block(color).into_iter().enumerate() {
-+                    let a = alphas.map_or(0xFF, |word| expand4((word >> (pixel * 4)) as u8 & 0xF));
-+                    texels[(top + pixel % 4) * width + left + pixel / 4] = [r, g, b, a];
++                for y in 0..4 {
++                    let row: &mut [[u8; 4]; 4] = (&mut texels[(top + y) * width + left..][..4]).try_into().unwrap();
++                    for (x, texel) in row.iter_mut().enumerate() {
++                        let pixel = x * 4 + y;
++                        let half = if flip { y >> 1 } else { x >> 1 };
++                        let modifier = ((low >> (pixel + 16)) & 1) << 1 | (low >> pixel) & 1;
++                        *texel = palettes[half][modifier as usize];
++                        if let Some(word) = alphas {
++                            texel[3] = expand4((word >> (pixel * 4)) as u8 & 0xF);
++                        }
++                    }
 +                }
 +            }
 +        }
@@ -3567,7 +4169,7 @@ index 9949307..e52a9d6 100644
  /// reads one texel as straight RGBA8.
  pub fn sample_texel(data: &[u8], format: TextureFormat, width: u32, x: u32, y: u32) -> [u8; 4] {
      match format {
-@@ -215,75 +283,36 @@ fn sample_etc1(data: &[u8], format: TextureFormat, width: u32, x: u32, y: u32) -
+@@ -215,75 +319,46 @@ fn sample_etc1(data: &[u8], format: TextureFormat, width: u32, x: u32, y: u32) -
      [rgb[0], rgb[1], rgb[2], alpha]
  }
  
@@ -3618,13 +4220,23 @@ index 9949307..e52a9d6 100644
 -
 -    let table0 = ((high >> 5) & 0x7) as usize;
 -    let table1 = ((high >> 2) & 0x7) as usize;
--
++    let palettes = etc1_palettes(high);
++    std::array::from_fn(|index| {
++        let (x, y) = (index / 4, index % 4);
++        let half = usize::from(if flip { y >= 2 } else { x >= 2 });
++        let modifier = (((low >> (index + 16)) & 1) << 1 | (low >> index) & 1) as usize;
++        let [r, g, b, _] = palettes[half][modifier];
++        [r, g, b]
++    })
++}
+ 
 -    // which sub-block this pixel belongs to depends on the flip bit, an
 -    // unflipped block splits into left/right halves, a flipped one into
 -    // top/bottom.
 -    let first_half = if flip { y < 2 } else { x < 2 };
 -    let (base, table) = if first_half {
 -        (base0, table0)
++fn etc1_palettes(high: u32) -> [[[u8; 4]; 4]; 2] {
 +    let channel = |shift: u32| (high >> shift) as i32;
 +    let bases = if high & 2 != 0 {
 +        let first = [channel(27) & 0x1F, channel(19) & 0x1F, channel(11) & 0x1F];
@@ -3658,17 +4270,16 @@ index 9949307..e52a9d6 100644
 -        (base[2] as i32 + delta).clamp(0, 255) as u8,
 -    ]
 +    let tables = [((high >> 5) & 0x7) as usize, ((high >> 2) & 0x7) as usize];
-+    std::array::from_fn(|index| {
-+        let (x, y) = (index / 4, index % 4);
-+        let half = usize::from(if flip { y >= 2 } else { x >= 2 });
-+        let modifier = (((low >> (index + 16)) & 1) << 1 | (low >> index) & 1) as usize;
-+        let delta = ETC1_MODIFIERS[tables[half]][modifier];
-+        bases[half].map(|c| (c as i32 + delta).clamp(0, 255) as u8)
++    std::array::from_fn(|half| {
++        ETC1_MODIFIERS[tables[half]].map(|delta| {
++            let [r, g, b] = bases[half].map(|c| (c as i32 + delta).clamp(0, 255) as u8);
++            [r, g, b, 0xFF]
++        })
 +    })
  }
  
  /// decodes one pixel's alpha from ETC1A4's 8-byte, 4-bit-per-texel alpha plane.
-@@ -441,4 +470,87 @@ mod tests {
+@@ -441,4 +516,87 @@ mod tests {
          assert_eq!(gray_at(8, 4), block_gray(6));
          assert_eq!(gray_at(12, 4), block_gray(7));
      }
@@ -9081,7 +9692,7 @@ index 0000000..abc40c2
 +
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..1866689
+index 0000000..3c1840d
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,161 @@
@@ -9093,7 +9704,7 @@ index 0000000..1866689
 +
 +use crate::zig::{fetch, windowless, Fetcher};
 +
-+pub const RELEASE: &str = "v1.0.2";
++pub const RELEASE: &str = "v1.0.3";
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +const ASSET_SUFFIX: &str = "-windows-x64.zip";
 +const STAGING: &str = "update";

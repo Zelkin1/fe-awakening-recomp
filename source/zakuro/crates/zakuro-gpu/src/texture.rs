@@ -87,29 +87,53 @@ const TILE_ORDER: [(usize, usize); 64] = {
     order
 };
 
-const PARALLEL_TEXELS: usize = 128 * 128;
+const PARALLEL_TEXELS: usize = 256 * 256;
 
 pub fn decode_level(data: &[u8], format: TextureFormat, width: u32, height: u32, texels: &mut [[u8; 4]]) {
-    let row_bytes = (width * 8 * format.bits_per_pixel() / 8) as usize;
-    let tiled = width > 0 && height > 0 && width % 8 == 0 && height % 8 == 0 && data.len() >= row_bytes * (height / 8) as usize;
-    if !tiled {
-        for (index, texel) in texels.iter_mut().enumerate() {
-            *texel = sample_texel(data, format, width, index as u32 % width, index as u32 / width);
+    decode_levels(data, format, &[(0, width, height)], texels);
+}
+
+pub fn decode_levels(data: &[u8], format: TextureFormat, levels: &[(usize, u32, u32)], texels: &mut [[u8; 4]]) {
+    let total = texels.len();
+    let mut rows = Vec::new();
+    let mut rest = texels;
+    for &(start, width, height) in levels {
+        let (texels, after) = std::mem::take(&mut rest).split_at_mut((width * height) as usize);
+        rest = after;
+        let data = &data[start..];
+        let row_bytes = (width * 8 * format.bits_per_pixel() / 8) as usize;
+        let tiled = width > 0 && height > 0 && width % 8 == 0 && height % 8 == 0 && data.len() >= row_bytes * (height / 8) as usize;
+        if !tiled {
+            for (index, texel) in texels.iter_mut().enumerate() {
+                *texel = sample_texel(data, format, width, index as u32 % width, index as u32 / width);
+            }
+            continue;
         }
-        return;
+        let tile_bytes = row_bytes / (width / 8) as usize;
+        rows.extend(texels.chunks_mut(8 * width as usize).zip(data.chunks(row_bytes)).map(|(texels, data)| (texels, data, tile_bytes, width)));
     }
-    let tile_bytes = row_bytes / (width / 8) as usize;
-    let row = |(texels, data): (&mut [[u8; 4]], &[u8])| {
+    let row = |(texels, data, tile_bytes, width): (&mut [[u8; 4]], &[u8], usize, u32)| {
         for (column, tile) in data.chunks_exact(tile_bytes).enumerate() {
             decode_tile(tile, format, &mut texels[column * 8..], width as usize);
         }
     };
-    let rows = 8 * width as usize;
-    if texels.len() >= PARALLEL_TEXELS {
-        texels.par_chunks_mut(rows).zip(data.par_chunks(row_bytes)).for_each(row);
+    if total >= PARALLEL_TEXELS {
+        decoders().install(|| rows.into_par_iter().for_each(row));
     } else {
-        texels.chunks_mut(rows).zip(data.chunks(row_bytes)).for_each(row);
+        rows.into_iter().for_each(row);
     }
+}
+
+fn decoders() -> &'static rayon::ThreadPool {
+    static DECODERS: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
+    DECODERS.get_or_init(|| {
+        let cores = std::thread::available_parallelism().map_or(2, |cores| cores.get());
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(cores)
+            .thread_name(|index| format!("texture decoder {index}"))
+            .build()
+            .expect("threads to decode textures on")
+    })
 }
 
 pub fn decode_tile(tile: &[u8], format: TextureFormat, texels: &mut [[u8; 4]], width: usize) {
@@ -119,10 +143,22 @@ pub fn decode_tile(tile: &[u8], format: TextureFormat, texels: &mut [[u8; 4]], w
             for (index, block) in tile.chunks_exact(size).enumerate() {
                 let (alpha, color) = block.split_at(size - 8);
                 let alphas = (!alpha.is_empty()).then(|| u64::from_le_bytes(alpha.try_into().unwrap()));
+                let word = u64::from_le_bytes(color.try_into().unwrap());
+                let (low, high) = (word as u32, (word >> 32) as u32);
+                let palettes = etc1_palettes(high);
+                let flip = high & 1 != 0;
                 let (left, top) = (index % 2 * 4, index / 2 * 4);
-                for (pixel, [r, g, b]) in etc1_block(color).into_iter().enumerate() {
-                    let a = alphas.map_or(0xFF, |word| expand4((word >> (pixel * 4)) as u8 & 0xF));
-                    texels[(top + pixel % 4) * width + left + pixel / 4] = [r, g, b, a];
+                for y in 0..4 {
+                    let row: &mut [[u8; 4]; 4] = (&mut texels[(top + y) * width + left..][..4]).try_into().unwrap();
+                    for (x, texel) in row.iter_mut().enumerate() {
+                        let pixel = x * 4 + y;
+                        let half = if flip { y >> 1 } else { x >> 1 };
+                        let modifier = ((low >> (pixel + 16)) & 1) << 1 | (low >> pixel) & 1;
+                        *texel = palettes[half][modifier as usize];
+                        if let Some(word) = alphas {
+                            texel[3] = expand4((word >> (pixel * 4)) as u8 & 0xF);
+                        }
+                    }
                 }
             }
         }
@@ -291,6 +327,17 @@ fn etc1_block(block: &[u8]) -> [[u8; 3]; 16] {
     let word = u64::from_le_bytes(block.try_into().unwrap());
     let (low, high) = (word as u32, (word >> 32) as u32);
     let flip = high & 1 != 0;
+    let palettes = etc1_palettes(high);
+    std::array::from_fn(|index| {
+        let (x, y) = (index / 4, index % 4);
+        let half = usize::from(if flip { y >= 2 } else { x >= 2 });
+        let modifier = (((low >> (index + 16)) & 1) << 1 | (low >> index) & 1) as usize;
+        let [r, g, b, _] = palettes[half][modifier];
+        [r, g, b]
+    })
+}
+
+fn etc1_palettes(high: u32) -> [[[u8; 4]; 4]; 2] {
     let channel = |shift: u32| (high >> shift) as i32;
     let bases = if high & 2 != 0 {
         let first = [channel(27) & 0x1F, channel(19) & 0x1F, channel(11) & 0x1F];
@@ -306,12 +353,11 @@ fn etc1_block(block: &[u8]) -> [[u8; 3]; 16] {
         ]
     };
     let tables = [((high >> 5) & 0x7) as usize, ((high >> 2) & 0x7) as usize];
-    std::array::from_fn(|index| {
-        let (x, y) = (index / 4, index % 4);
-        let half = usize::from(if flip { y >= 2 } else { x >= 2 });
-        let modifier = (((low >> (index + 16)) & 1) << 1 | (low >> index) & 1) as usize;
-        let delta = ETC1_MODIFIERS[tables[half]][modifier];
-        bases[half].map(|c| (c as i32 + delta).clamp(0, 255) as u8)
+    std::array::from_fn(|half| {
+        ETC1_MODIFIERS[tables[half]].map(|delta| {
+            let [r, g, b] = bases[half].map(|c| (c as i32 + delta).clamp(0, 255) as u8);
+            [r, g, b, 0xFF]
+        })
     })
 }
 

@@ -581,8 +581,13 @@ impl Gpu {
         #[cfg(feature = "vulkan")]
         if let Some(hardware) = self.resources.hardware.as_mut() {
             let unbroken = |width: u32, skip: u32| width == 0 || skip == 0;
-            if unbroken(input_width, input_skip) && unbroken(output_width, output_skip) {
-                match hardware.texture_copy(memory, input, output, size) {
+            let copied = match (unbroken(input_width, input_skip), unbroken(output_width, output_skip)) {
+                (true, true) => Some(hardware.texture_copy(memory, input, output, size)),
+                (false, true) => Some(hardware.texture_copy_columns(memory, input, output, size, (input_width, input_skip))),
+                _ => None,
+            };
+            if let Some(copied) = copied {
+                match copied {
                     Ok(true) => {
                         log::debug!("texture copy on the GPU: 0x{input_paddr:08X} -> 0x{output_paddr:08X} size 0x{size:X}");
                         self.transfers += 1;
