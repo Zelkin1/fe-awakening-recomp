@@ -18,7 +18,6 @@ mod present;
 mod recompile;
 mod report;
 mod settings;
-mod shortcut;
 mod sounds;
 mod theme;
 mod update;
@@ -124,6 +123,9 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
         pad_pointer: overlays::PadPointer::default(),
         over_touched_at: None,
         scripted_tap: None,
+        pending_overview: None,
+        restore_inventory: false,
+        closing_by_user: false,
         kept_scene: None,
         bottom_sounds: sounds::BottomScreen::default(),
         scene: Scene::Plain,
@@ -446,6 +448,9 @@ struct App {
     pad_pointer: overlays::PadPointer,
     over_touched_at: Option<Instant>,
     scripted_tap: Option<((u16, u16), u8)>,
+    pending_overview: Option<u8>,
+    restore_inventory: bool,
+    closing_by_user: bool,
     kept_scene: Option<Scene>,
     bottom_sounds: sounds::BottomScreen,
     scene: Scene,
@@ -807,6 +812,9 @@ impl App {
         self.keyboard.release();
         self.paused = false;
         self.next_frame = Instant::now();
+        if self.settings.fullscreen && self.window.as_ref().is_some_and(|window| window.fullscreen().is_none()) {
+            self.toggle_fullscreen();
+        }
         Ok(())
     }
 
@@ -1162,7 +1170,19 @@ impl App {
         self.game.as_mut().and_then(|game| game.system.bottom_picture()).is_some_and(|picture| overlays::level_up_screen(&picture))
     }
 
+    fn bottom_map_screen(&mut self) -> Option<overlays::MapScreen> {
+        self.game.as_mut().and_then(|game| game.system.bottom_picture()).as_deref().and_then(overlays::map_screen)
+    }
+
     fn place_bottom_over(&mut self) {
+        if let Some(waited) = self.pending_overview {
+            if waited >= overlays::OVERVIEW_WAIT || self.bottom_map_screen() == Some(overlays::MapScreen::Overview) {
+                self.pending_overview = None;
+                self.bottom_over_key = true;
+            } else {
+                self.pending_overview = Some(waited + 1);
+            }
+        }
         let mut scene = self.current_scene();
         let talking = self.game.as_ref().is_some_and(|game| game.system.talking());
         if scene == Scene::Plain && self.bottom_over_key && (talking || self.scene == Scene::LevelUp) && self.showing_level_up() {
@@ -1172,18 +1192,23 @@ impl App {
         let into_level_up = scene == Scene::LevelUp && self.scene == Scene::Plain;
         let moved_on = (scene != self.scene && !into_level_up) || (opens && talking && scene != Scene::LevelUp);
         let touched_lately = self.bottom_over && self.over_touched_at.is_some_and(|at| at.elapsed() < overlays::TOUCH_KEEPS_OVER);
-        if !overlays::keeps_bottom_over(moved_on, opens, touched_lately, scene, &mut self.kept_scene) {
+        let talk_ended = self.kept_scene.is_some() && !talking;
+        if !overlays::keeps_bottom_over(moved_on, opens, talking, touched_lately, scene, &mut self.kept_scene) {
             self.bottom_over_key = false;
         }
         self.scene = scene;
         let shown = self.game.is_some() && self.layout == Screens::TopOnly && !self.settings.original && opens && self.bottom_over_key;
         let sound = match (self.bottom_over, shown) {
             (false, true) => self.bottom_sounds.open.as_ref(),
-            (true, false) if !moved_on && self.game.is_some() => self.bottom_sounds.close.as_ref(),
+            (true, false) if (!moved_on || talk_ended || self.closing_by_user) && self.game.is_some() => self.bottom_sounds.close.as_ref(),
             _ => None,
         };
         if let (Some(audio), Some(sound)) = (&self.audio, sound) {
             audio.play(sound);
+        }
+        self.closing_by_user = false;
+        if self.bottom_over && !shown && std::mem::take(&mut self.restore_inventory) && self.bottom_map_screen() == Some(overlays::MapScreen::Overview) {
+            self.scripted_tap = Some((overlays::INVENTORY_TAB, overlays::TAP_FRAMES));
         }
         self.bottom_over = shown;
         if !shown {
@@ -1204,18 +1229,25 @@ impl App {
     }
 
     fn map_overview(&mut self) {
-        if self.bottom_over || self.layout != Screens::TopOnly || self.settings.original || self.scene != Scene::Plain {
+        if self.pending_overview.is_some() || self.layout != Screens::TopOnly || self.settings.original || self.scene != Scene::Plain {
             return;
         }
-        let Some(game) = &mut self.game else { return };
-        if game.system.talking() {
+        if self.game.as_ref().is_none_or(|game| game.system.talking()) {
             return;
         }
-        let Some(screen) = game.system.bottom_picture().as_deref().and_then(overlays::map_screen) else { return };
-        self.bottom_over_key = true;
-        self.place_bottom_over();
-        if self.bottom_over && screen == overlays::MapScreen::Inventory {
-            self.scripted_tap = Some((overlays::MAP_BUTTON, overlays::TAP_FRAMES));
+        match (self.bottom_map_screen(), self.bottom_over) {
+            (Some(overlays::MapScreen::Overview), false) => {
+                self.bottom_over_key = true;
+                self.place_bottom_over();
+            }
+            (Some(overlays::MapScreen::Inventory), open) => {
+                self.scripted_tap = Some((overlays::MAP_BUTTON, overlays::TAP_FRAMES));
+                self.restore_inventory = true;
+                if !open {
+                    self.pending_overview = Some(0);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1228,6 +1260,7 @@ impl App {
         if !self.bottom_over_key && self.scene == Scene::Plain && !on_unit && !self.showing_level_up() {
             return;
         }
+        self.closing_by_user = self.bottom_over_key;
         self.bottom_over_key = !self.bottom_over_key;
         self.place_bottom_over();
     }
@@ -1369,14 +1402,6 @@ impl App {
                 (None, None) => self.menus.message = Some("No update available.".to_owned()),
             },
             Action::DownloadCompiler(index) => self.recompile(index, true),
-            Action::Shortcut(index) => {
-                if let Some(game) = self.library.games.get(index) {
-                    self.menus.message = Some(match shortcut::create(&game.name, game.icon.as_deref()) {
-                        Ok(path) => format!("Shortcut created: {}", path.display()),
-                        Err(error) => format!("The shortcut can't be created: {error}"),
-                    });
-                }
-            }
             Action::Mods(program_id) => {
                 if let Some(data_dir) = &self.data_dir {
                     let folder = zakuro_core::mods::dir(data_dir, program_id);
@@ -1399,7 +1424,7 @@ impl App {
                 }
             }
             Action::ChooseUpdate => {
-                if let Some(file) = rfd::FileDialog::new().set_title("The game's update").add_filter("Updates", &["cia"]).pick_file() {
+                if let Some(file) = rfd::FileDialog::new().set_title("The game's DLC").add_filter("DLC", &["cia"]).pick_file() {
                     self.settings.update_file = Some(file);
                     self.save_and_rescan();
                 }
@@ -1636,14 +1661,14 @@ impl App {
                 if self.pad_pointer.shown && self.gamepads.holding(self.settings.pad.a) {
                     input.touch = Some(self.pad_pointer.spot());
                 }
-                if let Some((spot, frames)) = self.scripted_tap {
-                    input.touch = Some(spot);
-                    self.scripted_tap = frames.checked_sub(1).filter(|&left| left > 0).map(|left| (spot, left));
-                }
                 input
             }
             None => self.gamepads.apply(self.keyboard.state()),
         };
+        if let (None, Some((spot, frames))) = (&game.replay, self.scripted_tap) {
+            input.touch = Some(spot);
+            self.scripted_tap = frames.checked_sub(1).filter(|&left| left > 0).map(|left| (spot, left));
+        }
         if self.holding_back_cancel {
             if input.buttons.contains(zakuro_core::services::hid::PadState::B) {
                 input.buttons.remove(zakuro_core::services::hid::PadState::B);
@@ -1891,13 +1916,16 @@ impl App {
     /// the menus, and the actions they asked for, done.
     fn interface(&mut self, event_loop: &ActiveEventLoop) -> Overlay {
         // when the slot chosen was saved to, while the menu shows it
-        let saved = self
-            .menus
-            .menu_open
-            .then(|| self.state_path(self.menus.slot))
-            .flatten()
-            .and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
-            .map(ago);
+        let saved: Vec<Option<String>> = (1..=menus::STATE_SLOTS as u8)
+            .map(|slot| {
+                self.menus
+                    .menu_open
+                    .then(|| self.state_path(slot))
+                    .flatten()
+                    .and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
+                    .map(ago)
+            })
+            .collect();
         let over = self.bottom_over_frame();
         let pointer = (over.is_some() && self.pad_pointer.shown).then(|| (self.pad_pointer.at, self.gamepads.holding(self.settings.pad.a)));
         let showing = match self.shown_layout() {
@@ -1945,7 +1973,7 @@ impl App {
         let overlay = gui.frame(window, |ui| {
             match &game {
                 Some((name, fps, recompiled)) => {
-                    actions.extend(menus.game(ui, name, show_fps.then_some(*fps), *recompiled, fast, saved.as_deref()));
+                    actions.extend(menus.game(ui, name, show_fps.then_some(*fps), *recompiled, fast, &saved));
                     if let Some(text) = &corner {
                         menus::corner(ui.ctx(), text);
                     }

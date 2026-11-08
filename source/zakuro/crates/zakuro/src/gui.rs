@@ -316,11 +316,13 @@ mod tests {
             ("paused.png", None, None),
             ("paused-chosen.png", Some([640.0, 524.0]), None),
             ("paused-quit.png", None, Some(Confirm::Quit)),
+            ("paused-save.png", None, Some(Confirm::Save(1))),
+            ("paused-load.png", None, Some(Confirm::Load(3))),
         ] {
             menus.confirm = confirm;
             let ctx = crate::gui::context();
             let paused = paint(&ctx, [1280, 960], pointer, |ui| {
-                menus.game(ui, "Fire Emblem Awakening", None, true, false, Some("1 Nov, 21:04"));
+                menus.game(ui, "Fire Emblem Awakening", None, true, false, &[Some("saved 2 hours ago".into()), None, Some("saved yesterday".into()), None, None]);
             });
             paused.save(folder.join(name)).unwrap();
         }

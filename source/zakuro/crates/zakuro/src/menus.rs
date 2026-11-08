@@ -14,6 +14,8 @@ use crate::gamepad::button_name;
 use crate::theme;
 use crate::settings::{BattleUi, Filter, Keys, Language, PadButtons, Renderer, Screens, Settings, Stereo3d, TopShape};
 
+pub const STATE_SLOTS: usize = 5;
+
 /// what the user asked for.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -21,7 +23,6 @@ pub enum Action {
     /// recompile the library's game at this index.
     Recompile(usize),
     BuildFeet(usize),
-    Shortcut(usize),
     Update,
     /// download a compiler, then recompile the library's game at this
     /// index with it.
@@ -110,6 +111,8 @@ pub struct Menus {
 pub(crate) enum Confirm {
     Reset,
     Quit,
+    Save(u8),
+    Load(u8),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
@@ -232,52 +235,36 @@ fn cover(area: Vec2, picture: [usize; 2]) -> egui::Rect {
 impl Menus {
     /// the library, filling the window.
     pub fn library(&mut self, ui: &mut egui::Ui, library: &Library, settings: &Settings, jobs: &[Job]) -> Vec<Action> {
-        ui.set_style(ui.ctx().theme().default_style());
         let mut actions = Vec::new();
         if library.changed {
             self.icons.clear();
         }
-        egui::Panel::top("library bar").show(ui, |ui| {
-            ui.add_space(10.0);
-            egui::containers::Sides::new().height(32.0).shrink_left().truncate().show(
+        egui::Panel::top("library bar").frame(theme::band_frame()).show(ui, |ui| {
+            egui::containers::Sides::new().height(32.0).show(
                 ui,
                 |ui| {
-                    ui.label(RichText::new("Zakuro").heading().size(24.0));
-                    ui.label(RichText::new(crate::update::RELEASE).weak()).on_hover_text("The launcher's version.");
-                    ui.separator();
-                    match (&settings.game_file, &settings.games) {
-                        (Some(file), _) => ui.label(file.display().to_string()),
-                        (None, Some(folder)) => ui.label(folder.display().to_string()),
-                        (None, None) => ui.label(RichText::new("no game chosen yet").weak()),
-                    };
+                    theme::band_title(ui, "Zakuro");
                 },
-                |ui| {
-                    if ui.button("Settings").clicked() {
-                        self.settings_open = true;
-                    }
-                    if ui.button("Multiplayer").clicked() {
-                        self.multiplayer_open = true;
-                    }
-                    match &self.update {
-                        Some(UpdateButton::Available) => {
-                            let button = egui::Button::new(RichText::new("Update Launcher").color(Color32::from_gray(235))).fill(ui.visuals().selection.bg_fill);
-                            if ui.add(button).on_hover_text("Download the latest launcher from GitHub, put it in place of this one and restart. Your saves, settings and the game you built stay as they are.").clicked() {
-                                actions.push(Action::Update);
-                            }
+                |ui| match &self.update {
+                    Some(UpdateButton::Available) => {
+                        if theme::band_button(ui, "Update Launcher", true)
+                            .on_hover_text("Download the latest launcher from GitHub, put it in place of this one and restart. Your saves, settings and the game you built stay as they are.")
+                            .clicked()
+                        {
+                            actions.push(Action::Update);
                         }
-                        Some(UpdateButton::Idle) => {
-                            if ui.button("Update Launcher").on_hover_text("Look for a newer launcher on GitHub.").clicked() {
-                                actions.push(Action::Update);
-                            }
-                        }
-                        Some(UpdateButton::Installing(fraction)) => {
-                            ui.add(egui::ProgressBar::new(*fraction).desired_width(170.0).text(format!("Updating, {:.0}%", fraction * 100.0)));
-                        }
-                        None => {}
                     }
+                    Some(UpdateButton::Idle) => {
+                        if theme::band_button(ui, "Update Launcher", false).on_hover_text("Look for a newer launcher on GitHub.").clicked() {
+                            actions.push(Action::Update);
+                        }
+                    }
+                    Some(UpdateButton::Installing(fraction)) => {
+                        ui.add(egui::ProgressBar::new(*fraction).desired_width(170.0).text(format!("Updating, {:.0}%", fraction * 100.0)));
+                    }
+                    None => {}
                 },
             );
-            ui.add_space(10.0);
         });
         let background = match self.background.get(ui.ctx(), settings.background.as_deref()) {
             Ok(texture) => texture.map(|texture| (texture.id(), texture.size())),
@@ -286,7 +273,7 @@ impl Menus {
                 None
             }
         };
-        egui::CentralPanel::default().show(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::BACKDROP_DARK).inner_margin(16)).show(ui, |ui| {
             if let Some((texture, size)) = background {
                 let area = ui.clip_rect();
                 let alpha = (settings.background_opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -295,160 +282,181 @@ impl Menus {
             if settings.game_file.is_none() && settings.games.is_none() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() / 3.0);
-                    ui.label("Choose the game's file to see it here.");
-                    if ui.button("Select game files").clicked() {
-                        actions.push(Action::ChooseGame);
-                    }
+                    ui.set_max_width(360.0);
+                    theme::frame().show(ui, |ui| {
+                        theme::header(ui, "Welcome", None);
+                        theme::menu_body(ui, |ui| {
+                            ui.label("Choose the game's file to see it here.");
+                            ui.add_space(8.0);
+                            theme::commands(ui, |ui| {
+                                if theme::command(ui, "\u{1F4C2}", "Select game files", true).clicked() {
+                                    actions.push(Action::ChooseGame);
+                                }
+                                if theme::command(ui, "\u{2699}", "Settings", true).clicked() {
+                                    self.settings_open = true;
+                                }
+                            });
+                        });
+                    });
                 });
                 return;
             }
             if library.is_scanning() {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label("Looking for games…");
+                    theme::on_backdrop(ui, "Looking for games…");
                 });
                 return;
             }
             if library.games.is_empty() {
-                ui.label("No .3ds, .cci, .cxi or .cia files in that folder.");
+                theme::on_backdrop(ui, "No .3ds, .cci, .cxi or .cia files in that folder.");
+                ui.add_space(8.0);
+                ui.set_max_width(320.0);
+                theme::commands(ui, |ui| {
+                    if theme::command(ui, "\u{2699}", "Settings", true).clicked() {
+                        self.settings_open = true;
+                    }
+                });
                 return;
             }
-            let (scale, share) = match library.games.len() {
-                1 => ((ui.available_width() / CARD_WIDTH).clamp(0.5, 1.0) * LONE_CARD, LONE_CARD),
-                _ => (0.5, 1.0),
-            };
-            let backed = background.is_some();
             let room = ui.available_height();
             egui::ScrollArea::vertical().show(ui, |ui| {
                 if let [game] = library.games.as_slice() {
                     let job = jobs.iter().find(|job| job.program_id == game.program_id);
-                    ui.add_space(((room - card_height(job, scale)) / 3.0).max(0.0));
+                    ui.add_space(((room - card_height(job)) / 3.0).max(0.0));
                 }
                 for (index, game) in library.games.iter().enumerate() {
                     let job = jobs.iter().find(|job| job.program_id == game.program_id);
-                    self.game_card(ui, index, game, job, scale, share, backed, &mut actions);
-                    ui.add_space(12.0);
+                    self.game_card(ui, index, game, job, &mut actions);
+                    ui.add_space(16.0);
                 }
             });
         });
         actions
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn game_card(&mut self, ui: &mut egui::Ui, index: usize, game: &Game, job: Option<&Job>, scale: f32, share: f32, backed: bool, actions: &mut Vec<Action>) {
-        let px = |size: f32| size * scale;
-        let text = |size: f32| (size * scale).max(14.0);
-        let (green, gold) = (Color32::from_rgb(110, 200, 120), Color32::from_rgb(220, 180, 100));
-        let fill = if backed { ui.visuals().panel_fill.gamma_multiply(0.85) } else { Color32::from_gray(32) };
-        let frame = egui::Frame::group(ui.style()).inner_margin(px(60.0)).corner_radius(8.0).fill(fill);
-        let width = ui.available_width() * share;
+    fn game_card(&mut self, ui: &mut egui::Ui, index: usize, game: &Game, job: Option<&Job>, actions: &mut Vec<Action>) {
+        let mut open_settings = false;
+        let width = ui.available_width().min(CARD_WIDTH);
         let left = ui.cursor().left() + (ui.available_width() - width) / 2.0;
         let room = egui::Rect::from_min_size(egui::pos2(left, ui.cursor().top()), egui::vec2(width, ui.available_height()));
         let mut card = ui.new_child(egui::UiBuilder::new().max_rect(room).layout(egui::Layout::top_down(egui::Align::Min)));
-        frame.show(&mut card, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
-                let icon = game.icon.as_ref().map(|pixels| {
-                    self.icons
-                        .entry(game.path.clone())
-                        .or_insert_with(|| {
-                            let image = egui::ColorImage::from_rgba_unmultiplied([ICON_SIZE, ICON_SIZE], pixels);
-                            ui.ctx().load_texture(game.path.display().to_string(), image, egui::TextureOptions::LINEAR)
-                        })
-                        .clone()
-                });
-                let icon_size = Vec2::splat(px(ICON));
-                match icon {
-                    Some(texture) => {
-                        ui.add(egui::Image::new(&texture).fit_to_exact_size(icon_size).corner_radius(px(14.0)));
-                    }
-                    None => {
-                        ui.allocate_space(icon_size);
-                    }
-                }
-                ui.add_space(px(56.0));
-                ui.vertical(|ui| {
-                    ui.add_space(px(18.0));
-                    ui.label(RichText::new(&game.name).size(text(46.0)).strong());
-                    ui.add_space(px(16.0));
-                    if let Some(problem) = &game.problem {
-                        ui.label(RichText::new(problem).size(text(19.0)).color(Color32::from_rgb(230, 160, 80)));
-                        return;
-                    }
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = px(18.0);
-                        ui.label(RichText::new(format!("{:016X}", game.program_id)).size(text(17.0)).weak().monospace());
-                        if game.recompiled {
-                            ui.label(RichText::new("recompiled").size(text(19.0)).color(green));
-                        }
-                        if let Some(update) = &game.update {
-                            let version = zakuro_fs::version_name(update.version);
-                            ui.label(RichText::new(format!("update {version}")).size(text(19.0)).color(gold));
-                        }
-                        let dlc = if game.dlc.is_empty() { gold } else { green };
-                        ui.label(RichText::new("DLC").size(text(19.0)).color(dlc));
+        theme::frame().show(&mut card, |ui| {
+            ui.set_width(width);
+            theme::header_with_note(ui, &game.name, &format!("Recompilation {}", crate::update::RELEASE));
+            theme::menu_body(ui, |ui| {
+                ui.horizontal_top(|ui| {
+                    let icon = game.icon.as_ref().map(|pixels| {
+                        self.icons
+                            .entry(game.path.clone())
+                            .or_insert_with(|| {
+                                let image = egui::ColorImage::from_rgba_unmultiplied([ICON_SIZE, ICON_SIZE], pixels);
+                                ui.ctx().load_texture(game.path.display().to_string(), image, egui::TextureOptions::LINEAR)
+                            })
+                            .clone()
                     });
-                    ui.add_space(px(36.0));
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = px(20.0);
-                        let play = egui::Button::new(RichText::new("\u{25B6} Play").size(text(24.0)).color(Color32::from_gray(235)))
-                            .fill(ui.visuals().selection.bg_fill)
-                            .min_size(Vec2::new(px(210.0), px(64.0)));
-                        if ui.add(play).clicked() {
-                            actions.push(Action::Play(game.path.clone()));
+                    let icon_size = Vec2::splat(ICON);
+                    match icon {
+                        Some(texture) => {
+                            ui.add(egui::Image::new(&texture).fit_to_exact_size(icon_size).corner_radius(10.0));
                         }
-                        if !job.is_some_and(|job| !job.stage().finished()) {
-                            let builds = crate::recompile::has_mod_steps(game.program_id);
-                            let compiler = "It takes 10 to 20 minutes and needs a C compiler, gcc or clang, or Zig, which Zakuro offers to download when the computer has neither.";
-                            let (label, hover) = match (!builds, game.recompiled) {
-                                (true, false) => ("Recompile", format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler}")),
-                                (true, true) => ("Recompile again", format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler}")),
-                                (false, recompiled) => (
-                                    if recompiled { "Build again" } else { "Build" },
-                                    format!("Build everything the game needs from your own copy of it, its code turned into native code with 3dsrecomp, which makes it run faster. {compiler}"),
-                                ),
+                        None => {
+                            ui.allocate_space(icon_size);
+                        }
+                    }
+                    ui.add_space(20.0);
+                    ui.vertical(|ui| {
+                        if let Some(problem) = &game.problem {
+                            ui.label(RichText::new(problem).size(15.0).color(theme::TAG_PROBLEM));
+                            return;
+                        }
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 14.0;
+                            let building = job.is_some_and(|job| !job.stage().finished());
+                            let (status, color) = match (building, game.recompiled) {
+                                (true, _) => ("recompiling", theme::TAG_MISSING),
+                                (false, true) => ("recompiled", theme::TAG_GOOD),
+                                (false, false) => ("not recompiled", theme::TAG_MISSING),
                             };
-                            let build = egui::Button::new(RichText::new(label).size(text(20.0))).min_size(Vec2::new(px(190.0), px(64.0)));
-                            if ui.add(build).on_hover_text(hover).clicked() {
-                                actions.push(Action::Recompile(index));
+                            ui.label(RichText::new(status).size(15.0).color(color));
+                            if let Some(update) = &game.update {
+                                let version = zakuro_fs::version_name(update.version);
+                                ui.label(RichText::new(format!("update {version}")).size(15.0).color(theme::TAG_MISSING));
                             }
-                            let feet = egui::Button::new(RichText::new("Build Feet mod").size(text(20.0))).min_size(Vec2::new(px(200.0), px(64.0)));
-                            if builds && ui.add(feet).on_hover_text("Build only the feet mod from your copy of the game, in a few seconds, without converting the game's code again. The feet show from the next time the game starts.").clicked() {
-                                actions.push(Action::BuildFeet(index));
+                            let dlc = if game.dlc.is_empty() { theme::TAG_MISSING } else { theme::TAG_GOOD };
+                            ui.label(RichText::new("DLC").size(15.0).color(dlc));
+                        });
+                        ui.add_space(8.0);
+                        ui.set_max_width((ui.available_width() / 2.0).max(220.0));
+                        theme::commands(ui, |ui| {
+                            if theme::primary_command(ui, "\u{25B6}", "Play").clicked() {
+                                actions.push(Action::Play(game.path.clone()));
                             }
-                        }
-                        let mods = egui::Button::new(RichText::new("Mods").size(text(20.0))).min_size(Vec2::new(px(130.0), px(64.0)));
-                        if ui.add(mods).on_hover_text("Open the game's mods folder. Files put in its romfs folder replace the game's, the way Luma3DS and Citra take mods, and a texture pack made for Citra or Azahar goes in its textures folder.").clicked() {
-                            actions.push(Action::Mods(game.program_id));
-                        }
-                        let shortcut = egui::Button::new(RichText::new("Create shortcut").size(text(20.0))).min_size(Vec2::new(px(200.0), px(64.0)));
-                        if ui.add(shortcut).on_hover_text("Put a shortcut to the launcher on the desktop, with the game's icon.").clicked() {
-                            actions.push(Action::Shortcut(index));
-                        }
+                        });
+                        ui.add_space(10.0);
+                        theme::commands(ui, |ui| {
+                            if !job.is_some_and(|job| !job.stage().finished()) {
+                                let builds = crate::recompile::has_mod_steps(game.program_id);
+                                let compiler = "It takes 10 to 20 minutes and needs a C compiler, gcc or clang, or Zig, which Zakuro offers to download when the computer has neither.";
+                                let (label, hover) = match (!builds, game.recompiled) {
+                                    (true, false) => ("Recompile", format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler}")),
+                                    (true, true) => ("Recompile again", format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler}")),
+                                    (false, recompiled) => (
+                                        if recompiled { "Recompile" } else { "Build" },
+                                        format!("Build everything the game needs from your own copy of it, its code turned into native code with 3dsrecomp, which makes it run faster. {compiler}"),
+                                    ),
+                                };
+                                if theme::command(ui, "\u{2692}", label, true).on_hover_text(hover).clicked() {
+                                    actions.push(Action::Recompile(index));
+                                }
+                                if builds
+                                    && theme::command(ui, "\u{2728}", "Build Feet mod", true)
+                                        .on_hover_text("Build only the feet mod from your copy of the game, in a few seconds, without converting the game's code again. The feet show from the next time the game starts.")
+                                        .clicked()
+                                {
+                                    actions.push(Action::BuildFeet(index));
+                                }
+                            }
+                            if theme::command(ui, "\u{2699}", "Settings", true).clicked() {
+                                open_settings = true;
+                            }
+                            if theme::command(ui, "\u{1F4C2}", "Mods", true)
+                                .on_hover_text("Open the game's mods folder. Files put in its romfs folder replace the game's, the way Luma3DS and Citra take mods, and a texture pack made for Citra or Azahar goes in its textures folder.")
+                                .clicked()
+                            {
+                                actions.push(Action::Mods(game.program_id));
+                            }
+                            if theme::command(ui, "\u{1F6AA}", "Exit", true).clicked() {
+                                actions.push(Action::Quit);
+                            }
+                        });
                     });
                 });
+                match job.map(Job::stage) {
+                    Some(stage) if !stage.finished() => {
+                        let job = job.unwrap();
+                        ui.add_space(14.0);
+                        ui.horizontal(|ui| {
+                            let cancel = Vec2::new(110.0, 32.0);
+                            let width = ui.available_width() - cancel.x - ui.spacing().item_spacing.x;
+                            progress(ui, job, width, 32.0, 15.0);
+                            if ui.add(egui::Button::new(RichText::new("Cancel").size(15.0)).min_size(cancel)).clicked() {
+                                actions.push(Action::CancelRecompile(job.program_id));
+                            }
+                        });
+                    }
+                    Some(Stage::Failed(error)) => {
+                        ui.add_space(10.0);
+                        ui.label(RichText::new(format!("Failed: {error}")).size(15.0).color(theme::TAG_PROBLEM));
+                    }
+                    _ => {}
+                }
             });
-            match job.map(Job::stage) {
-                Some(stage) if !stage.finished() => {
-                    let job = job.unwrap();
-                    ui.add_space(px(50.0));
-                    ui.horizontal(|ui| {
-                        let cancel = Vec2::new(px(120.0), px(40.0));
-                        let width = ui.available_width() - cancel.x - ui.spacing().item_spacing.x;
-                        progress(ui, job, width, px(40.0), text(18.0));
-                        if ui.add(egui::Button::new(RichText::new("Cancel").size(text(18.0))).min_size(cancel)).clicked() {
-                            actions.push(Action::CancelRecompile(job.program_id));
-                        }
-                    });
-                }
-                Some(Stage::Failed(error)) => {
-                    ui.add_space(px(30.0));
-                    ui.label(RichText::new(format!("Failed: {error}")).size(text(18.0)).color(Color32::LIGHT_RED));
-                }
-                _ => {}
-            }
         });
         ui.advance_cursor_after_rect(card.min_rect());
+        if open_settings {
+            self.settings_open = true;
+        }
     }
 
     /// what goes over a running game, the menu when it is open and the
@@ -461,7 +469,7 @@ impl Menus {
         fps: Option<(f32, f32)>,
         recompiled: bool,
         fast: bool,
-        saved: Option<&str>,
+        saved: &[Option<String>],
     ) -> Vec<Action> {
         let mut actions = Vec::new();
         let ctx = ui.ctx().clone();
@@ -502,6 +510,9 @@ impl Menus {
             self.confirm = None;
             return actions;
         }
+        if self.settings_open {
+            return actions;
+        }
         theme::window("paused")
             .collapsible(false)
             .resizable(false)
@@ -524,22 +535,23 @@ impl Menus {
                         }
                     });
                     ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        ui.add(egui::DragValue::new(&mut self.slot).range(1..=9).prefix("Slot "));
-                        theme::hint(ui, saved.unwrap_or("empty"));
-                    });
-                    ui.horizontal(|ui| {
-                        if ui.add_sized([130.0, 28.0], egui::Button::new("Save state")).on_hover_text("F5 saves to this slot while playing.").clicked() {
-                            actions.push(Action::SaveState);
-                        }
-                        if ui
-                            .add_enabled(saved.is_some(), egui::Button::new("Load state").min_size(Vec2::new(130.0, 28.0)))
-                            .on_hover_text("F8 loads this slot while playing.")
-                            .clicked()
-                        {
-                            actions.push(Action::LoadState);
-                        }
-                    });
+                    let describe = |slot: usize| match saved.get(slot - 1).cloned().flatten() {
+                        Some(when) => format!("Slot {slot}, {when}."),
+                        None => format!("Slot {slot} is empty."),
+                    };
+                    for (row, action, keys) in [("Save", Action::SaveState, "F5"), ("Load", Action::LoadState, "F8")] {
+                        theme::slot_row(ui, row, |ui| {
+                            for slot in 1..=STATE_SLOTS {
+                                let filled = saved.get(slot - 1).is_some_and(Option::is_some);
+                                let enabled = filled || action == Action::SaveState;
+                                let hint = format!("{} {keys} uses the outlined slot while playing.", describe(slot));
+                                let response = theme::slot(ui, &slot.to_string(), filled, enabled, self.slot as usize == slot).on_hover_text(hint);
+                                if response.clicked() {
+                                    self.confirm = Some(if action == Action::SaveState { Confirm::Save(slot as u8) } else { Confirm::Load(slot as u8) });
+                                }
+                            }
+                        });
+                    }
                     ui.add_space(8.0);
                     theme::commands(ui, |ui| {
                         if theme::command(ui, "\u{2699}", "Settings", true).clicked() {
@@ -564,16 +576,34 @@ impl Menus {
                 });
             });
         if let Some(confirm) = self.confirm {
-            let (title, text, icon, label, action) = match confirm {
-                Confirm::Reset => ("Reset the game?", "It starts over, and what wasn't saved is lost.", "\u{27F3}", "Reset", Action::Reset),
-                Confirm::Quit => ("Quit?", "The game closes, and what wasn't saved is lost.", "\u{1F6AA}", "Quit", Action::Quit),
+            let (title, text, icon, label, action, slot) = match confirm {
+                Confirm::Reset => ("Reset the game?".to_owned(), "It starts over, and what wasn't saved is lost.".to_owned(), "\u{27F3}", "Reset", Action::Reset, None),
+                Confirm::Quit => ("Quit?".to_owned(), "The game closes, and what wasn't saved is lost.".to_owned(), "\u{1F6AA}", "Quit", Action::Quit, None),
+                Confirm::Save(slot) => (
+                    format!("Save to slot {slot}?"),
+                    String::new(),
+                    "\u{2193}",
+                    "Save",
+                    Action::SaveState,
+                    Some(slot),
+                ),
+                Confirm::Load(slot) => (
+                    format!("Load slot {slot}?"),
+                    String::new(),
+                    "\u{2191}",
+                    "Load",
+                    Action::LoadState,
+                    Some(slot),
+                ),
             };
             let modal = egui::Modal::new(egui::Id::new("confirm")).frame(theme::frame()).show(&ctx, |ui| {
                 ui.set_width(300.0);
-                theme::header(ui, title, None);
+                theme::header(ui, &title, None);
                 theme::menu_body(ui, |ui| {
-                    theme::hint(ui, text);
-                    ui.add_space(6.0);
+                    if !text.is_empty() {
+                        theme::hint(ui, &text);
+                        ui.add_space(6.0);
+                    }
                     theme::commands(ui, |ui| {
                         let cancel = theme::command(ui, "\u{2716}", "Cancel", true);
                         let chosen = theme::command(ui, icon, label, true);
@@ -586,6 +616,9 @@ impl Menus {
             });
             let (cancelled, confirmed) = modal.inner;
             if confirmed {
+                if let Some(slot) = slot {
+                    self.slot = slot;
+                }
                 actions.push(action);
                 self.confirm = None;
             } else if cancelled || modal.should_close() {
@@ -787,7 +820,12 @@ impl Menus {
         let room = ctx.content_rect().height() - 16.0;
         if open {
             let mut kept = true;
-            theme::window("settings").default_size([560.0, room.min(640.0)]).min_width(560.0).max_height(room).show(ctx, |ui| {
+            theme::window("settings")
+                .default_size([560.0, room.min(640.0)])
+                .min_width(560.0)
+                .max_height(room)
+                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+                .show(ctx, |ui| {
                 theme::header(ui, "Settings", Some(&mut kept));
                 theme::tabs(ui, &mut self.settings_tab, &SETTINGS_TABS);
                 let tab = self.settings_tab;
@@ -818,62 +856,76 @@ impl Menus {
     }
 
     fn keybinds_tab(&mut self, ui: &mut egui::Ui, settings: &mut Settings) {
-        egui::Grid::new("controls").num_columns(4).spacing([12.0, 4.0]).show(ui, |ui| {
-            for (i, (name, key)) in settings.keys.all_mut().into_iter().enumerate() {
-                ui.label(name);
-                let text = if self.rebinding == Some(i) { "press a key…".to_owned() } else { key_name(*key) };
-                if ui.add_sized([110.0, 20.0], egui::Button::new(text)).clicked() {
-                    self.rebinding = Some(i);
+        theme::commands(ui, |ui| {
+            let mut keys = settings.keys.all_mut();
+            for (pair, bindings) in keys.chunks_mut(2).enumerate() {
+                theme::row(ui, |ui| {
+                    for (offset, (name, key)) in bindings.iter_mut().enumerate() {
+                        let i = pair * 2 + offset;
+                        theme::cell(ui, 120.0, name);
+                        let text = if self.rebinding == Some(i) { "press a key…".to_owned() } else { key_name(**key) };
+                        if ui.add_sized([110.0, 24.0], egui::Button::new(text)).clicked() {
+                            self.rebinding = Some(i);
+                            self.rebinding_pad = None;
+                        }
+                        ui.add_space(12.0);
+                    }
+                });
+            }
+            theme::row(ui, |ui| {
+                theme::cell(ui, 224.0, "Bottom screen over the top one");
+                let text = if self.rebinding == Some(BOTTOM_OVER) { "press a key…".to_owned() } else { key_name(settings.bottom_over_key) };
+                if ui.add_sized([110.0, 24.0], egui::Button::new(text)).clicked() {
+                    self.rebinding = Some(BOTTOM_OVER);
                     self.rebinding_pad = None;
                 }
-                if i % 2 == 1 {
-                    ui.end_row();
-                }
-            }
+            });
         });
-        ui.horizontal(|ui| {
-            ui.label("Bottom screen over the top one");
-            let text = if self.rebinding == Some(BOTTOM_OVER) { "press a key…".to_owned() } else { key_name(settings.bottom_over_key) };
-            if ui.add_sized([110.0, 20.0], egui::Button::new(text)).clicked() {
-                self.rebinding = Some(BOTTOM_OVER);
-                self.rebinding_pad = None;
-            }
-        });
-        if ui.button("Default controls").clicked() {
-            settings.keys = Keys::default();
-            settings.bottom_over_key = crate::settings::BOTTOM_OVER_KEY;
-            self.rebinding = None;
-        }
-    }
-
-    fn controller_tab(&mut self, ui: &mut egui::Ui, settings: &mut Settings) {
-        egui::Grid::new("controller").num_columns(4).spacing([12.0, 4.0]).show(ui, |ui| {
-            for (i, (name, button)) in settings.pad.all_mut().into_iter().enumerate() {
-                ui.label(name);
-                let text = if self.rebinding_pad == Some(i) { "press a button…" } else { button_name(*button) };
-                if ui.add_sized([110.0, 20.0], egui::Button::new(text)).clicked() {
-                    self.rebinding_pad = Some(i);
-                    self.rebinding = None;
-                }
-                if i % 2 == 1 {
-                    ui.end_row();
-                }
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("Bottom screen over the top one");
-            let text = if self.rebinding_pad == Some(BOTTOM_OVER) { "press a button…" } else { button_name(settings.bottom_over_button) };
-            if ui.add_sized([110.0, 20.0], egui::Button::new(text)).clicked() {
-                self.rebinding_pad = Some(BOTTOM_OVER);
+        ui.add_space(8.0);
+        theme::commands(ui, |ui| {
+            if theme::command(ui, "\u{27F2}", "Default controls", true).clicked() {
+                settings.keys = Keys::default();
+                settings.bottom_over_key = crate::settings::BOTTOM_OVER_KEY;
                 self.rebinding = None;
             }
         });
+    }
+
+    fn controller_tab(&mut self, ui: &mut egui::Ui, settings: &mut Settings) {
+        theme::commands(ui, |ui| {
+            let mut buttons = settings.pad.all_mut();
+            for (pair, bindings) in buttons.chunks_mut(2).enumerate() {
+                theme::row(ui, |ui| {
+                    for (offset, (name, button)) in bindings.iter_mut().enumerate() {
+                        let i = pair * 2 + offset;
+                        theme::cell(ui, 120.0, name);
+                        let text = if self.rebinding_pad == Some(i) { "press a button…" } else { button_name(**button) };
+                        if ui.add_sized([110.0, 24.0], egui::Button::new(text)).clicked() {
+                            self.rebinding_pad = Some(i);
+                            self.rebinding = None;
+                        }
+                        ui.add_space(12.0);
+                    }
+                });
+            }
+            theme::row(ui, |ui| {
+                theme::cell(ui, 224.0, "Bottom screen over the top one");
+                let text = if self.rebinding_pad == Some(BOTTOM_OVER) { "press a button…" } else { button_name(settings.bottom_over_button) };
+                if ui.add_sized([110.0, 24.0], egui::Button::new(text)).clicked() {
+                    self.rebinding_pad = Some(BOTTOM_OVER);
+                    self.rebinding = None;
+                }
+            });
+        });
         theme::hint(ui, "The circle pad is mapped to the left stick, and the Home button opens the in-game menu.");
-        if ui.button("Default controller").clicked() {
-            settings.pad = PadButtons::default();
-            settings.bottom_over_button = crate::settings::BOTTOM_OVER_BUTTON;
-            self.rebinding_pad = None;
-        }
+        ui.add_space(8.0);
+        theme::commands(ui, |ui| {
+            if theme::command(ui, "\u{27F2}", "Default controller", true).clicked() {
+                settings.pad = PadButtons::default();
+                settings.bottom_over_button = crate::settings::BOTTOM_OVER_BUTTON;
+                self.rebinding_pad = None;
+            }
+        });
     }
 
     /// a message box, when there is something to tell.
@@ -949,24 +1001,27 @@ impl Menus {
 
     pub fn message(&mut self, ctx: &egui::Context) {
         let Some(text) = self.message.clone() else { return };
-        egui::Window::new("Zakuro")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .show(ctx, |ui| {
-                ui.label(text.as_str());
-                ui.horizontal(|ui| {
-                    if let Some((_, report)) = self.report.as_ref().filter(|(about, _)| *about == text) {
-                        if ui.button("Copy info for a report").clicked() {
+        let report = self.report.as_ref().filter(|(about, _)| *about == text).map(|(_, report)| report.clone());
+        let modal = egui::Modal::new(egui::Id::new("message")).frame(theme::frame()).show(ctx, |ui| {
+            ui.set_width(360.0);
+            theme::header(ui, "Zakuro", None);
+            theme::menu_body(ui, |ui| {
+                ui.label(RichText::new(text.as_str()).size(15.0));
+                ui.add_space(8.0);
+                theme::commands(ui, |ui| {
+                    if let Some(report) = &report {
+                        if theme::command(ui, "\u{1F4CB}", "Copy info for a report", true).clicked() {
                             ui.ctx().copy_text(report.clone());
                         }
                     }
-                    if ui.button("OK").clicked() {
-                        self.message = None;
-                        self.report = None;
-                    }
-                });
-            });
+                    theme::command(ui, "\u{2714}", "OK", true).clicked()
+                })
+            })
+        });
+        if modal.inner || modal.should_close() {
+            self.message = None;
+            self.report = None;
+        }
     }
 }
 
@@ -974,119 +1029,170 @@ fn system_tab(ui: &mut egui::Ui, settings: &mut Settings, actions: &mut Vec<Acti
     let name = |file: &Option<std::path::PathBuf>| {
         file.as_ref().and_then(|file| file.file_name()).map(|name| name.to_string_lossy().into_owned())
     };
-    ui.label("Game");
-    ui.horizontal(|ui| {
-        match name(&settings.game_file) {
-            Some(file) => ui.label(file),
-            None => ui.label(RichText::new("none chosen").weak()),
-        };
-        if ui.button("Choose…").clicked() {
-            actions.push(Action::ChooseGame);
-        }
+    theme::commands(ui, |ui| {
+        theme::row(ui, |ui| {
+            theme::cell(ui, 70.0, "Game");
+            if ui.button("Choose…").clicked() {
+                actions.push(Action::ChooseGame);
+            }
+            match name(&settings.game_file) {
+                Some(file) => ui.label(file),
+                None => ui.label(RichText::new("none chosen").weak()),
+            };
+        });
+        theme::row(ui, |ui| {
+            theme::cell(ui, 70.0, "DLC");
+            if ui.button("Choose…").clicked() {
+                actions.push(Action::ChooseUpdate);
+            }
+            if settings.update_file.is_some() && ui.button("Remove").clicked() {
+                actions.push(Action::ForgetUpdate);
+            }
+            match name(&settings.update_file) {
+                Some(file) => ui.label(file),
+                None => ui.label(RichText::new("none chosen").weak()),
+            };
+        });
     });
-    theme::hint(ui, "This is Fire Emblem Awakening's file (.3ds or .cci).");
+    theme::hint(ui, "The game is Fire Emblem Awakening's file (.3ds or .cci). The DLC is its DLC file (.cia), if you have one; the game runs with it from the next time it starts.");
     ui.add_space(8.0);
-    ui.label("Update");
-    ui.horizontal(|ui| {
-        match name(&settings.update_file) {
-            Some(file) => ui.label(file),
-            None => ui.label(RichText::new("none chosen").weak()),
-        };
-        if ui.button("Choose…").clicked() {
-            actions.push(Action::ChooseUpdate);
-        }
-        if settings.update_file.is_some() && ui.button("Remove").clicked() {
-            actions.push(Action::ForgetUpdate);
-        }
+    theme::commands(ui, |ui| {
+        theme::row(ui, |ui| {
+            egui::ComboBox::from_label("Language").selected_text(settings.language.name()).show_ui(ui, |ui| {
+                for language in Language::ALL {
+                    ui.selectable_value(&mut settings.language, language, language.name());
+                }
+            })
+            .response
+            .on_hover_text("This is the console's system language. Fire Emblem Awakening shows its text in this language.");
+        });
+        theme::row(ui, |ui| {
+            ui.checkbox(&mut settings.show_console, "Show the console")
+                .on_hover_text("Shows a window with Zakuro's log, which helps when reporting a problem. Closing that window closes Zakuro too.");
+        });
     });
-    theme::hint(ui, "This is the game's update file (.cia), if you have one. The game runs with it from the next time it starts.");
-    ui.add_space(8.0);
-    egui::ComboBox::from_label("Language").selected_text(settings.language.name()).show_ui(ui, |ui| {
-        for language in Language::ALL {
-            ui.selectable_value(&mut settings.language, language, language.name());
-        }
-    })
-    .response
-    .on_hover_text("This is the console's system language. Fire Emblem Awakening shows its text in this language.");
     theme::hint(ui, "A new language takes effect after a reset, or the next time the game starts.");
-    ui.add_space(8.0);
-    ui.checkbox(&mut settings.show_console, "Show the console")
-        .on_hover_text("Shows a window with Zakuro's log, which helps when reporting a problem. Closing that window closes Zakuro too.");
 }
 
 fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     let mut original = settings.original;
-    if ui
-        .checkbox(&mut original, "Original mode")
-        .on_hover_text("Plays the game as the console does: both screens, the top one 5:3, at the console's resolution with no smoothing and no frame interpolation, without mods, codes, enhancements or anything added over the game's screens. Your own choices come back when you turn it off.")
-        .changed()
-    {
-        settings.set_original(original);
-    }
+    theme::commands(ui, |ui| {
+        theme::row(ui, |ui| {
+            if ui
+                .checkbox(&mut original, "Original mode")
+                .on_hover_text("Plays the game as the console does: both screens, the top one 5:3, at the console's resolution with no smoothing and no frame interpolation, without mods, codes, enhancements or anything added over the game's screens. Your own choices come back when you turn it off.")
+                .changed()
+            {
+                settings.set_original(original);
+            }
+        });
+    });
     theme::hint(ui, "Mods change the next time the game starts; everything else changes right away.");
     ui.add_space(8.0);
     let free = !settings.original;
-    egui::ComboBox::from_label("Presented with")
-        .selected_text(match settings.renderer {
-            Renderer::Vulkan => "Vulkan",
-            Renderer::OpenGl => "OpenGL",
-        })
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut settings.renderer, Renderer::Vulkan, "Vulkan");
-            ui.selectable_value(&mut settings.renderer, Renderer::OpenGl, "OpenGL");
-        });
-    ui.add_enabled(free, egui::Slider::new(&mut settings.resolution, 1..=8).text("Resolution").suffix("x"))
-        .on_hover_text("Sets how many times the console's resolution the 3D is drawn at. Higher values look sharper but use much more GPU power.");
-    ui.add_enabled(free, egui::Checkbox::new(&mut settings.texture_packs, "Texture packs"))
-        .on_hover_text("Uses a texture pack made for Fire Emblem Awakening on Citra or Azahar. Put the pack in the textures folder inside the game's mods folder.");
     let interpolates = settings.renderer == Renderer::Vulkan;
-    ui.add_enabled(free && interpolates, egui::Checkbox::new(&mut settings.frame_interpolation, "Frame interpolation"))
-        .on_hover_text("Adds a generated frame between each pair of frames, so the battles and cutscenes, which run at 30 frames per second, are shown at 60. This adds one frame of delay. It requires the Vulkan presenter.");
-    ui.add_enabled_ui(free, |ui| {
-        egui::ComboBox::from_label("Battles UI style").selected_text(settings.battle_ui.name()).show_ui(ui, |ui| {
-            for choice in BattleUi::ALL {
-                ui.selectable_value(&mut settings.battle_ui, choice, choice.name());
-            }
-        })
-    })
-    .inner
-    .response
-    .on_hover_text("With the top screen alone, what shows over a battle: the game's own panels from the bottom screen, the same information in the style of Fire Emblem: Three Houses, or nothing at all.");
-    ui.checkbox(&mut settings.show_fps, "Show the frame rate")
-        .on_hover_text("Shows the frame rate in a corner of the screen: the frames the game draws per second, then the frames shown per second.");
-    ui.add_enabled_ui(free, |ui| {
-        egui::ComboBox::from_label("Screens").selected_text(settings.layout.name()).show_ui(ui, |ui| {
-            for layout in Screens::ALL {
-                ui.selectable_value(&mut settings.layout, layout, layout.name());
-            }
+    theme::commands(ui, |ui| {
+        theme::row(ui, |ui| {
+            egui::ComboBox::from_label("Presented with")
+                .selected_text(match settings.renderer {
+                    Renderer::Vulkan => "Vulkan",
+                    Renderer::OpenGl => "OpenGL",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut settings.renderer, Renderer::Vulkan, "Vulkan");
+                    ui.selectable_value(&mut settings.renderer, Renderer::OpenGl, "OpenGL");
+                });
         });
-        egui::ComboBox::from_label("Filter").selected_text(settings.filter.name()).show_ui(ui, |ui| {
-            for filter in Filter::ALL {
-                ui.selectable_value(&mut settings.filter, filter, filter.name());
-            }
-        })
-        .response
-        .on_hover_text("Sets how the screens look when scaled up: smooth, sharp with soft edges, or sharp square pixels.");
-        egui::ComboBox::from_label("Top screen shape").selected_text(settings.top_shape.name()).show_ui(ui, |ui| {
-            for shape in TopShape::ALL {
-                ui.selectable_value(&mut settings.top_shape, shape, shape.name());
-            }
-        })
-        .response
-        .on_hover_text("Shows the top screen wider than on the console. Use 16:9 with the game's 16:9 mod turned on in Cheats, otherwise the picture is stretched.");
+        theme::row(ui, |ui| {
+            ui.add_enabled(free, egui::Slider::new(&mut settings.resolution, 1..=8).text("Resolution").suffix("x"))
+                .on_hover_text("Sets how many times the console's resolution the 3D is drawn at. Higher values look sharper but use much more GPU power.");
+        });
+        theme::row(ui, |ui| {
+            ui.add_enabled(free, egui::Checkbox::new(&mut settings.texture_packs, "Texture packs"))
+                .on_hover_text("Uses a texture pack made for Fire Emblem Awakening on Citra or Azahar. Put the pack in the textures folder inside the game's mods folder.");
+        });
+        theme::row(ui, |ui| {
+            ui.add_enabled(free && interpolates, egui::Checkbox::new(&mut settings.frame_interpolation, "Frame interpolation"))
+                .on_hover_text("Adds a generated frame between each pair of frames, so the battles and cutscenes, which run at 30 frames per second, are shown at 60. This adds one frame of delay. It requires the Vulkan presenter.");
+        });
+        theme::row(ui, |ui| {
+            ui.add_enabled_ui(free, |ui| {
+                egui::ComboBox::from_label("Battles UI style").selected_text(settings.battle_ui.name()).show_ui(ui, |ui| {
+                    for choice in BattleUi::ALL {
+                        ui.selectable_value(&mut settings.battle_ui, choice, choice.name());
+                    }
+                })
+            })
+            .inner
+            .response
+            .on_hover_text("With the top screen alone, what shows over a battle: the game's own panels from the bottom screen, the same information in the style of Fire Emblem: Three Houses, or nothing at all.");
+        });
+        theme::row(ui, |ui| {
+            ui.checkbox(&mut settings.fullscreen, "Start games in fullscreen")
+                .on_hover_text("Goes fullscreen when a game starts. F11 or Fullscreen in the menu switches back and forth while playing.");
+        });
+        theme::row(ui, |ui| {
+            ui.checkbox(&mut settings.show_fps, "Show the frame rate")
+                .on_hover_text("Shows the frame rate in a corner of the screen: the frames the game draws per second, then the frames shown per second.");
+        });
     });
-    egui::ComboBox::from_label("3D").selected_text(settings.stereo.name()).show_ui(ui, |ui| {
-        for stereo in Stereo3d::ALL {
-            ui.selectable_value(&mut settings.stereo, stereo, stereo.name());
-        }
-    })
-    .response
-    .on_hover_text("Shows the top screen in 3D. Red and cyan is for anaglyph glasses, side by side is for 3D TVs and headsets, and alternate rows is for passive 3D monitors. When off, the game is drawn flat.");
+    ui.add_space(8.0);
+    ui.add_enabled_ui(free, |ui| {
+        theme::commands(ui, |ui| {
+            theme::row(ui, |ui| {
+                egui::ComboBox::from_label("Screens").selected_text(settings.layout.name()).show_ui(ui, |ui| {
+                    for layout in Screens::ALL {
+                        ui.selectable_value(&mut settings.layout, layout, layout.name());
+                    }
+                });
+            });
+            theme::row(ui, |ui| {
+                egui::ComboBox::from_label("Filter")
+                    .selected_text(settings.filter.name())
+                    .show_ui(ui, |ui| {
+                        for filter in Filter::ALL {
+                            ui.selectable_value(&mut settings.filter, filter, filter.name());
+                        }
+                    })
+                    .response
+                    .on_hover_text("Sets how the screens look when scaled up: smooth, sharp with soft edges, or sharp square pixels.");
+            });
+            theme::row(ui, |ui| {
+                egui::ComboBox::from_label("Top screen shape")
+                    .selected_text(settings.top_shape.name())
+                    .show_ui(ui, |ui| {
+                        for shape in TopShape::ALL {
+                            ui.selectable_value(&mut settings.top_shape, shape, shape.name());
+                        }
+                    })
+                    .response
+                    .on_hover_text("Shows the top screen wider than on the console. Use 16:9 with the game's 16:9 mod turned on in Cheats, otherwise the picture is stretched.");
+            });
+        });
+    });
+    ui.add_space(8.0);
     let stereo = settings.stereo != Stereo3d::Off;
-    ui.add_enabled(stereo, egui::Slider::new(&mut settings.depth_3d, 0..=100).text("Depth").suffix("%"))
-        .on_hover_text("Works like the console's 3D slider and sets how deep the 3D looks.");
-    ui.add_enabled(stereo, egui::Checkbox::new(&mut settings.swap_eyes, "Swap eyes"))
-        .on_hover_text("Swaps the left and right pictures. Use this for cross-eyed viewing, or if the 3D looks inverted.");
+    theme::commands(ui, |ui| {
+        theme::row(ui, |ui| {
+            egui::ComboBox::from_label("3D")
+                .selected_text(settings.stereo.name())
+                .show_ui(ui, |ui| {
+                    for stereo in Stereo3d::ALL {
+                        ui.selectable_value(&mut settings.stereo, stereo, stereo.name());
+                    }
+                })
+                .response
+                .on_hover_text("Shows the top screen in 3D. Red and cyan is for anaglyph glasses, side by side is for 3D TVs and headsets, and alternate rows is for passive 3D monitors. When off, the game is drawn flat.");
+        });
+        theme::row(ui, |ui| {
+            ui.add_enabled(stereo, egui::Slider::new(&mut settings.depth_3d, 0..=100).text("Depth").suffix("%"))
+                .on_hover_text("Works like the console's 3D slider and sets how deep the 3D looks.");
+        });
+        theme::row(ui, |ui| {
+            ui.add_enabled(stereo, egui::Checkbox::new(&mut settings.swap_eyes, "Swap eyes"))
+                .on_hover_text("Swaps the left and right pictures. Use this for cross-eyed viewing, or if the 3D looks inverted.");
+        });
+    });
     theme::hint(
         ui,
         "Press F9 while playing to switch between screen layouts, and F10 to switch between the top and bottom screen alone. When the top screen is shown alone, the key set in Keybinds shows the bottom screen in the middle of it, and you can use the mouse on it. The game's buttons wait until the same key, or the game's B button, closes it.",
@@ -1095,8 +1201,14 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
 }
 
 fn sound_tab(ui: &mut egui::Ui, settings: &mut Settings) {
-    ui.add(egui::Slider::new(&mut settings.volume, 0.0..=1.0).text("Volume").show_value(false));
-    ui.checkbox(&mut settings.mute, "Mute");
+    theme::commands(ui, |ui| {
+        theme::row(ui, |ui| {
+            ui.add(egui::Slider::new(&mut settings.volume, 0.0..=1.0).text("Volume").show_value(false));
+        });
+        theme::row(ui, |ui| {
+            ui.checkbox(&mut settings.mute, "Mute");
+        });
+    });
 }
 
 /// a line a GameOverlay keeps over the game, in the bottom right corner.
@@ -1111,19 +1223,17 @@ pub fn corner(ctx: &egui::Context, text: &str) {
         });
 }
 
-const ICON: f32 = 180.0;
+const ICON: f32 = 150.0;
 
-const LONE_CARD: f32 = 0.75;
+const CARD_WIDTH: f32 = 720.0;
 
-const CARD_WIDTH: f32 = 60.0 + ICON + 56.0 + 210.0 + 20.0 + 190.0 + 20.0 + 130.0 + 20.0 + 200.0 + 60.0 + 40.0;
-
-fn card_height(job: Option<&Job>, scale: f32) -> f32 {
+fn card_height(job: Option<&Job>) -> f32 {
     let below = match job.map(Job::stage) {
-        Some(stage) if !stage.finished() => 50.0 + 40.0,
-        Some(Stage::Failed(_)) => 30.0 + 24.0,
+        Some(stage) if !stage.finished() => 46.0,
+        Some(Stage::Failed(_)) => 30.0,
         _ => 0.0,
     };
-    (60.0 + ICON.max(212.0) + below + 60.0) * scale + 2.0
+    34.0 + 26.0 + 30.0 + 42.0 + 10.0 + 5.0 * 32.0 + below + 10.0
 }
 
 fn progress(ui: &mut egui::Ui, job: &Job, width: f32, height: f32, size: f32) {

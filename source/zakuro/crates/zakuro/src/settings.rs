@@ -475,6 +475,7 @@ pub struct Settings {
     pub volume: f32,
     pub mute: bool,
     pub show_fps: bool,
+    pub fullscreen: bool,
     /// a picture behind the library.
     pub background: Option<PathBuf>,
     /// how much of it shows, 0 to 1.
@@ -605,6 +606,7 @@ impl Default for Settings {
             volume: 1.0,
             mute: false,
             show_fps: false,
+            fullscreen: true,
             show_console: false,
             background: None,
             background_opacity: 0.35,

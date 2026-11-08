@@ -19,12 +19,15 @@ const ICON_SQUARE: Color32 = rgb(0x44, 0x22, 0x11);
 const BAND: Color32 = rgb(0x1A, 0x12, 0x0A);
 const BAND_LINE: Color32 = rgb(0x37, 0x2F, 0x1F);
 const GOLD: Color32 = rgb(0xEA, 0xB7, 0x2F);
+const GOLD_LIGHT: Color32 = rgb(0xF8, 0xD8, 0x72);
 const CREAM: Color32 = rgb(0xFD, 0xEC, 0xB9);
 const RED: Color32 = rgb(0xF9, 0x44, 0x2B);
 const BUTTON: Color32 = rgb(0x48, 0x37, 0x1F);
 const INK: Color32 = rgb(0x3B, 0x2A, 0x1A);
 const INK_FADED: Color32 = rgb(0x7A, 0x62, 0x48);
 const CORAL_EDGE: Color32 = rgb(0xB5, 0x50, 0x3C);
+const ROW_HOT: Color32 = rgb(0xFC, 0xD6, 0xC2);
+const ROW_HOT_LOW: Color32 = rgb(0xF6, 0xC2, 0xAA);
 const CORAL_PRESSED_EDGE: Color32 = rgb(0x9E, 0x3E, 0x2C);
 
 const TAB_CORNERS: CornerRadius = CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 };
@@ -121,6 +124,16 @@ pub fn frame() -> egui::Frame {
     egui::Frame::window(&egui::Style::default()).fill(PARCHMENT).stroke(Stroke::new(3.0, FRAME)).corner_radius(8).inner_margin(Margin::same(0))
 }
 
+pub fn header_with_note(ui: &mut egui::Ui, title: &str, note: &str) {
+    let width = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 34.0), Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, TAB_CORNERS, BAND);
+    painter.hline(rect.x_range(), rect.bottom() - 1.0, Stroke::new(2.0, BAND_LINE));
+    painter.text(rect.left_center() + Vec2::new(14.0, 0.0), egui::Align2::LEFT_CENTER, title, bold(19.0), GOLD);
+    painter.text(rect.right_center() - Vec2::new(14.0, 0.0), egui::Align2::RIGHT_CENTER, note, bold(14.0), CREAM.gamma_multiply(0.7));
+}
+
 pub fn header(ui: &mut egui::Ui, title: &str, open: Option<&mut bool>) {
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 34.0), Sense::hover());
@@ -181,13 +194,30 @@ pub fn hint(ui: &mut egui::Ui, text: &str) {
 }
 
 pub fn command(ui: &mut egui::Ui, icon: &str, label: &str, enabled: bool) -> Response {
+    styled_command(ui, icon, label, enabled, false)
+}
+
+pub fn primary_command(ui: &mut egui::Ui, icon: &str, label: &str) -> Response {
+    styled_command(ui, icon, label, true, true)
+}
+
+fn styled_command(ui: &mut egui::Ui, icon: &str, label: &str, enabled: bool, primary: bool) -> Response {
     let width = ui.available_width().max(200.0);
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 32.0), if enabled { Sense::click() } else { Sense::hover() });
-    let chosen = enabled && (response.hovered() || response.has_focus());
+    let height = if primary { 42.0 } else { 32.0 };
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), if enabled { Sense::click() } else { Sense::hover() });
+    let hovered_id = egui::Id::new("command hovered");
+    let pass = ui.ctx().cumulative_pass_nr();
+    let last_hovered = ui.ctx().data(|data| data.get_temp::<u64>(hovered_id)).unwrap_or(0);
+    if enabled && response.hovered() {
+        ui.ctx().data_mut(|data| data.insert_temp(hovered_id, pass));
+    }
+    let pointer_on_one = last_hovered + 1 >= pass;
+    let chosen = enabled && (response.hovered() || (response.has_focus() && !pointer_on_one));
     let painter = ui.painter();
     let (high, low) = match (enabled, chosen, response.is_pointer_button_down_on()) {
         (true, true, true) => (CORAL_PRESSED, CORAL_PRESSED),
         (true, true, false) => (CORAL, CORAL_LOW),
+        _ if primary => (GOLD_LIGHT, GOLD),
         _ => (IVORY, IVORY_LOW),
     };
     gradient(painter, rect, high, low);
@@ -200,10 +230,79 @@ pub fn command(ui: &mut egui::Ui, icon: &str, label: &str, enabled: bool) -> Res
         (true, true) => CREAM,
         (true, false) => INK,
     };
-    painter.text(Pos2::new(square.right() + 10.0, rect.center().y), egui::Align2::LEFT_CENTER, label, bold(16.0), text);
+    painter.text(Pos2::new(square.right() + 10.0, rect.center().y), egui::Align2::LEFT_CENTER, label, bold(if primary { 19.0 } else { 16.0 }), text);
     if chosen {
         glove(painter, Pos2::new(square.left(), rect.center().y));
     }
+    response
+}
+
+pub fn row(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    let background = ui.painter().add(egui::Shape::Noop);
+    let width = ui.available_width();
+    let rect = egui::Frame::new()
+        .inner_margin(egui::Margin { left: 34, right: 10, top: 5, bottom: 5 })
+        .show(ui, |ui| {
+            ui.set_width(width - 44.0);
+            ui.horizontal(|ui| {
+                ui.set_min_height(28.0);
+                add(ui);
+            });
+        })
+        .response
+        .rect;
+    let hot = ui.is_enabled() && ui.rect_contains_pointer(rect);
+    let (high, low) = if hot { (ROW_HOT, ROW_HOT_LOW) } else { (IVORY, IVORY_LOW) };
+    let mut mesh = Mesh::default();
+    mesh.colored_vertex(rect.left_top(), high);
+    mesh.colored_vertex(rect.right_top(), high);
+    mesh.colored_vertex(rect.left_bottom(), low);
+    mesh.colored_vertex(rect.right_bottom(), low);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(1, 3, 2);
+    ui.painter().set(background, mesh);
+    ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, FRAME));
+    if hot {
+        glove(ui.painter(), Pos2::new(rect.left() + 30.0, rect.center().y));
+    }
+}
+
+pub fn cell(ui: &mut egui::Ui, width: f32, text: &str) {
+    ui.allocate_ui_with_layout(Vec2::new(width, 24.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        ui.set_min_width(width);
+        ui.label(text);
+    });
+}
+
+pub fn slot_row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(44.0, 30.0), Sense::hover());
+        ui.painter().text(Pos2::new(rect.left(), rect.center().y), egui::Align2::LEFT_CENTER, label, bold(15.0), INK);
+        add(ui);
+    });
+}
+
+pub fn slot(ui: &mut egui::Ui, label: &str, filled: bool, enabled: bool, current: bool) -> Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(38.0, 30.0), if enabled { Sense::click() } else { Sense::hover() });
+    let hot = enabled && (response.hovered() || response.has_focus());
+    let painter = ui.painter();
+    let (high, low) = match (hot, response.is_pointer_button_down_on(), filled) {
+        (true, true, _) => (CORAL_PRESSED, CORAL_PRESSED),
+        (true, false, _) => (CORAL, CORAL_LOW),
+        (false, _, true) => (IVORY, IVORY_LOW),
+        (false, _, false) => (PARCHMENT_DEEP, PARCHMENT_DEEP),
+    };
+    painter.rect_filled(rect, CornerRadius::same(4), low);
+    gradient(painter, rect.shrink(1.0), high, low);
+    let edge = if current { Stroke::new(2.0, FRAME_DARK) } else { Stroke::new(1.0, FRAME) };
+    painter.rect_stroke(rect, CornerRadius::same(4), edge, egui::StrokeKind::Inside);
+    let text = match (hot, filled) {
+        (true, _) => CREAM,
+        (false, true) => INK,
+        (false, false) => INK_FADED.gamma_multiply(0.6),
+    };
+    painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, bold(16.0), text);
     response
 }
 
@@ -216,6 +315,37 @@ pub fn commands<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R
             add(ui)
         })
         .inner
+}
+
+pub const BACKDROP_DARK: Color32 = rgb(0x20, 0x18, 0x10);
+pub const TAG_GOOD: Color32 = rgb(0x2E, 0x7D, 0x32);
+pub const TAG_MISSING: Color32 = rgb(0x9A, 0x6A, 0x0A);
+pub const TAG_PROBLEM: Color32 = rgb(0xB0, 0x4A, 0x1A);
+
+pub fn band_frame() -> egui::Frame {
+    egui::Frame::new().fill(BAND).inner_margin(Margin::symmetric(16, 8)).stroke(Stroke::new(2.0, BAND_LINE))
+}
+
+pub fn band_title(ui: &mut egui::Ui, text: &str) -> Response {
+    ui.label(RichText::new(text).font(bold(24.0)).color(GOLD))
+}
+
+pub fn band_button(ui: &mut egui::Ui, label: &str, lit: bool) -> Response {
+    let galley = ui.painter().layout_no_wrap(label.to_owned(), bold(14.0), CREAM);
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(galley.size().x + 28.0, 28.0), Sense::click());
+    let painter = ui.painter();
+    let fill = match (response.hovered(), lit) {
+        (true, _) => RED,
+        (false, true) => CORAL_PRESSED,
+        (false, false) => BUTTON,
+    };
+    painter.rect(rect, CornerRadius::same(8), fill, Stroke::new(1.5, FRAME), egui::StrokeKind::Inside);
+    painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, bold(14.0), CREAM);
+    response
+}
+
+pub fn on_backdrop(ui: &mut egui::Ui, text: &str) -> Response {
+    ui.label(RichText::new(text).font(bold(16.0)).color(CREAM))
 }
 
 fn dark_button(ui: &egui::Ui, rect: Rect, label: &str, response: &Response) {

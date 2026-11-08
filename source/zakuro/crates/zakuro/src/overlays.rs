@@ -111,7 +111,9 @@ pub fn pad_pointer(ctx: &egui::Context, rect: egui::Rect, at: [f32; 2], pressed:
 pub(crate) const TOUCH_KEEPS_OVER: Duration = Duration::from_secs(1);
 
 pub(crate) const MAP_BUTTON: (u16, u16) = (305, 212);
+pub(crate) const INVENTORY_TAB: (u16, u16) = (305, 70);
 pub(crate) const TAP_FRAMES: u8 = 6;
+pub(crate) const OVERVIEW_WAIT: u8 = 45;
 
 pub(crate) fn level_up_screen(picture: &[u8]) -> bool {
     if picture.len() < 320 * 240 * 4 {
@@ -160,15 +162,16 @@ pub(crate) fn map_screen(picture: &[u8]) -> Option<MapScreen> {
     }
 }
 
-pub(crate) fn keeps_bottom_over(moved_on: bool, opens: bool, touched_lately: bool, scene: Scene, kept: &mut Option<Scene>) -> bool {
+pub(crate) fn keeps_bottom_over(moved_on: bool, opens: bool, talking: bool, touched_lately: bool, scene: Scene, kept: &mut Option<Scene>) -> bool {
+    if kept.is_some() && !talking {
+        *kept = None;
+        return false;
+    }
     if !moved_on {
         return true;
     }
-    if opens && touched_lately {
+    if opens && talking && (touched_lately || *kept == Some(scene)) {
         *kept = Some(scene);
-        return true;
-    }
-    if opens && *kept == Some(scene) {
         return true;
     }
     *kept = None;
@@ -534,14 +537,16 @@ mod tests {
     #[test]
     fn a_touch_on_the_bottom_screen_keeps_it_through_what_it_opens() {
         let mut kept = None;
-        assert!(keeps_bottom_over(false, true, false, Scene::WorldMap, &mut kept));
-        assert!(!keeps_bottom_over(true, true, false, Scene::Plain, &mut kept));
-        assert!(keeps_bottom_over(true, true, true, Scene::Plain, &mut kept));
-        assert!(keeps_bottom_over(true, true, false, Scene::Plain, &mut kept));
-        assert!(!keeps_bottom_over(true, true, false, Scene::WorldMap, &mut kept));
+        assert!(keeps_bottom_over(false, true, false, false, Scene::WorldMap, &mut kept));
+        assert!(!keeps_bottom_over(true, true, true, false, Scene::Plain, &mut kept));
+        assert!(keeps_bottom_over(true, true, true, true, Scene::WorldMap, &mut kept));
+        assert!(keeps_bottom_over(true, true, true, true, Scene::Plain, &mut kept));
+        assert!(keeps_bottom_over(true, true, true, false, Scene::Plain, &mut kept));
+        assert!(keeps_bottom_over(true, true, true, true, Scene::WorldMap, &mut kept));
+        assert!(!keeps_bottom_over(false, true, false, false, Scene::WorldMap, &mut kept));
         assert!(kept.is_none());
-        assert!(keeps_bottom_over(true, true, true, Scene::Plain, &mut kept));
-        assert!(!keeps_bottom_over(true, false, true, Scene::Forecast, &mut kept));
+        assert!(!keeps_bottom_over(true, true, false, true, Scene::UnitView, &mut kept));
+        assert!(!keeps_bottom_over(true, false, true, true, Scene::Forecast, &mut kept));
     }
 
     #[test]
