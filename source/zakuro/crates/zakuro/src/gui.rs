@@ -344,6 +344,21 @@ mod tests {
             });
             window.save(folder.join(name)).unwrap();
         }
+        let speed = crate::menus::ModSetting { name: "Speed".into(), min: 100, max: 400, value: 200, unit: "%".into() };
+        let cheats = [
+            ("16:9".to_owned(), true, String::new(), true, None),
+            ("Faster battles".to_owned(), true, String::new(), true, Some(speed)),
+            ("Smooth map sprites".to_owned(), false, String::new(), true, None),
+            ("Max gold".to_owned(), false, "Sets the gold to 999999.".to_owned(), false, None),
+            ("All weapons unbreakable".to_owned(), true, String::new(), false, None),
+        ];
+        let ctx = crate::gui::context();
+        let mut menus = crate::menus::Menus::default();
+        menus.cheats_open = true;
+        let window = paint(&ctx, [1280, 960], None, |ui| {
+            menus.cheats(ui.ctx(), &cheats, false);
+        });
+        window.save(folder.join("cheats.png")).unwrap();
     }
 
     #[test]

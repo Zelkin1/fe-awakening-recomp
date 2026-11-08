@@ -631,67 +631,43 @@ impl Menus {
     /// the cheats window over a game, when open, its cheats by name, whether
     pub fn cheats(&mut self, ctx: &egui::Context, cheats: &[(String, bool, String, bool, Option<ModSetting>)], held: bool) -> Vec<Action> {
         let mut actions = Vec::new();
-        let mut values = Vec::new();
         let mut open = self.cheats_open;
-        egui::Window::new("Cheats").id(egui::Id::new("cheats")).open(&mut open).default_width(380.0).show(ctx, |ui| {
-            if held {
-                ui.label(RichText::new("Original mode is on, so these are all off.").weak());
-            }
-            ui.add_enabled_ui(!held, |ui| {
-            let mut checkbox = |ui: &mut egui::Ui, index: usize, name: &str, enabled: bool, notes: &str| {
-                let mut on = enabled;
-                let mut response = ui.checkbox(&mut on, name);
-                if !notes.is_empty() {
-                    response = response.on_hover_text(notes);
-                }
-                if response.changed() {
-                    actions.push(Action::Cheat(index, on));
-                }
-            };
-            // Zakuro's own, tested on this build of the game
-            if cheats.iter().any(|cheat| cheat.3) {
-                ui.label(RichText::new("Built in").strong());
-                for (index, (name, enabled, _, _, setting)) in cheats.iter().enumerate().filter(|(_, cheat)| cheat.3) {
-                    checkbox(ui, index, name, *enabled, "");
-                    if let (Some(setting), true) = (setting, *enabled) {
-                        ui.indent(("mod setting", index), |ui| {
-                            let mut value = setting.value;
-                            let slider = egui::Slider::new(&mut value, setting.min..=setting.max).text(&setting.name).suffix(&setting.unit);
-                            if ui.add(slider).changed() {
-                                values.push(Action::CheatValue(index, value));
+        if open {
+            let room = ctx.content_rect().height() - 16.0;
+            let (name, code) = (&mut self.cheat_name, &mut self.cheat_code);
+            theme::window("cheats")
+                .default_width(480.0)
+                .min_width(480.0)
+                .max_height(room)
+                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+                .show(ctx, |ui| {
+                    theme::header(ui, "Cheats", Some(&mut open));
+                    theme::body(ui, |ui| {
+                        if held {
+                            theme::hint(ui, "Original mode is on, so these are all off.");
+                            ui.add_space(6.0);
+                        }
+                        ui.add_enabled_ui(!held, |ui| cheat_lists(ui, cheats, &mut actions));
+                        ui.add_space(10.0);
+                        theme::section(ui, "Add a code");
+                        ui.add(egui::TextEdit::singleline(name).hint_text("Name").desired_width(f32::INFINITY));
+                        ui.add(egui::TextEdit::multiline(code).hint_text("00000000 00000000").desired_rows(4).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace));
+                        ui.add_space(8.0);
+                        theme::commands(ui, |ui| {
+                            if theme::command(ui, "\u{2714}", "Add", !held && !code.trim().is_empty()).clicked() {
+                                actions.push(Action::AddCheat(std::mem::take(name), std::mem::take(code)));
+                            }
+                            if theme::command(ui, "\u{27F3}", "Reload", !held).on_hover_text("Read the codes again from their file, after changing it.").clicked() {
+                                actions.push(Action::ReloadCheats);
+                            }
+                            if theme::command(ui, "\u{1F4C2}", "Open the cheats folder", true).clicked() {
+                                actions.push(Action::CheatsFolder);
                             }
                         });
-                    }
-                }
-                ui.separator();
-            }
-            if !cheats.iter().any(|cheat| !cheat.3) {
-                ui.label(RichText::new("No codes yet. Add one below, or put the cheat file Citra or Azahar has for this game in the cheats folder.").weak());
-            }
-            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                for (index, (name, enabled, notes, _, _)) in cheats.iter().enumerate().filter(|(_, cheat)| !cheat.3) {
-                    checkbox(ui, index, name, *enabled, notes);
-                }
-            });
-            ui.separator();
-            ui.label("Add a code");
-            ui.add(egui::TextEdit::singleline(&mut self.cheat_name).hint_text("Name"));
-            ui.add(egui::TextEdit::multiline(&mut self.cheat_code).hint_text("00000000 00000000").desired_rows(4).font(egui::TextStyle::Monospace));
-            ui.horizontal(|ui| {
-                if ui.button("Add").clicked() && !self.cheat_code.trim().is_empty() {
-                    actions.push(Action::AddCheat(std::mem::take(&mut self.cheat_name), std::mem::take(&mut self.cheat_code)));
-                }
-                if ui.button("Reload").on_hover_text("Read the codes again from their file, after changing it.").clicked() {
-                    actions.push(Action::ReloadCheats);
-                }
-                if ui.button("Open the cheats folder").clicked() {
-                    actions.push(Action::CheatsFolder);
-                }
-            });
-            });
-        });
+                    });
+                });
+        }
         self.cheats_open = open;
-        actions.extend(values);
         actions
     }
 
@@ -1072,6 +1048,52 @@ fn system_tab(ui: &mut egui::Ui, settings: &mut Settings, actions: &mut Vec<Acti
         });
     });
     theme::hint(ui, "A new language takes effect after a reset, or the next time the game starts.");
+}
+
+fn cheat_lists(ui: &mut egui::Ui, cheats: &[(String, bool, String, bool, Option<ModSetting>)], actions: &mut Vec<Action>) {
+    let toggle = |ui: &mut egui::Ui, index: usize, name: &str, enabled: bool, notes: &str, actions: &mut Vec<Action>| {
+        let mut on = enabled;
+        let mut response = ui.checkbox(&mut on, name);
+        if !notes.is_empty() {
+            response = response.on_hover_text(notes);
+        }
+        if response.changed() {
+            actions.push(Action::Cheat(index, on));
+        }
+    };
+    let mut values = Vec::new();
+    if cheats.iter().any(|cheat| cheat.3) {
+        theme::section(ui, "Built in");
+        theme::commands(ui, |ui| {
+            for (index, (name, enabled, _, _, setting)) in cheats.iter().enumerate().filter(|(_, cheat)| cheat.3) {
+                theme::row(ui, |ui| toggle(ui, index, name, *enabled, "", actions));
+                if let (Some(setting), true) = (setting, *enabled) {
+                    theme::row(ui, |ui| {
+                        ui.add_space(24.0);
+                        let mut value = setting.value;
+                        let slider = egui::Slider::new(&mut value, setting.min..=setting.max).text(&setting.name).suffix(&setting.unit);
+                        if ui.add(slider).changed() {
+                            values.push(Action::CheatValue(index, value));
+                        }
+                    });
+                }
+            }
+        });
+        ui.add_space(10.0);
+    }
+    theme::section(ui, "Codes");
+    if !cheats.iter().any(|cheat| !cheat.3) {
+        theme::hint(ui, "No codes yet. Add one below, or put the cheat file Citra or Azahar has for this game in the cheats folder.");
+    } else {
+        egui::ScrollArea::vertical().id_salt("codes").max_height(260.0).show(ui, |ui| {
+            theme::commands(ui, |ui| {
+                for (index, (name, enabled, notes, _, _)) in cheats.iter().enumerate().filter(|(_, cheat)| !cheat.3) {
+                    theme::row(ui, |ui| toggle(ui, index, name, *enabled, notes, actions));
+                }
+            });
+        });
+    }
+    actions.extend(values);
 }
 
 fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {

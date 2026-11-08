@@ -610,7 +610,7 @@ index 7daa922..15b614f 100644
  204E3BA0 00000000
 diff --git a/crates/zakuro-core/src/game_ui.rs b/crates/zakuro-core/src/game_ui.rs
 new file mode 100644
-index 0000000..a085e28
+index 0000000..7f8503f
 --- /dev/null
 +++ b/crates/zakuro-core/src/game_ui.rs
 @@ -0,0 +1,162 @@
@@ -708,9 +708,9 @@ index 0000000..a085e28
 +const RIGHT_PANEL_REST: [u16; 2] = [184, 4];
 +
 +const BATTLE_PANELS: &[Piece] = &[
-+    Piece { from: [70, 88, 180, 52], across: Anchor::Middle(0), down: Anchor::End(1), size: 49, shapes: STATS, follows: None },
-+    Piece { from: [0, 6, 162, 70], across: Anchor::Middle(-88), down: Anchor::End(1), size: 49, shapes: HP_LEFT, follows: Some((LEFT_BANNER, LEFT_PANEL_REST)) },
-+    Piece { from: [162, 6, 162, 70], across: Anchor::Middle(88), down: Anchor::End(1), size: 49, shapes: HP_RIGHT, follows: Some((RIGHT_BANNER, RIGHT_PANEL_REST)) },
++    Piece { from: [70, 88, 180, 52], across: Anchor::Middle(0), down: Anchor::End(4), size: 49, shapes: STATS, follows: None },
++    Piece { from: [0, 6, 162, 70], across: Anchor::Middle(-88), down: Anchor::End(4), size: 49, shapes: HP_LEFT, follows: Some((LEFT_BANNER, LEFT_PANEL_REST)) },
++    Piece { from: [162, 6, 162, 70], across: Anchor::Middle(88), down: Anchor::End(4), size: 49, shapes: HP_RIGHT, follows: Some((RIGHT_BANNER, RIGHT_PANEL_REST)) },
 +];
 +const HP_LEFT: &[Rounded] = &[
 +    Rounded { shift: [4, 0], ..rounded([0, 17, 152, 59], [0; 4]) },
@@ -752,7 +752,7 @@ index 0000000..a085e28
 +];
 +
 +const BATTLE_BUTTONS: &[Piece] = &[Piece { from: [6, 191, 307, 42], across: Anchor::Middle(0), down: Anchor::End(4), size: 28, shapes: BUTTONS, follows: None }];
-+const BATTLE_BUTTONS_OVER_PANELS: &[Piece] = &[Piece { from: [6, 191, 307, 42], across: Anchor::Middle(0), down: Anchor::End(28), size: 28, shapes: BUTTONS, follows: None }];
++const BATTLE_BUTTONS_OVER_PANELS: &[Piece] = &[Piece { from: [6, 191, 307, 42], across: Anchor::Middle(0), down: Anchor::End(31), size: 28, shapes: BUTTONS, follows: None }];
 +const BUTTONS: &[Rounded] = &[button(6, 43), button(54, 43), button(102, 43), button(175, 42), button(222, 43), button(270, 43)];
 +
 +const BATTLE_BANNERS: Banners = Banners {
@@ -1049,7 +1049,7 @@ index a9d239c..6a630cb 100644
      pub fn read_screen(&mut self, screen: zakuro_common::Screen) -> Vec<u8> {
          self.read_screen_at(screen, false)
 diff --git a/crates/zakuro-core/src/loader.rs b/crates/zakuro-core/src/loader.rs
-index 937bcbb..4fdbafc 100644
+index 937bcbb..d934f31 100644
 --- a/crates/zakuro-core/src/loader.rs
 +++ b/crates/zakuro-core/src/loader.rs
 @@ -66,7 +66,7 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
@@ -1073,7 +1073,7 @@ index 937bcbb..4fdbafc 100644
      if !enhancements.is_empty() {
          let on: Vec<&str> = enhancements.iter().filter(|cheat| cheat.enabled).map(|cheat| cheat.name.as_str()).collect();
          log::info!("{} enhancements for this build, {build}, on: {}", enhancements.len(), if on.is_empty() { "none".to_owned() } else { on.join(", ") });
-@@ -209,13 +210,17 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
+@@ -209,19 +210,23 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
              Err(error) => log::warn!("{error}, drawing in software"),
          }
      }
@@ -1088,10 +1088,19 @@ index 937bcbb..4fdbafc 100644
          }
      }
 -    if let Some(data_dir) = system.config.data_dir.as_deref().filter(|_| system.config.texture_packs) {
+-        let dir = crate::mods::textures(data_dir, title.program_id());
 +    if let Some(data_dir) = system.config.mods_dir().filter(|_| system.config.texture_packs) {
-         let dir = crate::mods::textures(data_dir, title.program_id());
++        let dirs: Vec<std::path::PathBuf> = crate::mods::folders(data_dir, title.program_id()).into_iter().map(|folder| folder.join("textures")).collect();
          if !on_gpu {
-             if std::fs::read_dir(&dir).is_ok_and(|mut entries| entries.next().is_some()) {
+-            if std::fs::read_dir(&dir).is_ok_and(|mut entries| entries.next().is_some()) {
++            for dir in dirs.iter().filter(|dir| std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())) {
+                 log::warn!("the texture pack in {} needs the 3D drawn on the GPU, it is left out", dir.display());
+             }
+-        } else if let Some(pack) = zakuro_gpu::pack::Pack::open(&dir) {
++        } else if let Some(pack) = zakuro_gpu::pack::Pack::open_all(&dirs) {
+             system.gpu.set_texture_pack(Some(std::sync::Arc::new(pack)));
+         }
+     }
 @@ -249,7 +254,7 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
      system.recompiled = None;
      let mut library = crate::recompiled::Library::open(path).map_err(|error| format!("could not load {}, {error}", path.display()))?;
@@ -1193,7 +1202,7 @@ index ee239c5..86ab436 100644
  
      /// whether every byte the CPU wrote since log_writes holds again what it
 diff --git a/crates/zakuro-core/src/mods.rs b/crates/zakuro-core/src/mods.rs
-index ba9a394..4f6aa62 100644
+index ba9a394..a68c47e 100644
 --- a/crates/zakuro-core/src/mods.rs
 +++ b/crates/zakuro-core/src/mods.rs
 @@ -1,5 +1,4 @@
@@ -1202,7 +1211,20 @@ index ba9a394..4f6aa62 100644
  
  use std::path::{Path, PathBuf};
  
-@@ -29,20 +28,32 @@ const CODE: [&str; 3] = ["code.bin", "code.ips", "code.bps"];
+@@ -15,12 +14,6 @@ pub fn dir(data_dir: &Path, program_id: u64) -> PathBuf {
+     if !upper.exists() && lower.exists() { lower } else { upper }
+ }
+ 
+-/// the folder of a title's texture pack, in its mods folder, laid out as in
+-/// Citra's load/textures/<title id>.
+-pub fn textures(data_dir: &Path, program_id: u64) -> PathBuf {
+-    dir(data_dir, program_id).join("textures")
+-}
+-
+ /// the files that change a title's code, each in the mod's folder or in its
+ /// exefs folder.
+ const CODE: [&str; 3] = ["code.bin", "code.ips", "code.bps"];
+@@ -29,20 +22,32 @@ const CODE: [&str; 3] = ["code.bin", "code.ips", "code.bps"];
  /// which a mod that makes the code longer needs.
  const EXHEADER: &str = "exheader.bin";
  
@@ -1244,7 +1266,7 @@ index ba9a394..4f6aa62 100644
      let mut bytes = std::fs::read(&path).ok()?;
      let Some(described) = bytes.get(..ExHeader::HASHED_SIZE) else {
          log::warn!("mods: {} is {} bytes, an exheader has {}", path.display(), bytes.len(), ExHeader::HASHED_SIZE);
-@@ -73,16 +84,14 @@ fn find(dir: &Path, name: &str) -> Option<PathBuf> {
+@@ -73,16 +78,14 @@ fn find(dir: &Path, name: &str) -> Option<PathBuf> {
  /// a patch format, applying a patch to data.
  type Patch = fn(&[u8], &[u8]) -> Result<Vec<u8>, FsError>;
  
@@ -1263,7 +1285,7 @@ index ba9a394..4f6aa62 100644
          match std::fs::read(&path) {
              Ok(bytes) => {
                  code = decompressed(bytes, title);
-@@ -92,14 +101,16 @@ pub fn code(title: &Title, data_dir: Option<&Path>) -> Result<(Vec<u8>, bool), F
+@@ -92,14 +95,16 @@ pub fn code(title: &Title, data_dir: Option<&Path>) -> Result<(Vec<u8>, bool), F
          }
      }
      let patches: [(&str, Patch); 2] = [("code.ips", patch::ips), ("code.bps", patch::bps)];
@@ -1287,7 +1309,7 @@ index ba9a394..4f6aa62 100644
          }
      }
      let modded = code != original;
-@@ -117,7 +128,6 @@ fn decompressed(bytes: Vec<u8>, title: &Title) -> Vec<u8> {
+@@ -117,7 +122,6 @@ fn decompressed(bytes: Vec<u8>, title: &Title) -> Vec<u8> {
      lz77::decompress(&bytes).unwrap_or(bytes)
  }
  
@@ -1295,7 +1317,7 @@ index ba9a394..4f6aa62 100644
  pub fn lay(title: &mut Title, data_dir: Option<&Path>) {
      let Some(data_dir) = data_dir else {
          return;
-@@ -127,24 +137,26 @@ pub fn lay(title: &mut Title, data_dir: Option<&Path>) {
+@@ -127,24 +131,26 @@ pub fn lay(title: &mut Title, data_dir: Option<&Path>) {
          return;
      }
      if let Some((_, exheader)) = exheader(title, data_dir) {
@@ -1329,7 +1351,7 @@ index ba9a394..4f6aa62 100644
              Ok(Some(changes)) => log::info!(
                  "mods over the update's files: {} replaced, {} added, {} patched, {} removed",
                  changes.replaced,
-@@ -153,7 +165,40 @@ pub fn lay(title: &mut Title, data_dir: Option<&Path>) {
+@@ -153,7 +159,40 @@ pub fn lay(title: &mut Title, data_dir: Option<&Path>) {
                  changes.removed
              ),
              Ok(None) => {}
@@ -2481,6 +2503,92 @@ index f294442..4c56eab 100644
  #[cfg(test)]
  mod tests {
      use super::*;
+diff --git a/crates/zakuro-gpu/src/pack.rs b/crates/zakuro-gpu/src/pack.rs
+index b87b030..60a2e99 100644
+--- a/crates/zakuro-gpu/src/pack.rs
++++ b/crates/zakuro-gpu/src/pack.rs
+@@ -28,6 +28,8 @@ pub enum Hashing {
+ /// a texture pack, its pictures by the hash of the texture each replaces.
+ pub struct Pack {
+     hashing: Hashing,
++    either: bool,
++    more: Vec<Pack>,
+     materials: HashMap<u64, Arc<Material>>,
+ }
+ 
+@@ -73,6 +75,13 @@ const MAX_SIZE: u32 = 8192;
+ 
+ 
+ impl Pack {
++    pub fn open_all(dirs: &[PathBuf]) -> Option<Pack> {
++        let mut packs = dirs.iter().filter_map(|dir| Pack::open(dir));
++        let mut first = packs.next()?;
++        first.more = packs.collect();
++        Some(first)
++    }
++
+     /// the pack in dir, none when it holds no picture.
+     pub fn open(dir: &Path) -> Option<Pack> {
+         if !dir.is_dir() {
+@@ -129,7 +138,7 @@ impl Pack {
+             materials.len(),
+             if duplicates > 0 { format!(", {duplicates} files left out for another of the same hash") } else { String::new() }
+         );
+-        Some(Pack { hashing: config.hashing, materials })
++        Some(Pack { hashing: config.hashing, either: !config.stated, more: Vec::new(), materials })
+     }
+ 
+     /// the picture replacing a texture of these bytes, format and size,
+@@ -142,7 +151,12 @@ impl Pack {
+             Hashing::Bytes => Hashing::Rows,
+             Hashing::Rows => Hashing::Bytes,
+         };
+-        [self.hashing, other].into_iter().find_map(|hashing| self.materials.get(&hash(hashing, data, format, width, height, rows)?).cloned())
++        let tried = if self.either { [Some(self.hashing), Some(other)] } else { [Some(self.hashing), None] };
++        tried
++            .into_iter()
++            .flatten()
++            .find_map(|hashing| self.materials.get(&hash(hashing, data, format, width, height, rows)?).cloned())
++            .or_else(|| self.more.iter().find_map(|pack| pack.find(data, format, width, height, rows)))
+     }
+ }
+ 
+@@ -229,6 +243,7 @@ fn readers() -> &'static rayon::ThreadPool {
+ #[derive(Debug, PartialEq)]
+ struct Config {
+     hashing: Hashing,
++    stated: bool,
+     /// whether the PNGs are stored with their top row first, as dumped,
+     /// pack.json's flip_png_files.
+     upright: bool,
+@@ -239,7 +254,7 @@ struct Config {
+ impl Config {
+     fn read(path: &Path) -> Config {
+         // without a pack.json the hashes are Citra's from before pack.json
+-        let legacy = Config { hashing: Hashing::Rows, upright: true, mapped: HashMap::new() };
++        let legacy = Config { hashing: Hashing::Rows, stated: false, upright: true, mapped: HashMap::new() };
+         let text = match std::fs::read(path) {
+             Ok(bytes) if !bytes.is_empty() => String::from_utf8_lossy(&bytes).into_owned(),
+             _ => return legacy,
+@@ -278,7 +293,8 @@ impl Config {
+                 }
+             }
+         }
+-        Ok(Config { hashing, upright: option("flip_png_files", true), mapped })
++        let stated = json["options"]["use_new_hash"].is_boolean();
++        Ok(Config { hashing, stated, upright: option("flip_png_files", true), mapped })
+     }
+ 
+     /// the hashes a file of the pack replaces textures of, none when it is
+@@ -902,7 +918,7 @@ mod tests {
+         let material = |hash| Arc::new(Material { hash, path: PathBuf::new(), flipped: false, state: Mutex::new(State::OnDisk) });
+         for hashing in [Hashing::Bytes, Hashing::Rows] {
+             for named in [bytes, laid_out] {
+-                let pack = Pack { hashing, materials: HashMap::from([(named, material(named))]) };
++                let pack = Pack { hashing, either: true, more: Vec::new(), materials: HashMap::from([(named, material(named))]) };
+                 assert_eq!(pack.find(&data, format, 8, 8, &mut rows).map(|found| found.hash), Some(named));
+             }
+         }
 diff --git a/crates/zakuro-gpu/src/raster.rs b/crates/zakuro-gpu/src/raster.rs
 index 2e71e86..fa893f7 100644
 --- a/crates/zakuro-gpu/src/raster.rs
@@ -5025,7 +5133,7 @@ index 908b5c9..55abdc6 100644
      pub fn apply(&self, mut state: InputState) -> InputState {
          let Some(gilrs) = &self.gilrs else { return state };
 diff --git a/crates/zakuro/src/gui.rs b/crates/zakuro/src/gui.rs
-index a5b4c18..c4783cc 100644
+index a5b4c18..7f2b78a 100644
 --- a/crates/zakuro/src/gui.rs
 +++ b/crates/zakuro/src/gui.rs
 @@ -15,8 +15,7 @@ pub struct Gui {
@@ -5063,7 +5171,7 @@ index a5b4c18..c4783cc 100644
  /// egui's own fonts, then extra ones to fall back on for what they lack.
  /// game names come in Japanese, Korean and Chinese, whose characters
  /// egui's fonts have none of and drew as boxes.
-@@ -186,6 +196,263 @@ fn font_candidates() -> Vec<(char, Vec<std::path::PathBuf>)> {
+@@ -186,6 +196,278 @@ fn font_candidates() -> Vec<(char, Vec<std::path::PathBuf>)> {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -5215,6 +5323,21 @@ index a5b4c18..c4783cc 100644
 +            });
 +            window.save(folder.join(name)).unwrap();
 +        }
++        let speed = crate::menus::ModSetting { name: "Speed".into(), min: 100, max: 400, value: 200, unit: "%".into() };
++        let cheats = [
++            ("16:9".to_owned(), true, String::new(), true, None),
++            ("Faster battles".to_owned(), true, String::new(), true, Some(speed)),
++            ("Smooth map sprites".to_owned(), false, String::new(), true, None),
++            ("Max gold".to_owned(), false, "Sets the gold to 999999.".to_owned(), false, None),
++            ("All weapons unbreakable".to_owned(), true, String::new(), false, None),
++        ];
++        let ctx = crate::gui::context();
++        let mut menus = crate::menus::Menus::default();
++        menus.cheats_open = true;
++        let window = paint(&ctx, [1280, 960], None, |ui| {
++            menus.cheats(ui.ctx(), &cheats, false);
++        });
++        window.save(folder.join("cheats.png")).unwrap();
 +    }
 +
 +    #[test]
@@ -5328,7 +5451,7 @@ index a5b4c18..c4783cc 100644
  
      /// Japanese names have every character to draw with the system's
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..a2c236a 100644
+index 6cf00db..4515b11 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,22 +3,30 @@
@@ -5403,7 +5526,7 @@ index 6cf00db..a2c236a 100644
  
      let data_dir = options.data.clone().map(PathBuf::from).or_else(default_data_dir);
      if let Some(dir) = &data_dir {
-@@ -97,13 +117,39 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -97,13 +117,40 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          gamepads: gamepad::Gamepads::new(settings.pad.clone()),
          scale: options.scale.unwrap_or(settings.scale).max(1),
          layout: settings.layout,
@@ -5413,6 +5536,7 @@ index 6cf00db..a2c236a 100644
 +        over_touched_at: None,
 +        touched_scene: Scene::Plain,
 +        over_touch_start: None,
++        unit_view_from: None,
 +        scripted_tap: None,
 +        pending_overview: None,
 +        restore_inventory: false,
@@ -5444,7 +5568,7 @@ index 6cf00db..a2c236a 100644
          data_dir,
          game: None,
          menus: {
-@@ -117,6 +163,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -117,6 +164,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          window: None,
          audio: None,
          mouse_down: false,
@@ -5452,7 +5576,7 @@ index 6cf00db..a2c236a 100644
          tilting_from: None,
          cursor: (0.0, 0.0),
          last_title_update: Instant::now(),
-@@ -147,8 +194,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -147,8 +195,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          return;
      }
  
@@ -5463,7 +5587,7 @@ index 6cf00db..a2c236a 100644
      }
      app.audio = if app.options.mute {
          None
-@@ -331,10 +378,11 @@ struct Running {
+@@ -331,10 +379,11 @@ struct Running {
      /// place of the keyboard's and the controllers', and the frames run.
      replay: Option<zakuro_core::replay::Replay>,
      frame: u64,
@@ -5476,7 +5600,7 @@ index 6cf00db..a2c236a 100644
  }
  
  impl Running {
-@@ -347,8 +395,10 @@ impl Running {
+@@ -347,8 +396,10 @@ impl Running {
              replay: None,
              frame: 0,
              frames: 0,
@@ -5487,7 +5611,7 @@ index 6cf00db..a2c236a 100644
          }
      }
  
-@@ -356,7 +406,12 @@ impl Running {
+@@ -356,7 +407,12 @@ impl Running {
          self.frames += 1;
          let elapsed = self.counting_since.elapsed();
          if elapsed >= Duration::from_millis(500) {
@@ -5501,7 +5625,7 @@ index 6cf00db..a2c236a 100644
              self.frames = 0;
              self.counting_since = Instant::now();
          }
-@@ -390,10 +445,37 @@ struct App {
+@@ -390,10 +446,38 @@ struct App {
      scale: u32,
      /// how the screens are arranged.
      layout: Screens,
@@ -5511,6 +5635,7 @@ index 6cf00db..a2c236a 100644
 +    over_touched_at: Option<Instant>,
 +    touched_scene: Scene,
 +    over_touch_start: Option<((u16, u16), bool)>,
++    unit_view_from: Option<(u64, u64)>,
 +    scripted_tap: Option<((u16, u16), u8)>,
 +    pending_overview: Option<u8>,
 +    restore_inventory: bool,
@@ -5539,7 +5664,7 @@ index 6cf00db..a2c236a 100644
      /// where the pointer was when the right button went down, which tilts
      /// the console while held.
      tilting_from: Option<(f32, f32)>,
-@@ -498,7 +580,10 @@ impl ApplicationHandler for App {
+@@ -498,7 +582,10 @@ impl ApplicationHandler for App {
              return;
          }
  
@@ -5551,7 +5676,7 @@ index 6cf00db..a2c236a 100644
          let attributes = Window::default_attributes().with_title("Zakuro").with_inner_size(size);
          let renderer = self.options.renderer.unwrap_or(match self.settings.renderer {
              Renderer::Vulkan => RendererKind::Vulkan,
-@@ -516,7 +601,7 @@ impl ApplicationHandler for App {
+@@ -516,7 +603,7 @@ impl ApplicationHandler for App {
          match backend {
              Ok((window, mut backend)) => {
                  log::info!("presenting with the {} backend", backend.name());
@@ -5560,7 +5685,7 @@ index 6cf00db..a2c236a 100644
                  backend.set_top_width(self.settings.top_shape.width());
                  backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
                  backend.set_stereo(self.settings.stereo());
-@@ -563,8 +648,13 @@ impl ApplicationHandler for App {
+@@ -563,8 +650,13 @@ impl ApplicationHandler for App {
                  }
              }
              WindowEvent::KeyboardInput { event, .. } => self.key(event, consumed),
@@ -5574,7 +5699,7 @@ index 6cf00db..a2c236a 100644
                      self.mouse_down = state == ElementState::Pressed && !self.pointer_taken(consumed);
                      self.touch();
                  }
-@@ -575,6 +665,7 @@ impl ApplicationHandler for App {
+@@ -575,6 +667,7 @@ impl ApplicationHandler for App {
                  }
              }
              WindowEvent::CursorMoved { position, .. } => {
@@ -5582,7 +5707,7 @@ index 6cf00db..a2c236a 100644
                  self.cursor = (position.x as f32, position.y as f32);
                  self.touch();
                  self.tilt();
-@@ -605,13 +696,16 @@ impl App {
+@@ -605,13 +698,16 @@ impl App {
              find_recompiled: !interpret,
              hardware_renderer: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
              texture_packs: self.settings.texture_packs,
@@ -5599,7 +5724,7 @@ index 6cf00db..a2c236a 100644
              resolution: self.settings.resolution,
              device: self.backend.as_ref().and_then(Backend::shared_device),
              username: self.nickname(),
-@@ -661,12 +755,10 @@ impl App {
+@@ -661,12 +757,10 @@ impl App {
              config.update = game.update.as_ref().map(|update| update.path.clone());
              config.dlc = game.dlc.iter().map(|dlc| dlc.path.clone()).collect();
              config.dlp_child = game.dlp_child.as_ref().map(|child| child.path.clone());
@@ -5614,7 +5739,7 @@ index 6cf00db..a2c236a 100644
          }
          // a recording starts the clock at a known time, for playing it back
          let record = std::env::var_os("ZAKURO_RECORD").map(PathBuf::from);
-@@ -698,6 +790,7 @@ impl App {
+@@ -698,6 +792,7 @@ impl App {
              .or_else(|| Some(library::Smdh::parse(system.title.as_ref()?.exefs_file("icon")?)?.name).filter(|name| !name.is_empty()))
              .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
              .unwrap_or_default();
@@ -5622,7 +5747,7 @@ index 6cf00db..a2c236a 100644
          let mut game = Running::new(system, path.to_owned(), name);
          game.replay = replay;
          if let Some(record) = record {
-@@ -727,6 +820,9 @@ impl App {
+@@ -727,6 +822,9 @@ impl App {
          self.keyboard.release();
          self.paused = false;
          self.next_frame = Instant::now();
@@ -5632,7 +5757,7 @@ index 6cf00db..a2c236a 100644
          Ok(())
      }
  
-@@ -754,7 +850,9 @@ impl App {
+@@ -754,7 +852,9 @@ impl App {
          if let (true, Some(index)) = (pressed, self.menus.rebinding) {
              self.menus.rebinding = None;
              if code != KeyCode::Escape {
@@ -5643,7 +5768,7 @@ index 6cf00db..a2c236a 100644
                      *key = code;
                  }
                  self.apply_settings();
-@@ -766,6 +864,7 @@ impl App {
+@@ -766,6 +866,7 @@ impl App {
              self.fast_forward_key = pressed && self.game.is_some();
          }
          if pressed && !event.repeat {
@@ -5651,7 +5776,7 @@ index 6cf00db..a2c236a 100644
              match code {
                  KeyCode::Escape if self.game.is_some() => {
                      self.menus.menu_open = !self.menus.menu_open;
-@@ -789,6 +888,15 @@ impl App {
+@@ -789,6 +890,15 @@ impl App {
                  KeyCode::F11 => self.toggle_fullscreen(),
                  KeyCode::F5 if self.game.is_some() => self.save_state(),
                  KeyCode::F8 if self.game.is_some() => self.load_state(),
@@ -5667,7 +5792,7 @@ index 6cf00db..a2c236a 100644
                  _ => {}
              }
          }
-@@ -807,14 +915,24 @@ impl App {
+@@ -807,14 +917,24 @@ impl App {
      /// it, and Home opens and closes the menu over the game.
      fn poll_gamepads(&mut self) {
          for button in self.gamepads.poll() {
@@ -5693,7 +5818,7 @@ index 6cf00db..a2c236a 100644
              }
          }
      }
-@@ -828,7 +946,11 @@ impl App {
+@@ -828,7 +948,11 @@ impl App {
      fn touch(&mut self) {
          let Some(window) = &self.window else { return };
          let size = window.inner_size();
@@ -5706,7 +5831,7 @@ index 6cf00db..a2c236a 100644
          // with the top screen alone there is nothing to touch
          let Some(bottom) = bottom else {
              self.keyboard.touch(None);
-@@ -842,6 +964,28 @@ impl App {
+@@ -842,6 +966,28 @@ impl App {
          }));
      }
  
@@ -5735,7 +5860,7 @@ index 6cf00db..a2c236a 100644
      /// tilts the console while the right button is held, toward where the
      /// pointer went and by how far, as Citra's motion emulation does,
      /// which titles were tried with. letting go stands it upright again.
-@@ -887,11 +1031,20 @@ impl App {
+@@ -887,11 +1033,20 @@ impl App {
      /// saves the settings and puts to use what can change right away.
      fn apply_settings(&mut self) {
          self.settings.save();
@@ -5756,7 +5881,7 @@ index 6cf00db..a2c236a 100644
              // games read the 3D slider every frame
              let slider = self.settings.slider_3d();
              if game.system.config.slider_3d != slider {
-@@ -938,13 +1091,20 @@ impl App {
+@@ -938,13 +1093,20 @@ impl App {
              backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
              backend.set_stereo(self.settings.stereo());
          }
@@ -5778,7 +5903,7 @@ index 6cf00db..a2c236a 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1118,180 @@ impl App {
+@@ -958,6 +1120,190 @@ impl App {
          }
      }
  
@@ -5856,8 +5981,18 @@ index 6cf00db..a2c236a 100644
 +            }
 +        }
 +        let mut scene = self.current_scene();
-+        let talking = self.game.as_ref().is_some_and(|game| game.system.talking());
-+        if scene == Scene::Plain && self.bottom_over_key && (talking || self.scene == Scene::LevelUp) && self.showing_level_up() {
++        let mut talking = self.game.as_ref().is_some_and(|game| game.system.talking());
++        if let Some((from, talked)) = self.unit_view_from {
++            let now = self.game.as_ref().map_or(from, |game| game.system.frames);
++            let talked = if talking { now } else { talked };
++            let entering = scene == Scene::Plain && (now - from < overlays::UNIT_VIEW_START || now - talked < overlays::UNIT_VIEW_GAP);
++            self.unit_view_from = entering.then_some((from, talked));
++            if entering {
++                scene = Scene::UnitView;
++                talking = false;
++            }
++        }
++        if scene == Scene::Plain && self.bottom_over_key && self.showing_level_up() {
 +            scene = Scene::LevelUp;
 +        }
 +        let opens = matches!(scene, Scene::Plain | Scene::WorldMap | Scene::UnitView | Scene::LevelUp);
@@ -5959,7 +6094,7 @@ index 6cf00db..a2c236a 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -1007,20 +1341,57 @@ impl App {
+@@ -1007,20 +1353,57 @@ impl App {
          self.jobs.push(Job::start(&game.path, update, game.program_id, &game.name, self.data_dir.as_deref(), toolchain));
      }
  
@@ -6019,7 +6154,7 @@ index 6cf00db..a2c236a 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1034,7 +1405,8 @@ impl App {
+@@ -1034,7 +1417,8 @@ impl App {
                      }
                  }
                  Stage::Failed(error) if error != "cancelled" => {
@@ -6029,7 +6164,7 @@ index 6cf00db..a2c236a 100644
                  }
                  _ => {}
              }
-@@ -1049,6 +1421,13 @@ impl App {
+@@ -1049,6 +1433,13 @@ impl App {
                  }
              }
              Action::Recompile(index) => self.recompile(index, false),
@@ -6043,7 +6178,7 @@ index 6cf00db..a2c236a 100644
              Action::DownloadCompiler(index) => self.recompile(index, true),
              Action::Mods(program_id) => {
                  if let Some(data_dir) = &self.data_dir {
-@@ -1065,13 +1444,22 @@ impl App {
+@@ -1065,13 +1456,22 @@ impl App {
                      job.cancel();
                  }
              }
@@ -6056,14 +6191,14 @@ index 6cf00db..a2c236a 100644
 +                if let Some(file) = rfd::FileDialog::new().set_title("The game's file").add_filter("3DS games", &["3ds", "cci", "cxi", "cia"]).pick_file() {
 +                    self.settings.game_file = Some(file);
 +                    self.save_and_rescan();
-+                }
-+            }
+                 }
+             }
 +            Action::ChooseUpdate => {
 +                if let Some(file) = rfd::FileDialog::new().set_title("The game's DLC").add_filter("DLC", &["cia"]).pick_file() {
 +                    self.settings.update_file = Some(file);
 +                    self.save_and_rescan();
-                 }
-             }
++                }
++            }
 +            Action::ForgetUpdate => {
 +                self.settings.update_file = None;
 +                self.save_and_rescan();
@@ -6071,7 +6206,7 @@ index 6cf00db..a2c236a 100644
              Action::SaveState => self.save_state(),
              Action::LoadState => self.load_state(),
              Action::HostRoom => self.host_room(),
-@@ -1087,32 +1475,6 @@ impl App {
+@@ -1087,32 +1487,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -6104,7 +6239,7 @@ index 6cf00db..a2c236a 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1512,15 @@ impl App {
+@@ -1150,6 +1524,15 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -6120,7 +6255,7 @@ index 6cf00db..a2c236a 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1202,7 +1573,13 @@ impl App {
+@@ -1202,7 +1585,13 @@ impl App {
          }
          self.library.poll();
          self.poll_jobs();
@@ -6134,7 +6269,7 @@ index 6cf00db..a2c236a 100644
          // a room that went away takes the game's local wireless with it
          if self.room.as_ref().is_some_and(|room| !room.open()) {
              self.leave_room();
-@@ -1304,10 +1681,53 @@ impl App {
+@@ -1304,10 +1693,54 @@ impl App {
      /// runs one frame of the game.
      fn emulate(&mut self) {
          let Some(game) = &mut self.game else { return };
@@ -6171,6 +6306,7 @@ index 6cf00db..a2c236a 100644
 +                if overlays::on_portrait(spot) {
 +                    self.bottom_over_key = false;
 +                    self.closing_by_user = true;
++                    self.unit_view_from = Some((game.system.frames, game.system.frames));
 +                }
 +            }
 +        } else {
@@ -6189,7 +6325,7 @@ index 6cf00db..a2c236a 100644
          game.frame += 1;
          if let Some(recorder) = &mut game.recorder {
              recorder.record(input);
-@@ -1539,16 +1959,37 @@ impl App {
+@@ -1539,16 +1972,37 @@ impl App {
      /// the menus, and the actions they asked for, done.
      fn interface(&mut self, event_loop: &ActiveEventLoop) -> Overlay {
          // when the slot chosen was saved to, while the menu shows it
@@ -6235,7 +6371,7 @@ index 6cf00db..a2c236a 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,18 +2002,45 @@ impl App {
+@@ -1561,18 +2015,45 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -6283,7 +6419,7 @@ index 6cf00db..a2c236a 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,13 +2049,16 @@ impl App {
+@@ -1581,13 +2062,16 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -6301,7 +6437,7 @@ index 6cf00db..a2c236a 100644
          });
          self.library.changed = false;
          for action in actions {
-@@ -1596,7 +2067,72 @@ impl App {
+@@ -1596,7 +2080,72 @@ impl App {
          overlay
      }
  
@@ -6374,7 +6510,7 @@ index 6cf00db..a2c236a 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
-@@ -1697,6 +2233,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
+@@ -1697,6 +2246,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
  /// keeps the renderer kind referenced even when a backend feature is off.
  const _: RendererKind = RendererKind::Software;
  
@@ -6724,7 +6860,7 @@ index 8a5163d..c09ab3d 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..f0696e7 100644
+index 9372f02..8b998aa 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -4,14 +4,17 @@ use std::collections::HashMap;
@@ -7173,7 +7309,7 @@ index 9372f02..f0696e7 100644
      ) -> Vec<Action> {
          let mut actions = Vec::new();
          let ctx = ui.ctx().clone();
-@@ -398,89 +502,142 @@ impl Menus {
+@@ -398,134 +502,171 @@ impl Menus {
              // clicks go through to the screen under it
              egui::Area::new(egui::Id::new("fps")).fixed_pos(egui::pos2(8.0, 8.0)).interactable(false).show(&ctx, |ui| {
                  egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -7184,12 +7320,12 @@ index 9372f02..f0696e7 100644
          }
          if !self.menu_open {
 +            self.confirm = None;
++            return actions;
++        }
++        if self.settings_open {
              return actions;
          }
 -        egui::Window::new("Paused")
-+        if self.settings_open {
-+            return actions;
-+        }
 +        theme::window("paused")
              .collapsible(false)
              .resizable(false)
@@ -7369,76 +7505,92 @@ index 9372f02..f0696e7 100644
 -    pub fn cheats(&mut self, ctx: &egui::Context, cheats: &[(String, bool, String, bool)]) -> Vec<Action> {
 +    pub fn cheats(&mut self, ctx: &egui::Context, cheats: &[(String, bool, String, bool, Option<ModSetting>)], held: bool) -> Vec<Action> {
          let mut actions = Vec::new();
-+        let mut values = Vec::new();
          let mut open = self.cheats_open;
 -        egui::Window::new("Cheats").open(&mut open).default_width(380.0).show(ctx, |ui| {
-+        egui::Window::new("Cheats").id(egui::Id::new("cheats")).open(&mut open).default_width(380.0).show(ctx, |ui| {
-+            if held {
-+                ui.label(RichText::new("Original mode is on, so these are all off.").weak());
-+            }
-+            ui.add_enabled_ui(!held, |ui| {
-             let mut checkbox = |ui: &mut egui::Ui, index: usize, name: &str, enabled: bool, notes: &str| {
-                 let mut on = enabled;
-                 let mut response = ui.checkbox(&mut on, name);
-@@ -493,40 +650,48 @@ impl Menus {
-             };
-             // Zakuro's own, tested on this build of the game
-             if cheats.iter().any(|cheat| cheat.3) {
+-            let mut checkbox = |ui: &mut egui::Ui, index: usize, name: &str, enabled: bool, notes: &str| {
+-                let mut on = enabled;
+-                let mut response = ui.checkbox(&mut on, name);
+-                if !notes.is_empty() {
+-                    response = response.on_hover_text(notes);
+-                }
+-                if response.changed() {
+-                    actions.push(Action::Cheat(index, on));
+-                }
+-            };
+-            // Zakuro's own, tested on this build of the game
+-            if cheats.iter().any(|cheat| cheat.3) {
 -                ui.label(RichText::new("Enhancements").strong());
 -                for (index, (name, enabled, notes, _)) in cheats.iter().enumerate().filter(|(_, cheat)| cheat.3) {
-+                ui.label(RichText::new("Built in").strong());
-+                for (index, (name, enabled, _, _, setting)) in cheats.iter().enumerate().filter(|(_, cheat)| cheat.3) {
-                     checkbox(ui, index, name, *enabled, "");
+-                    checkbox(ui, index, name, *enabled, "");
 -                    // what it does to the game and who made it, in sight
 -                    // before it is turned on
 -                    ui.indent(index, |ui| ui.label(RichText::new(notes).weak().small()));
-+                    if let (Some(setting), true) = (setting, *enabled) {
-+                        ui.indent(("mod setting", index), |ui| {
-+                            let mut value = setting.value;
-+                            let slider = egui::Slider::new(&mut value, setting.min..=setting.max).text(&setting.name).suffix(&setting.unit);
-+                            if ui.add(slider).changed() {
-+                                values.push(Action::CheatValue(index, value));
+-                }
+-                ui.separator();
+-            }
+-            if !cheats.iter().any(|cheat| !cheat.3) {
+-                ui.label(RichText::new("No cheats yet. Add one below, or put the cheat file Citra or Azahar has for this game in the cheats folder.").weak());
+-            }
+-            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+-                for (index, (name, enabled, notes, _)) in cheats.iter().enumerate().filter(|(_, cheat)| !cheat.3) {
+-                    checkbox(ui, index, name, *enabled, notes);
+-                }
+-            });
+-            ui.separator();
+-            ui.label("Add a cheat");
+-            ui.add(egui::TextEdit::singleline(&mut self.cheat_name).hint_text("Name"));
+-            ui.add(egui::TextEdit::multiline(&mut self.cheat_code).hint_text("00000000 00000000").desired_rows(4).font(egui::TextStyle::Monospace));
+-            ui.horizontal(|ui| {
+-                if ui.button("Add").clicked() && !self.cheat_code.trim().is_empty() {
+-                    actions.push(Action::AddCheat(std::mem::take(&mut self.cheat_name), std::mem::take(&mut self.cheat_code)));
+-                }
+-                if ui.button("Reload").on_hover_text("Read the cheats again from their file, after changing it.").clicked() {
+-                    actions.push(Action::ReloadCheats);
+-                }
+-                if ui.button("Open the cheats folder").clicked() {
+-                    actions.push(Action::CheatsFolder);
+-                }
+-            });
+-        });
++        if open {
++            let room = ctx.content_rect().height() - 16.0;
++            let (name, code) = (&mut self.cheat_name, &mut self.cheat_code);
++            theme::window("cheats")
++                .default_width(480.0)
++                .min_width(480.0)
++                .max_height(room)
++                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
++                .show(ctx, |ui| {
++                    theme::header(ui, "Cheats", Some(&mut open));
++                    theme::body(ui, |ui| {
++                        if held {
++                            theme::hint(ui, "Original mode is on, so these are all off.");
++                            ui.add_space(6.0);
++                        }
++                        ui.add_enabled_ui(!held, |ui| cheat_lists(ui, cheats, &mut actions));
++                        ui.add_space(10.0);
++                        theme::section(ui, "Add a code");
++                        ui.add(egui::TextEdit::singleline(name).hint_text("Name").desired_width(f32::INFINITY));
++                        ui.add(egui::TextEdit::multiline(code).hint_text("00000000 00000000").desired_rows(4).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace));
++                        ui.add_space(8.0);
++                        theme::commands(ui, |ui| {
++                            if theme::command(ui, "\u{2714}", "Add", !held && !code.trim().is_empty()).clicked() {
++                                actions.push(Action::AddCheat(std::mem::take(name), std::mem::take(code)));
++                            }
++                            if theme::command(ui, "\u{27F3}", "Reload", !held).on_hover_text("Read the codes again from their file, after changing it.").clicked() {
++                                actions.push(Action::ReloadCheats);
++                            }
++                            if theme::command(ui, "\u{1F4C2}", "Open the cheats folder", true).clicked() {
++                                actions.push(Action::CheatsFolder);
 +                            }
 +                        });
-+                    }
-                 }
-                 ui.separator();
-             }
-             if !cheats.iter().any(|cheat| !cheat.3) {
--                ui.label(RichText::new("No cheats yet. Add one below, or put the cheat file Citra or Azahar has for this game in the cheats folder.").weak());
-+                ui.label(RichText::new("No codes yet. Add one below, or put the cheat file Citra or Azahar has for this game in the cheats folder.").weak());
-             }
-             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
--                for (index, (name, enabled, notes, _)) in cheats.iter().enumerate().filter(|(_, cheat)| !cheat.3) {
-+                for (index, (name, enabled, notes, _, _)) in cheats.iter().enumerate().filter(|(_, cheat)| !cheat.3) {
-                     checkbox(ui, index, name, *enabled, notes);
-                 }
-             });
-             ui.separator();
--            ui.label("Add a cheat");
-+            ui.label("Add a code");
-             ui.add(egui::TextEdit::singleline(&mut self.cheat_name).hint_text("Name"));
-             ui.add(egui::TextEdit::multiline(&mut self.cheat_code).hint_text("00000000 00000000").desired_rows(4).font(egui::TextStyle::Monospace));
-             ui.horizontal(|ui| {
-                 if ui.button("Add").clicked() && !self.cheat_code.trim().is_empty() {
-                     actions.push(Action::AddCheat(std::mem::take(&mut self.cheat_name), std::mem::take(&mut self.cheat_code)));
-                 }
--                if ui.button("Reload").on_hover_text("Read the cheats again from their file, after changing it.").clicked() {
-+                if ui.button("Reload").on_hover_text("Read the codes again from their file, after changing it.").clicked() {
-                     actions.push(Action::ReloadCheats);
-                 }
-                 if ui.button("Open the cheats folder").clicked() {
-                     actions.push(Action::CheatsFolder);
-                 }
-             });
-+            });
-         });
++                    });
++                });
++        }
          self.cheats_open = open;
-+        actions.extend(values);
          actions
      }
- 
-@@ -653,197 +818,114 @@ impl Menus {
+@@ -653,197 +794,114 @@ impl Menus {
          // taller than a screen has room for, so it scrolls, and it can be
          // dragged to any size that fits
          let room = ctx.content_rect().height() - 16.0;
@@ -7506,7 +7658,7 @@ index 9372f02..f0696e7 100644
 -                    for layout in Screens::ALL {
 -                        ui.selectable_value(&mut settings.layout, layout, layout.name());
 -                    }
-                 });
+-                });
 -                egui::ComboBox::from_label("Filter").selected_text(settings.filter.name()).show_ui(ui, |ui| {
 -                    for filter in Filter::ALL {
 -                        ui.selectable_value(&mut settings.filter, filter, filter.name());
@@ -7592,7 +7744,7 @@ index 9372f02..f0696e7 100644
 -                    if settings.background.is_some() && ui.button("Remove").clicked() {
 -                        settings.background = None;
 -                    }
--                });
+                 });
 -                ui.add_enabled(
 -                    settings.background.is_some(),
 -                    egui::Slider::new(&mut settings.background_opacity, 0.0..=1.0)
@@ -7727,7 +7879,7 @@ index 9372f02..f0696e7 100644
      }
  
      /// a message box, when there is something to tell.
-@@ -919,25 +1001,213 @@ impl Menus {
+@@ -919,25 +977,259 @@ impl Menus {
  
      pub fn message(&mut self, ctx: &egui::Context) {
          let Some(text) = self.message.clone() else { return };
@@ -7814,6 +7966,52 @@ index 9372f02..f0696e7 100644
 +        });
 +    });
 +    theme::hint(ui, "A new language takes effect after a reset, or the next time the game starts.");
++}
++
++fn cheat_lists(ui: &mut egui::Ui, cheats: &[(String, bool, String, bool, Option<ModSetting>)], actions: &mut Vec<Action>) {
++    let toggle = |ui: &mut egui::Ui, index: usize, name: &str, enabled: bool, notes: &str, actions: &mut Vec<Action>| {
++        let mut on = enabled;
++        let mut response = ui.checkbox(&mut on, name);
++        if !notes.is_empty() {
++            response = response.on_hover_text(notes);
++        }
++        if response.changed() {
++            actions.push(Action::Cheat(index, on));
++        }
++    };
++    let mut values = Vec::new();
++    if cheats.iter().any(|cheat| cheat.3) {
++        theme::section(ui, "Built in");
++        theme::commands(ui, |ui| {
++            for (index, (name, enabled, _, _, setting)) in cheats.iter().enumerate().filter(|(_, cheat)| cheat.3) {
++                theme::row(ui, |ui| toggle(ui, index, name, *enabled, "", actions));
++                if let (Some(setting), true) = (setting, *enabled) {
++                    theme::row(ui, |ui| {
++                        ui.add_space(24.0);
++                        let mut value = setting.value;
++                        let slider = egui::Slider::new(&mut value, setting.min..=setting.max).text(&setting.name).suffix(&setting.unit);
++                        if ui.add(slider).changed() {
++                            values.push(Action::CheatValue(index, value));
++                        }
++                    });
++                }
++            }
++        });
++        ui.add_space(10.0);
++    }
++    theme::section(ui, "Codes");
++    if !cheats.iter().any(|cheat| !cheat.3) {
++        theme::hint(ui, "No codes yet. Add one below, or put the cheat file Citra or Azahar has for this game in the cheats folder.");
++    } else {
++        egui::ScrollArea::vertical().id_salt("codes").max_height(260.0).show(ui, |ui| {
++            theme::commands(ui, |ui| {
++                for (index, (name, enabled, notes, _, _)) in cheats.iter().enumerate().filter(|(_, cheat)| !cheat.3) {
++                    theme::row(ui, |ui| toggle(ui, index, name, *enabled, notes, actions));
++                }
++            });
++        });
++    }
++    actions.extend(values);
 +}
 +
 +fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
@@ -7954,7 +8152,7 @@ index 9372f02..f0696e7 100644
  }
  
  /// a line a GameOverlay keeps over the game, in the bottom right corner.
-@@ -952,20 +1222,58 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+@@ -952,20 +1244,58 @@ pub fn corner(ctx: &egui::Context, text: &str) {
          });
  }
  
@@ -8022,7 +8220,7 @@ index 9372f02..f0696e7 100644
  }
  
  /// a key as a person would call it.
-@@ -1011,7 +1319,7 @@ mod tests {
+@@ -1011,7 +1341,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -8031,7 +8229,7 @@ index 9372f02..f0696e7 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1334,12 @@ mod tests {
+@@ -1026,6 +1356,12 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  
@@ -8046,10 +8244,10 @@ index 9372f02..f0696e7 100644
          assert_eq!(key_name(KeyCode::KeyX), "X");
 diff --git a/crates/zakuro/src/overlays.rs b/crates/zakuro/src/overlays.rs
 new file mode 100644
-index 0000000..e790d63
+index 0000000..638277c
 --- /dev/null
 +++ b/crates/zakuro/src/overlays.rs
-@@ -0,0 +1,603 @@
+@@ -0,0 +1,605 @@
 +use std::time::{Duration, Instant};
 +
 +use egui::Color32;
@@ -8170,6 +8368,8 @@ index 0000000..e790d63
 +}
 +pub(crate) const TAP_FRAMES: u8 = 6;
 +pub(crate) const OVERVIEW_WAIT: u8 = 45;
++pub(crate) const UNIT_VIEW_START: u64 = 40;
++pub(crate) const UNIT_VIEW_GAP: u64 = 90;
 +
 +pub(crate) fn level_up_screen(picture: &[u8]) -> bool {
 +    if picture.len() < 320 * 240 * 4 {
@@ -9406,10 +9606,10 @@ index 0000000..a41e253
 +}
 diff --git a/crates/zakuro/src/theme.rs b/crates/zakuro/src/theme.rs
 new file mode 100644
-index 0000000..abc40c2
+index 0000000..37fcb65
 --- /dev/null
 +++ b/crates/zakuro/src/theme.rs
-@@ -0,0 +1,376 @@
+@@ -0,0 +1,380 @@
 +use egui::epaint::{Mesh, Shadow};
 +use egui::{Color32, CornerRadius, FontFamily, FontId, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, TextStyle, Vec2};
 +
@@ -9601,6 +9801,10 @@ index 0000000..abc40c2
 +    egui::Frame::new().inner_margin(Margin { left: 26, right: 26, top: 10, bottom: 16 }).show(ui, add).inner
 +}
 +
++pub fn section(ui: &mut egui::Ui, text: &str) {
++    ui.label(RichText::new(text).font(bold(15.0)).color(INK));
++}
++
 +pub fn hint(ui: &mut egui::Ui, text: &str) {
 +    ui.label(RichText::new(text).weak().size(13.0));
 +}
@@ -9788,7 +9992,7 @@ index 0000000..abc40c2
 +
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..a5a7204
+index 0000000..5463b18
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,161 @@
@@ -9800,7 +10004,7 @@ index 0000000..a5a7204
 +
 +use crate::zig::{fetch, windowless, Fetcher};
 +
-+pub const RELEASE: &str = "v1.0.5";
++pub const RELEASE: &str = "v1.0.6";
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +const ASSET_SUFFIX: &str = "-windows-x64.zip";
 +const STAGING: &str = "update";

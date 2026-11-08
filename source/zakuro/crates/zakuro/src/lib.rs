@@ -124,6 +124,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
         over_touched_at: None,
         touched_scene: Scene::Plain,
         over_touch_start: None,
+        unit_view_from: None,
         scripted_tap: None,
         pending_overview: None,
         restore_inventory: false,
@@ -452,6 +453,7 @@ struct App {
     over_touched_at: Option<Instant>,
     touched_scene: Scene,
     over_touch_start: Option<((u16, u16), bool)>,
+    unit_view_from: Option<(u64, u64)>,
     scripted_tap: Option<((u16, u16), u8)>,
     pending_overview: Option<u8>,
     restore_inventory: bool,
@@ -1193,8 +1195,18 @@ impl App {
             }
         }
         let mut scene = self.current_scene();
-        let talking = self.game.as_ref().is_some_and(|game| game.system.talking());
-        if scene == Scene::Plain && self.bottom_over_key && (talking || self.scene == Scene::LevelUp) && self.showing_level_up() {
+        let mut talking = self.game.as_ref().is_some_and(|game| game.system.talking());
+        if let Some((from, talked)) = self.unit_view_from {
+            let now = self.game.as_ref().map_or(from, |game| game.system.frames);
+            let talked = if talking { now } else { talked };
+            let entering = scene == Scene::Plain && (now - from < overlays::UNIT_VIEW_START || now - talked < overlays::UNIT_VIEW_GAP);
+            self.unit_view_from = entering.then_some((from, talked));
+            if entering {
+                scene = Scene::UnitView;
+                talking = false;
+            }
+        }
+        if scene == Scene::Plain && self.bottom_over_key && self.showing_level_up() {
             scene = Scene::LevelUp;
         }
         let opens = matches!(scene, Scene::Plain | Scene::WorldMap | Scene::UnitView | Scene::LevelUp);
@@ -1714,6 +1726,7 @@ impl App {
                 if overlays::on_portrait(spot) {
                     self.bottom_over_key = false;
                     self.closing_by_user = true;
+                    self.unit_view_from = Some((game.system.frames, game.system.frames));
                 }
             }
         } else {

@@ -229,7 +229,7 @@ index 6a630cb..2e279c7 100644
  pub mod cro;
  pub mod download_play;
 diff --git a/crates/zakuro-core/src/loader.rs b/crates/zakuro-core/src/loader.rs
-index 4fdbafc..61f717d 100644
+index d934f31..643f9d9 100644
 --- a/crates/zakuro-core/src/loader.rs
 +++ b/crates/zakuro-core/src/loader.rs
 @@ -200,6 +200,10 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
@@ -2096,7 +2096,7 @@ index 0000000..562ad05
 +    Ok(out)
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index a2c236a..8d0a5a2 100644
+index 4515b11..b78b847 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -7,6 +7,7 @@ mod banners;

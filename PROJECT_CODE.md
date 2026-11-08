@@ -10,9 +10,9 @@ This list separates the project's code from Zakuro's and 3dsrecomp's. Paths star
 | `zakuro/crates/zakuro-core/src/scenes.rs` | 146 | Scene detection from the markers the GPU sees: which scene shows, the end of a battle, marker positions, and the unit selection. |
 | `zakuro/crates/zakuro/src/banners.rs` | 221 | Reads the text of the FE3H-style banners (names, HP, weapon, stats) off the bottom screen. |
 | `zakuro/crates/zakuro/src/console.rs` | 81 | The optional console window with Zakuro's log (Settings, System). |
-| `zakuro/crates/zakuro/src/overlays.rs` | 603 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
+| `zakuro/crates/zakuro/src/overlays.rs` | 605 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
 | `zakuro/crates/zakuro/src/sounds.rs` | 301 | Reads the bottom screen's open and close sounds from the game's sound archive. |
-| `zakuro/crates/zakuro/src/theme.rs` | 376 | The launcher's look: colours, fonts, window frames, tabs and buttons. |
+| `zakuro/crates/zakuro/src/theme.rs` | 380 | The launcher's look: colours, fonts, window frames, tabs and buttons. |
 | `zakuro/crates/zakuro/src/update.rs` | 161 | Update Launcher: finds the latest release on GitHub, downloads it and puts it in place of the running launcher. |
 | `zakuro/crates/zakuro-core/src/feet.rs` | 212 | The feet mod's per-frame hook: turns each foot so that it rests flat on the ground. (feet mod) |
 | `zakuro/crates/zakuro/src/feet/foot.rs` | 1123 | Builds the feet for one body model and writes the changed model. (feet mod) |
@@ -205,6 +205,10 @@ Changed:
 - `fn code`
 - `fn lay`
 
+Removed:
+
+- `fn textures`
+
 Its imports change too.
 
 ### `zakuro/crates/zakuro-core/src/recompiled.rs`
@@ -342,6 +346,22 @@ Changed:
 - `code outside any item`
 
 Its imports change too.
+
+### `zakuro/crates/zakuro-gpu/src/pack.rs`
+
+Added:
+
+- `fn Pack::open_all`
+
+Changed:
+
+- `struct Pack`
+- `fn Pack::open`
+- `fn Pack::find`
+- `struct Config`
+- `fn Config::read`
+- `fn Config::parse`
+- `fn tests::both_hashes_find_pictures`
 
 ### `zakuro/crates/zakuro-gpu/src/raster.rs`
 
@@ -652,6 +672,7 @@ Added:
 - `fn Menus::keybinds_tab`
 - `fn Menus::controller_tab`
 - `fn system_tab`
+- `fn cheat_lists`
 - `fn graphics_tab`
 - `fn sound_tab`
 - `const ICON`

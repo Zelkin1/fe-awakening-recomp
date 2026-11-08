@@ -225,12 +225,12 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
         }
     }
     if let Some(data_dir) = system.config.mods_dir().filter(|_| system.config.texture_packs) {
-        let dir = crate::mods::textures(data_dir, title.program_id());
+        let dirs: Vec<std::path::PathBuf> = crate::mods::folders(data_dir, title.program_id()).into_iter().map(|folder| folder.join("textures")).collect();
         if !on_gpu {
-            if std::fs::read_dir(&dir).is_ok_and(|mut entries| entries.next().is_some()) {
+            for dir in dirs.iter().filter(|dir| std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())) {
                 log::warn!("the texture pack in {} needs the 3D drawn on the GPU, it is left out", dir.display());
             }
-        } else if let Some(pack) = zakuro_gpu::pack::Pack::open(&dir) {
+        } else if let Some(pack) = zakuro_gpu::pack::Pack::open_all(&dirs) {
             system.gpu.set_texture_pack(Some(std::sync::Arc::new(pack)));
         }
     }

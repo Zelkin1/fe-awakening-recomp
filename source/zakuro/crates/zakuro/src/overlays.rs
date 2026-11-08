@@ -118,6 +118,8 @@ pub(crate) fn on_portrait((x, y): (u16, u16)) -> bool {
 }
 pub(crate) const TAP_FRAMES: u8 = 6;
 pub(crate) const OVERVIEW_WAIT: u8 = 45;
+pub(crate) const UNIT_VIEW_START: u64 = 40;
+pub(crate) const UNIT_VIEW_GAP: u64 = 90;
 
 pub(crate) fn level_up_screen(picture: &[u8]) -> bool {
     if picture.len() < 320 * 240 * 4 {

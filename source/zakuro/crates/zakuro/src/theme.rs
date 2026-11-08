@@ -189,6 +189,10 @@ pub fn menu_body<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> 
     egui::Frame::new().inner_margin(Margin { left: 26, right: 26, top: 10, bottom: 16 }).show(ui, add).inner
 }
 
+pub fn section(ui: &mut egui::Ui, text: &str) {
+    ui.label(RichText::new(text).font(bold(15.0)).color(INK));
+}
+
 pub fn hint(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).weak().size(13.0));
 }
