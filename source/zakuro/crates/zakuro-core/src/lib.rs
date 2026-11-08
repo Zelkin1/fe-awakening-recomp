@@ -176,6 +176,7 @@ struct Pacing {
     between: bool,
     /// the refreshes that showed pictures in between so far.
     shown: u64,
+    twinning: bool,
 }
 
 pub use scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
@@ -793,6 +794,7 @@ impl System {
             if pacing.refreshes - pacing.new_at > 2 {
                 // the title slowed down or stopped, the pictures in between
                 // of its next frame would be shown too late
+                pacing.twinning = false;
                 self.gpu.set_twins(false);
             }
             return;
@@ -803,12 +805,14 @@ impl System {
         let matches = self.gpu.frame_done();
         let pacing = &mut self.pacing;
         pacing.matches = matches;
-        pacing.between = gap == 2 && matches.is_some_and(|matches| matches.smooth());
+        let paced = gap == 2 || gap == 3;
+        pacing.between = paced && pacing.twinning && matches.is_some();
         pacing.shown += pacing.between as u64;
         self.pictures.interpolated += pacing.between as u64;
         // the next frame is drawn in between too while the title keeps to
         // every other refresh
-        self.gpu.set_twins(gap == 2);
+        self.gpu.set_twins(paced);
+        self.pacing.twinning = paced && matches.is_some();
     }
 
     /// draws a picture in between each two of the title's own from now on,

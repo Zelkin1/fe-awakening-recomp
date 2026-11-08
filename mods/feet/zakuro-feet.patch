@@ -217,7 +217,7 @@ index 0000000..8c0b964
 +    }
 +}
 diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
-index 1f708d9..d6326f7 100644
+index 6a630cb..2e279c7 100644
 --- a/crates/zakuro-core/src/lib.rs
 +++ b/crates/zakuro-core/src/lib.rs
 @@ -4,6 +4,7 @@

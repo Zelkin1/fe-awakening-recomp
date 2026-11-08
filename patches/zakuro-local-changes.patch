@@ -777,7 +777,7 @@ index 0000000..a085e28
 +    labels: [[146, 92, 28, 14], [146, 108, 28, 14], [146, 124, 28, 14]],
 +};
 diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
-index a9d239c..1f708d9 100644
+index a9d239c..6a630cb 100644
 --- a/crates/zakuro-core/src/lib.rs
 +++ b/crates/zakuro-core/src/lib.rs
 @@ -4,6 +4,7 @@
@@ -855,22 +855,23 @@ index a9d239c..1f708d9 100644
  /// how a frame of emulation ended.
  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
  pub enum FrameOutcome {
-@@ -154,6 +177,14 @@ struct Pacing {
+@@ -152,6 +175,15 @@ struct Pacing {
+     between: bool,
+     /// the refreshes that showed pictures in between so far.
      shown: u64,
- }
- 
++    twinning: bool,
++}
++
 +pub use scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
 +
 +#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 +pub struct Pictures {
 +    pub from_game: u64,
 +    pub interpolated: u64,
-+}
-+
+ }
+ 
  pub struct System {
-     pub cpu: Cpu,
-     pub memory: Memory,
-@@ -180,6 +211,9 @@ pub struct System {
+@@ -180,6 +212,9 @@ pub struct System {
      showing: [Option<zakuro_gpu::ScreenRef>; 3],
      /// frame interpolation's count of the refreshes.
      pacing: Pacing,
@@ -880,7 +881,7 @@ index a9d239c..1f708d9 100644
      /// the dynamic module loader's state.
      pub cro: cro::CroManager,
      /// what the cameras see, from the frontend.
-@@ -279,6 +313,9 @@ impl System {
+@@ -279,6 +314,9 @@ impl System {
              lcd_force_black: false,
              showing: [None, None, None],
              pacing: Pacing::default(),
@@ -890,7 +891,7 @@ index a9d239c..1f708d9 100644
              cro: cro::CroManager::default(),
              camera: None,
              room: None,
-@@ -610,6 +647,10 @@ impl System {
+@@ -610,6 +648,10 @@ impl System {
          out
      }
  
@@ -901,7 +902,7 @@ index a9d239c..1f708d9 100644
      /// starts collecting PC samples.
      pub fn enable_profiler(&mut self) {
          self.profile = Some(BTreeMap::new());
-@@ -716,6 +757,10 @@ impl System {
+@@ -716,6 +758,10 @@ impl System {
          }
  
          self.renderer.end_frame();
@@ -912,15 +913,32 @@ index a9d239c..1f708d9 100644
  
          // pick up any buffer swap the game queued directly in GSP shared
          // memory before the LCDs latch whatever is currently configured.
-@@ -759,6 +804,7 @@ impl System {
+@@ -747,6 +793,7 @@ impl System {
+             if pacing.refreshes - pacing.new_at > 2 {
+                 // the title slowed down or stopped, the pictures in between
+                 // of its next frame would be shown too late
++                pacing.twinning = false;
+                 self.gpu.set_twins(false);
+             }
+             return;
+@@ -757,11 +804,14 @@ impl System {
+         let matches = self.gpu.frame_done();
+         let pacing = &mut self.pacing;
          pacing.matches = matches;
-         pacing.between = gap == 2 && matches.is_some_and(|matches| matches.smooth());
+-        pacing.between = gap == 2 && matches.is_some_and(|matches| matches.smooth());
++        let paced = gap == 2 || gap == 3;
++        pacing.between = paced && pacing.twinning && matches.is_some();
          pacing.shown += pacing.between as u64;
 +        self.pictures.interpolated += pacing.between as u64;
          // the next frame is drawn in between too while the title keeps to
          // every other refresh
-         self.gpu.set_twins(gap == 2);
-@@ -783,6 +829,70 @@ impl System {
+-        self.gpu.set_twins(gap == 2);
++        self.gpu.set_twins(paced);
++        self.pacing.twinning = paced && matches.is_some();
+     }
+ 
+     /// draws a picture in between each two of the title's own from now on,
+@@ -783,6 +833,70 @@ impl System {
          self.pacing.between
      }
  
@@ -991,7 +1009,7 @@ index a9d239c..1f708d9 100644
      /// the DSP finishing an audio frame, it plays its voices one frame on and
      /// interrupts the title, whose sound library does one update per interrupt.
      fn audio_frame(&mut self) {
-@@ -843,6 +953,9 @@ impl System {
+@@ -843,6 +957,9 @@ impl System {
          stride: u32,
          format: u32,
      ) {
@@ -1001,7 +1019,7 @@ index a9d239c..1f708d9 100644
          self.gpu
              .set_framebuffer(screen, active, left, right, stride, format);
      }
-@@ -995,6 +1108,13 @@ impl System {
+@@ -995,6 +1112,13 @@ impl System {
          memory::config::set_slider_3d(self.memory.phys.shared_page_mut(), value);
      }
  
@@ -1015,7 +1033,7 @@ index a9d239c..1f708d9 100644
      /// where a screen's picture is on the host's GPU, for a presenter sharing
      /// its device to draw straight from, none when the GPU does not show the
      /// screens itself or did not draw what the screen shows, read_screen_scaled
-@@ -1088,6 +1208,14 @@ impl System {
+@@ -1088,6 +1212,14 @@ impl System {
          self.gpu.scaled_screen(base, (height, width), stride / bpp, format, &bytes)
      }
  
@@ -2167,10 +2185,29 @@ index 212c3f7..a5df7ad 100644
                      );
                      device.cmd_draw_indexed(command_buffer, count, 1, first_index, first_vertex, 0);
 diff --git a/crates/zakuro-gpu/src/interpolation.rs b/crates/zakuro-gpu/src/interpolation.rs
-index af12308..93bf5cf 100644
+index af12308..07d370f 100644
 --- a/crates/zakuro-gpu/src/interpolation.rs
 +++ b/crates/zakuro-gpu/src/interpolation.rs
-@@ -36,6 +36,10 @@ fn steps(before: f32, now: f32) -> bool {
+@@ -17,16 +17,8 @@ use crate::shader::{ShaderUnit, Vec4, FLOAT_UNIFORMS};
+ /// the vertex shader's float uniforms at a draw.
+ pub(crate) type Uniforms = [Vec4; FLOAT_UNIFORMS];
+ 
+-/// how much a component's move from one frame to the next may differ from
+-/// its move the frame before, before the draw counts as a different one, a
+-/// jump rather than a move, which is drawn as it is. a model in the distance
+-/// or the camera going on as it went moves as it did however fast, a camera
+-/// cutting elsewhere, another model taken for this one or a flag kept in a
+-/// float do not. a component of a rotation turning faster by less than
+-/// about 30 degrees moves less than half again, a translation less than a
+-/// quarter of its distance again.
+-const JUMP: f32 = 0.5;
+-const JUMP_PART: f32 = 0.25;
++const JUMP: f32 = 1.0;
++const TURN: f32 = 1.5;
+ 
+ /// whether a component a texture's coordinates may read steps from one
+ /// round value to another, sixty-fourths, as a sprite's offset into its
+@@ -36,6 +28,10 @@ fn steps(before: f32, now: f32) -> bool {
      round(before) && round(now)
  }
  
@@ -2181,7 +2218,16 @@ index af12308..93bf5cf 100644
  /// how many draws of the frame before drawn the same way a draw's match is
  /// looked for among, around its own place among them.
  const NEAREST: usize = 32;
-@@ -201,15 +205,17 @@ impl Interpolation {
+@@ -190,7 +186,7 @@ impl Interpolation {
+         // and jump
+         let jumps = |before: f32, now: f32, moved_before: f32| {
+             let change = (now - before - moved_before).abs();
+-            !(change <= JUMP || change <= JUMP_PART * before.abs().max(now.abs()))
++            !(before.is_finite() && now.is_finite() && (change <= JUMP || before.abs().max(now.abs()) > TURN))
+         };
+         let mut lerped = false;
+         let uniforms = between.iter_mut().zip(before.iter()).zip(now.iter()).zip(moved_before.iter());
+@@ -201,15 +197,17 @@ impl Interpolation {
                  // one the coordinates may read too is as the frame has it,
                  // whatever it is, one that only places the vertices says
                  // the draw is another than the one before
@@ -2202,7 +2248,7 @@ index af12308..93bf5cf 100644
          }
          if !jumped && !lerped {
              // what moved jumped, and is as the frame has it
-@@ -314,8 +320,8 @@ mod tests {
+@@ -314,8 +312,8 @@ mod tests {
          assert_eq!(first, Matches { draws: 3, matched: 0, moved: 0, jumped: 0, jumping: 0 });
          assert!(!first.smooth());
  
@@ -2213,10 +2259,14 @@ index af12308..93bf5cf 100644
          assert_eq!(between[1], [0.0, 1.0, 0.0, 2.0]);
          interpolation.give_back(between);
          let between = interpolation.draw(&registers(3), &unit(4.2), None, true).expect("the second matches the second");
-@@ -384,6 +390,24 @@ mod tests {
-         assert_eq!(moved, [false, false, true, true, true], "nothing before, then the first move jumps");
-     }
- 
+@@ -381,7 +379,25 @@ mod tests {
+             }
+             interpolation.frame_done();
+         }
+-        assert_eq!(moved, [false, false, true, true, true], "nothing before, then the first move jumps");
++        assert_eq!(moved, [false, true, true, true, true], "nothing before, then every move");
++    }
++
 +    #[test]
 +    fn a_round_step_from_standing_still_and_back_toggles() {
 +        let mut interpolation = Interpolation::default();
@@ -2233,20 +2283,57 @@ index af12308..93bf5cf 100644
 +        assert_eq!(shown, [None, None, None, None, None], "shut and open again, never halfway");
 +        let shown: Vec<Option<f32>> = [0.5, 1.0, 1.5].into_iter().map(&mut frame).collect();
 +        assert_eq!(shown, [None, Some(0.75), Some(1.25)], "the first step toggles, then it moves");
-+    }
-+
+     }
+ 
      /// a draw that jumps frame after frame, a batch of sprites sorted anew
-     /// each frame, is drawn as it is and counts apart, the frame is still
-     /// smooth for the rest of its draws. one that jumps after moving counts
-@@ -446,7 +470,7 @@ mod tests {
+@@ -400,14 +416,14 @@ mod tests {
+             interpolation.frame_done()
+         };
+         frame(0.0, 0.0);
+-        frame(5.0, 0.1);
+-        assert_eq!(frame(-5.0, 0.2), Matches { draws: 2, matched: 2, moved: 1, jumped: 0, jumping: 1 });
+-        let matches = frame(5.0, 0.3);
++        frame(1.2, 0.1);
++        assert_eq!(frame(-1.2, 0.2), Matches { draws: 2, matched: 2, moved: 1, jumped: 0, jumping: 1 });
++        let matches = frame(1.2, 0.3);
+         assert!(matches.smooth() && matches.jumping == 1);
+-        assert_eq!(frame(-5.0, 9.0).jumped, 1, "the model jumped after moving");
++        assert_eq!(frame(-1.2, -1.4).jumped, 1, "the model jumped after moving");
+         // an animation stepping every other frame
+         let mut interpolation = Interpolation::default();
+-        let jumps: Vec<(u32, u32)> = [0.0, 0.0, 5.0, 5.0, 10.0, 10.0, 15.0]
++        let jumps: Vec<(u32, u32)> = [0.0, 0.0, 1.2, 1.2, 0.0, 0.0, 1.2]
+             .into_iter()
+             .map(|x| {
+                 if let Some(between) = interpolation.draw(&registers(3), &unit(x), None, true) {
+@@ -437,23 +453,16 @@ mod tests {
+         assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 2, moved: 2, jumped: 0, jumping: 0 });
+     }
+ 
+-    /// a draw whose uniforms jump, as a matrix does when the camera cuts or
+-    /// a flag kept in a float flips, is drawn as it is, and a frame where
+-    /// most of them jump is not smooth.
+     #[test]
+     fn jumps_are_not_drawn_in_between() {
+         let mut interpolation = Interpolation::default();
          interpolation.draw(&registers(3), &unit(100.0), None, true);
-         interpolation.draw(&registers(4), &unit(0.0), None, true);
+-        interpolation.draw(&registers(4), &unit(0.0), None, true);
++        interpolation.draw(&registers(4), &unit(0.9), None, true);
          interpolation.frame_done();
 -        let between = interpolation.draw(&registers(3), &unit(120.0), None, true).expect("a fifth of its distance");
-+        let between = interpolation.draw(&registers(3), &unit(120.3), None, true).expect("a fifth of its distance");
++        let between = interpolation.draw(&registers(3), &unit(160.3), None, true).expect("far, however far");
          interpolation.give_back(between);
-         assert!(interpolation.draw(&registers(4), &unit(1.0), None, true).is_none(), "a flag flipped");
-         let matches = interpolation.frame_done();
+-        assert!(interpolation.draw(&registers(4), &unit(1.0), None, true).is_none(), "a flag flipped");
+-        let matches = interpolation.frame_done();
+-        assert_eq!(matches, Matches { draws: 2, matched: 2, moved: 1, jumped: 1, jumping: 0 });
+-        assert!(!matches.smooth());
+-        interpolation.draw(&registers(3), &unit(200.0), None, true);
+-        assert_eq!(interpolation.frame_done().jumped, 1, "five sixths of its distance");
++        assert!(interpolation.draw(&registers(4), &unit(-1.2), None, true).is_none(), "turned around");
++        assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 2, moved: 1, jumped: 1, jumping: 0 });
+     }
+ 
+     /// a draw through a geometry shader is drawn as it is, and never
 diff --git a/crates/zakuro-gpu/src/lib.rs b/crates/zakuro-gpu/src/lib.rs
 index f294442..4c56eab 100644
 --- a/crates/zakuro-gpu/src/lib.rs
@@ -9701,7 +9788,7 @@ index 0000000..abc40c2
 +
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..22cd832
+index 0000000..a5a7204
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,161 @@
@@ -9713,7 +9800,7 @@ index 0000000..22cd832
 +
 +use crate::zig::{fetch, windowless, Fetcher};
 +
-+pub const RELEASE: &str = "v1.0.4";
++pub const RELEASE: &str = "v1.0.5";
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +const ASSET_SUFFIX: &str = "-windows-x64.zip";
 +const STAGING: &str = "update";

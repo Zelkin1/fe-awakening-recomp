@@ -152,6 +152,7 @@ Changed:
 
 - `struct Config`
 - `fn <Config as Default>::default`
+- `struct Pacing`
 - `struct System`
 - `fn System::new`
 - `fn System::end_frame`
@@ -305,14 +306,23 @@ Its imports change too.
 
 Added:
 
+- `const TURN`
 - `fn toggles`
 - `fn tests::a_round_step_from_standing_still_and_back_toggles`
 
 Changed:
 
+- `const JUMP`
 - `fn Interpolation::draw`
+- `mod tests`
 - `fn tests::draws_match_the_frame_before_in_order`
+- `fn tests::going_on_as_before_moves_however_fast`
+- `fn tests::draws_that_keep_jumping_count_apart`
 - `fn tests::jumps_are_not_drawn_in_between`
+
+Removed:
+
+- `const JUMP_PART`
 
 ### `zakuro/crates/zakuro-gpu/src/lib.rs`
 

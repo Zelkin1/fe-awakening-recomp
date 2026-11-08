@@ -17,16 +17,8 @@ use crate::shader::{ShaderUnit, Vec4, FLOAT_UNIFORMS};
 /// the vertex shader's float uniforms at a draw.
 pub(crate) type Uniforms = [Vec4; FLOAT_UNIFORMS];
 
-/// how much a component's move from one frame to the next may differ from
-/// its move the frame before, before the draw counts as a different one, a
-/// jump rather than a move, which is drawn as it is. a model in the distance
-/// or the camera going on as it went moves as it did however fast, a camera
-/// cutting elsewhere, another model taken for this one or a flag kept in a
-/// float do not. a component of a rotation turning faster by less than
-/// about 30 degrees moves less than half again, a translation less than a
-/// quarter of its distance again.
-const JUMP: f32 = 0.5;
-const JUMP_PART: f32 = 0.25;
+const JUMP: f32 = 1.0;
+const TURN: f32 = 1.5;
 
 /// whether a component a texture's coordinates may read steps from one
 /// round value to another, sixty-fourths, as a sprite's offset into its
@@ -194,7 +186,7 @@ impl Interpolation {
         // and jump
         let jumps = |before: f32, now: f32, moved_before: f32| {
             let change = (now - before - moved_before).abs();
-            !(change <= JUMP || change <= JUMP_PART * before.abs().max(now.abs()))
+            !(before.is_finite() && now.is_finite() && (change <= JUMP || before.abs().max(now.abs()) > TURN))
         };
         let mut lerped = false;
         let uniforms = between.iter_mut().zip(before.iter()).zip(now.iter()).zip(moved_before.iter());
@@ -387,7 +379,7 @@ mod tests {
             }
             interpolation.frame_done();
         }
-        assert_eq!(moved, [false, false, true, true, true], "nothing before, then the first move jumps");
+        assert_eq!(moved, [false, true, true, true, true], "nothing before, then every move");
     }
 
     #[test]
@@ -424,14 +416,14 @@ mod tests {
             interpolation.frame_done()
         };
         frame(0.0, 0.0);
-        frame(5.0, 0.1);
-        assert_eq!(frame(-5.0, 0.2), Matches { draws: 2, matched: 2, moved: 1, jumped: 0, jumping: 1 });
-        let matches = frame(5.0, 0.3);
+        frame(1.2, 0.1);
+        assert_eq!(frame(-1.2, 0.2), Matches { draws: 2, matched: 2, moved: 1, jumped: 0, jumping: 1 });
+        let matches = frame(1.2, 0.3);
         assert!(matches.smooth() && matches.jumping == 1);
-        assert_eq!(frame(-5.0, 9.0).jumped, 1, "the model jumped after moving");
+        assert_eq!(frame(-1.2, -1.4).jumped, 1, "the model jumped after moving");
         // an animation stepping every other frame
         let mut interpolation = Interpolation::default();
-        let jumps: Vec<(u32, u32)> = [0.0, 0.0, 5.0, 5.0, 10.0, 10.0, 15.0]
+        let jumps: Vec<(u32, u32)> = [0.0, 0.0, 1.2, 1.2, 0.0, 0.0, 1.2]
             .into_iter()
             .map(|x| {
                 if let Some(between) = interpolation.draw(&registers(3), &unit(x), None, true) {
@@ -461,23 +453,16 @@ mod tests {
         assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 2, moved: 2, jumped: 0, jumping: 0 });
     }
 
-    /// a draw whose uniforms jump, as a matrix does when the camera cuts or
-    /// a flag kept in a float flips, is drawn as it is, and a frame where
-    /// most of them jump is not smooth.
     #[test]
     fn jumps_are_not_drawn_in_between() {
         let mut interpolation = Interpolation::default();
         interpolation.draw(&registers(3), &unit(100.0), None, true);
-        interpolation.draw(&registers(4), &unit(0.0), None, true);
+        interpolation.draw(&registers(4), &unit(0.9), None, true);
         interpolation.frame_done();
-        let between = interpolation.draw(&registers(3), &unit(120.3), None, true).expect("a fifth of its distance");
+        let between = interpolation.draw(&registers(3), &unit(160.3), None, true).expect("far, however far");
         interpolation.give_back(between);
-        assert!(interpolation.draw(&registers(4), &unit(1.0), None, true).is_none(), "a flag flipped");
-        let matches = interpolation.frame_done();
-        assert_eq!(matches, Matches { draws: 2, matched: 2, moved: 1, jumped: 1, jumping: 0 });
-        assert!(!matches.smooth());
-        interpolation.draw(&registers(3), &unit(200.0), None, true);
-        assert_eq!(interpolation.frame_done().jumped, 1, "five sixths of its distance");
+        assert!(interpolation.draw(&registers(4), &unit(-1.2), None, true).is_none(), "turned around");
+        assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 2, moved: 1, jumped: 1, jumping: 0 });
     }
 
     /// a draw through a geometry shader is drawn as it is, and never
