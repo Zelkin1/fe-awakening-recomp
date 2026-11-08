@@ -205,7 +205,8 @@ impl Interpolation {
                 // one the coordinates may read too is as the frame has it,
                 // whatever it is, one that only places the vertices says
                 // the draw is another than the one before
-                if !shared(uniform) {
+                let single = |value: &Vec4| value.iter().filter(|component| **component != 0.0).count() <= 1;
+                if !shared(uniform) && !(single(before) && single(now)) {
                     jumped = true;
                     break;
                 }

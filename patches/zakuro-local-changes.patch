@@ -2167,7 +2167,7 @@ index 212c3f7..a5df7ad 100644
                      );
                      device.cmd_draw_indexed(command_buffer, count, 1, first_index, first_vertex, 0);
 diff --git a/crates/zakuro-gpu/src/interpolation.rs b/crates/zakuro-gpu/src/interpolation.rs
-index af12308..3f68d8e 100644
+index af12308..93bf5cf 100644
 --- a/crates/zakuro-gpu/src/interpolation.rs
 +++ b/crates/zakuro-gpu/src/interpolation.rs
 @@ -36,6 +36,10 @@ fn steps(before: f32, now: f32) -> bool {
@@ -2181,7 +2181,16 @@ index af12308..3f68d8e 100644
  /// how many draws of the frame before drawn the same way a draw's match is
  /// looked for among, around its own place among them.
  const NEAREST: usize = 32;
-@@ -208,8 +212,9 @@ impl Interpolation {
+@@ -201,15 +205,17 @@ impl Interpolation {
+                 // one the coordinates may read too is as the frame has it,
+                 // whatever it is, one that only places the vertices says
+                 // the draw is another than the one before
+-                if !shared(uniform) {
++                let single = |value: &Vec4| value.iter().filter(|component| **component != 0.0).count() <= 1;
++                if !shared(uniform) && !(single(before) && single(now)) {
+                     jumped = true;
+                     break;
+                 }
                  *out = *now;
                  continue;
              }
@@ -2193,7 +2202,7 @@ index af12308..3f68d8e 100644
          }
          if !jumped && !lerped {
              // what moved jumped, and is as the frame has it
-@@ -314,8 +319,8 @@ mod tests {
+@@ -314,8 +320,8 @@ mod tests {
          assert_eq!(first, Matches { draws: 3, matched: 0, moved: 0, jumped: 0, jumping: 0 });
          assert!(!first.smooth());
  
@@ -2204,7 +2213,7 @@ index af12308..3f68d8e 100644
          assert_eq!(between[1], [0.0, 1.0, 0.0, 2.0]);
          interpolation.give_back(between);
          let between = interpolation.draw(&registers(3), &unit(4.2), None, true).expect("the second matches the second");
-@@ -384,6 +389,24 @@ mod tests {
+@@ -384,6 +390,24 @@ mod tests {
          assert_eq!(moved, [false, false, true, true, true], "nothing before, then the first move jumps");
      }
  
@@ -2229,7 +2238,7 @@ index af12308..3f68d8e 100644
      /// a draw that jumps frame after frame, a batch of sprites sorted anew
      /// each frame, is drawn as it is and counts apart, the frame is still
      /// smooth for the rest of its draws. one that jumps after moving counts
-@@ -446,7 +469,7 @@ mod tests {
+@@ -446,7 +470,7 @@ mod tests {
          interpolation.draw(&registers(3), &unit(100.0), None, true);
          interpolation.draw(&registers(4), &unit(0.0), None, true);
          interpolation.frame_done();
@@ -9692,7 +9701,7 @@ index 0000000..abc40c2
 +
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..3c1840d
+index 0000000..22cd832
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,161 @@
@@ -9704,7 +9713,7 @@ index 0000000..3c1840d
 +
 +use crate::zig::{fetch, windowless, Fetcher};
 +
-+pub const RELEASE: &str = "v1.0.3";
++pub const RELEASE: &str = "v1.0.4";
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +const ASSET_SUFFIX: &str = "-windows-x64.zip";
 +const STAGING: &str = "update";
