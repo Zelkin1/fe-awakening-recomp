@@ -122,6 +122,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
         bottom_over_key: false,
         pad_pointer: overlays::PadPointer::default(),
         over_touched_at: None,
+        touched_scene: Scene::Plain,
         scripted_tap: None,
         pending_overview: None,
         restore_inventory: false,
@@ -448,6 +449,7 @@ struct App {
     bottom_over_key: bool,
     pad_pointer: overlays::PadPointer,
     over_touched_at: Option<Instant>,
+    touched_scene: Scene,
     scripted_tap: Option<((u16, u16), u8)>,
     pending_overview: Option<u8>,
     restore_inventory: bool,
@@ -1196,7 +1198,7 @@ impl App {
         let opens = matches!(scene, Scene::Plain | Scene::WorldMap | Scene::UnitView | Scene::LevelUp);
         let into_level_up = scene == Scene::LevelUp && self.scene == Scene::Plain;
         let moved_on = (scene != self.scene && !into_level_up) || (opens && talking && scene != Scene::LevelUp);
-        let touched_lately = self.bottom_over && self.over_touched_at.is_some_and(|at| at.elapsed() < overlays::TOUCH_KEEPS_OVER);
+        let touched_lately = self.bottom_over && self.touched_scene == Scene::WorldMap && self.over_touched_at.is_some_and(|at| at.elapsed() < overlays::TOUCH_KEEPS_OVER);
         let talk_ended = self.kept_scene.is_some() && !talking;
         if !overlays::keeps_bottom_over(moved_on, opens, talking, touched_lately, scene, &mut self.kept_scene) {
             self.bottom_over_key = false;
@@ -1702,6 +1704,7 @@ impl App {
         }
         if self.bottom_over && input.touch.is_some() {
             self.over_touched_at = Some(Instant::now());
+            self.touched_scene = self.scene;
         }
         let (held, touched) = std::mem::replace(&mut self.last_input, (input.buttons, input.touch.is_some()));
         let pieces = match self.scene {
