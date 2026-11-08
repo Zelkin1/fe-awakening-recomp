@@ -2381,7 +2381,7 @@ index f294442..ea9552f 100644
  mod tests {
      use super::*;
 diff --git a/crates/zakuro-gpu/src/raster.rs b/crates/zakuro-gpu/src/raster.rs
-index 2e71e86..7abdde0 100644
+index 2e71e86..ffceed3 100644
 --- a/crates/zakuro-gpu/src/raster.rs
 +++ b/crates/zakuro-gpu/src/raster.rs
 @@ -1110,6 +1110,21 @@ pub(super) fn upside_down(registers: &[u32]) -> bool {
@@ -2607,7 +2607,48 @@ index 2e71e86..7abdde0 100644
      /// the host GPU, when draws go to it rather than to the software path.
      #[cfg(feature = "vulkan")]
      pub(crate) hardware: Option<hardware::Hardware>,
-@@ -2012,13 +2214,12 @@ fn bind_texture<M: GpuMemory>(
+@@ -1762,15 +1964,11 @@ impl TextureCache {
+                     let span = level.bytes..level.bytes + (level.width * level.height) as usize * tile / 64;
+                     let (old, new) = (&decoded.bytes[span.clone()], &data[span]);
+                     let tiles = old.chunks(tile).zip(new.chunks(tile)).enumerate();
+-                    for (index, _) in tiles.filter(|(_, (old, new))| old != new) {
++                    for (index, (_, changed)) in tiles.filter(|(_, (old, new))| old != new) {
+                         let columns = level.width / 8;
+                         let (tile_x, tile_y) = (index as u32 % columns * 8, index as u32 / columns * 8);
+-                        for y in tile_y..tile_y + 8 {
+-                            for x in tile_x..tile_x + 8 {
+-                                texels[level.texels + (y * level.width + x) as usize] =
+-                                    crate::texture::sample_texel(new, format, level.width, x, y);
+-                            }
+-                        }
++                        let corner = level.texels + (tile_y * level.width + tile_x) as usize;
++                        crate::texture::decode_tile(changed, format, &mut texels[corner..], level.width as usize);
+                     }
+                 }
+                 decoded.bytes.copy_from_slice(data);
+@@ -1783,14 +1981,13 @@ impl TextureCache {
+                 return (decoded.texels.clone(), decoded.replacement.clone());
+             }
+         }
+-        let texels: Arc<[[u8; 4]]> = texture_levels(format, width, height, levels)
+-            .flat_map(|level| {
+-                let data = &data[level.bytes..];
+-                (0..level.height)
+-                    .flat_map(move |y| (0..level.width).map(move |x| (x, y)))
+-                    .map(move |(x, y)| crate::texture::sample_texel(data, format, level.width, x, y))
+-            })
+-            .collect();
++        let total = texture_levels(format, width, height, levels).last().map_or(0, |last| last.texels + (last.width * last.height) as usize);
++        let mut texels: Arc<[[u8; 4]]> = std::iter::repeat_n([0; 4], total).collect();
++        let slots = Arc::get_mut(&mut texels).expect("a texture no one else holds yet");
++        for level in texture_levels(format, width, height, levels) {
++            let count = (level.width * level.height) as usize;
++            crate::texture::decode_level(&data[level.bytes..], format, level.width, level.height, &mut slots[level.texels..level.texels + count]);
++        }
+         let count = texels.len();
+         if self.texels + count > CACHED_TEXELS {
+             self.entries.clear();
+@@ -2012,13 +2209,12 @@ fn bind_texture<M: GpuMemory>(
  
      let addr = memory.translate(address);
      log::trace!("texture unit {unit}: 0x{address:08X} -> 0x{addr:08X}, {width}x{height} {format:?}");
@@ -2623,7 +2664,7 @@ index 2e71e86..7abdde0 100644
          (_, Some(found)) => found,
          (_, None) => match cache.unchanged(key, size as u32, memory) {
              Some(found) => found,
-@@ -2887,7 +3088,12 @@ pub fn draw<M: GpuMemory>(
+@@ -2887,7 +3083,12 @@ pub fn draw<M: GpuMemory>(
      // the GPU decodes the arrays itself when it shades the draw, from the
      // first vertex the draw uses to the last
      #[cfg(feature = "vulkan")]
@@ -2637,7 +2678,7 @@ index 2e71e86..7abdde0 100644
          let index_short = registers[REG_INDEX_ARRAY] & 0x8000_0000 != 0;
          let first_vertex = registers[REG_VERTEX_OFFSET];
          let (first, span) = if indexed {
-@@ -3109,6 +3315,17 @@ fn assemble(topology: u32, count: usize) -> Vec<(usize, usize, usize)> {
+@@ -3109,6 +3310,17 @@ fn assemble(topology: u32, count: usize) -> Vec<(usize, usize, usize)> {
      }
  }
  
@@ -2655,7 +2696,7 @@ index 2e71e86..7abdde0 100644
  /// assembles shaded vertices into triangles the way the primitive configuration
  /// says, and fills them with the current back-end state.
  /// the triangles drawn, none for arrays the GPU could not decode, which the
-@@ -3129,9 +3346,14 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3129,9 +3341,14 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
      let viewport_top = (viewport_y + viewport_height).round() as i32;
      let (buffer_width, buffer_height) = buffer_size(registers, viewport);
      let (target_width, target_height) = (buffer_width, buffer_height);
@@ -2673,7 +2714,7 @@ index 2e71e86..7abdde0 100644
      let (bottom, top) = match upside_down(registers) {
          true => (buffer_height as i32 - top, buffer_height as i32 - bottom),
          false => (bottom, top),
-@@ -3145,11 +3367,16 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3145,11 +3362,16 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
              "draw: {vertex_count} vertices, topology reg 0x{:X}, viewport \
               {viewport_width}x{viewport_height} @({viewport_x},{viewport_y}), color buffer raw \
               0x{color_buffer_raw:08X} -> 0x{target_addr:08X} {target_format:?}, \
@@ -2691,7 +2732,7 @@ index 2e71e86..7abdde0 100644
          );
      }
  
-@@ -3167,11 +3394,8 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3167,11 +3389,8 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
      #[cfg(feature = "vulkan")]
      if let Some(hardware) = resources.hardware.as_mut() {
          for (unit, drawn) in drawn.iter_mut().enumerate() {
@@ -2704,7 +2745,7 @@ index 2e71e86..7abdde0 100644
              if let Some(texture) = drawn {
                  past[unit] = !hardware.covers(texture);
                  continue;
-@@ -3183,17 +3407,42 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3183,17 +3402,42 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
              }
          }
      }
@@ -2750,7 +2791,7 @@ index 2e71e86..7abdde0 100644
              top,
              buffer_width,
              buffer_height,
-@@ -3357,6 +3606,11 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3357,6 +3601,11 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
  
      if log::log_enabled!(log::Level::Trace) {
          let first_screen = shaded.first().and_then(|v| to_screen(v, viewport));
@@ -2762,7 +2803,7 @@ index 2e71e86..7abdde0 100644
          log::trace!(
              "draw result: {vertex_count} verts, {triangle_count} tris ({clipped_away} clipped \
               away, {culled} culled), {} pixels written ({} failed depth, {} failed stencil, {} failed alpha), \
-@@ -3408,6 +3662,67 @@ mod tests {
+@@ -3408,6 +3657,67 @@ mod tests {
          [&vertex.clip[..], &vertex.color, texcoords, &vertex.quaternion, &vertex.view, &[vertex.texcoord0_w]].concat().iter().map(|v| v.to_bits()).collect()
      }
  
@@ -2830,7 +2871,7 @@ index 2e71e86..7abdde0 100644
      /// placing a vertex's fields gives the bits reading each component
      /// does, for every type and count.
      #[test]
-@@ -3656,6 +3971,29 @@ mod tests {
+@@ -3656,6 +3966,29 @@ mod tests {
      const GREEN: Vec4 = [0.0, 1.0, 0.0, 1.0];
      const BLUE: Vec4 = [0.0, 0.0, 1.0, 1.0];
  
@@ -2860,7 +2901,7 @@ index 2e71e86..7abdde0 100644
      /// titles map depth with a scale of -1, so near is 1, and keep the
      /// nearer surface with a GREATER test against a buffer cleared to 0.
      #[test]
-@@ -4580,10 +4918,6 @@ mod tests {
+@@ -4580,10 +4913,6 @@ mod tests {
          assert!(!hardware.holds_unchanged(&mut memory, &texture), "the CPU wrote over it");
      }
  
@@ -2871,7 +2912,7 @@ index 2e71e86..7abdde0 100644
      #[cfg(feature = "vulkan")]
      #[test]
      fn a_buffer_written_back_read_with_smaller_sizes_comes_from_memory() {
-@@ -4627,6 +4961,101 @@ mod tests {
+@@ -4627,6 +4956,101 @@ mod tests {
          assert!(pixels(&mut memory).iter().all(|&p| p == [0, 255, 0, 255]), "{:?}", pixels(&mut memory)[0]);
      }
  
@@ -3439,6 +3480,282 @@ index 88477db..2fc3266 100644
      ];
      for (name, value) in flagged {
          flags.set(name, value).map_err(|error| format!("{name}, {error}"))?;
+diff --git a/crates/zakuro-gpu/src/texture.rs b/crates/zakuro-gpu/src/texture.rs
+index 9949307..e52a9d6 100644
+--- a/crates/zakuro-gpu/src/texture.rs
++++ b/crates/zakuro-gpu/src/texture.rs
+@@ -1,6 +1,7 @@
+ //! PICA200 texture decoding.
+ 
+-use crate::format::morton_offset;
++use crate::format::{morton_interleave, morton_offset};
++use rayon::prelude::*;
+ 
+ /// A PICA texture format, straight from GPUREG_TEXUNIT0_TYPE and the
+ /// equivalent registers for units 1/2. The numbering is fixed by hardware.
+@@ -72,6 +73,73 @@ impl TextureFormat {
+     }
+ }
+ 
++const TILE_ORDER: [(usize, usize); 64] = {
++    let mut order = [(0, 0); 64];
++    let mut y = 0;
++    while y < 8 {
++        let mut x = 0;
++        while x < 8 {
++            order[morton_interleave(x, y) as usize] = (x as usize, y as usize);
++            x += 1;
++        }
++        y += 1;
++    }
++    order
++};
++
++const PARALLEL_TEXELS: usize = 128 * 128;
++
++pub fn decode_level(data: &[u8], format: TextureFormat, width: u32, height: u32, texels: &mut [[u8; 4]]) {
++    let row_bytes = (width * 8 * format.bits_per_pixel() / 8) as usize;
++    let tiled = width > 0 && height > 0 && width % 8 == 0 && height % 8 == 0 && data.len() >= row_bytes * (height / 8) as usize;
++    if !tiled {
++        for (index, texel) in texels.iter_mut().enumerate() {
++            *texel = sample_texel(data, format, width, index as u32 % width, index as u32 / width);
++        }
++        return;
++    }
++    let tile_bytes = row_bytes / (width / 8) as usize;
++    let row = |(texels, data): (&mut [[u8; 4]], &[u8])| {
++        for (column, tile) in data.chunks_exact(tile_bytes).enumerate() {
++            decode_tile(tile, format, &mut texels[column * 8..], width as usize);
++        }
++    };
++    let rows = 8 * width as usize;
++    if texels.len() >= PARALLEL_TEXELS {
++        texels.par_chunks_mut(rows).zip(data.par_chunks(row_bytes)).for_each(row);
++    } else {
++        texels.chunks_mut(rows).zip(data.chunks(row_bytes)).for_each(row);
++    }
++}
++
++pub fn decode_tile(tile: &[u8], format: TextureFormat, texels: &mut [[u8; 4]], width: usize) {
++    match format {
++        TextureFormat::Etc1 | TextureFormat::Etc1A4 => {
++            let size = if format == TextureFormat::Etc1A4 { 16 } else { 8 };
++            for (index, block) in tile.chunks_exact(size).enumerate() {
++                let (alpha, color) = block.split_at(size - 8);
++                let alphas = (!alpha.is_empty()).then(|| u64::from_le_bytes(alpha.try_into().unwrap()));
++                let (left, top) = (index % 2 * 4, index / 2 * 4);
++                for (pixel, [r, g, b]) in etc1_block(color).into_iter().enumerate() {
++                    let a = alphas.map_or(0xFF, |word| expand4((word >> (pixel * 4)) as u8 & 0xF));
++                    texels[(top + pixel % 4) * width + left + pixel / 4] = [r, g, b, a];
++                }
++            }
++        }
++        _ if format.bits_per_pixel() >= 8 => {
++            let bytes = format.bits_per_pixel() as usize / 8;
++            for (&(x, y), texel) in TILE_ORDER.iter().zip(tile.chunks_exact(bytes)) {
++                texels[y * width + x] = decode_bytes(format, texel);
++            }
++        }
++        _ => {
++            for (index, &(x, y)) in TILE_ORDER.iter().enumerate() {
++                texels[y * width + x] = decode_nibble(format, tile[index / 2] >> (index % 2 * 4) & 0xF);
++            }
++        }
++    }
++}
++
+ /// reads one texel as straight RGBA8.
+ pub fn sample_texel(data: &[u8], format: TextureFormat, width: u32, x: u32, y: u32) -> [u8; 4] {
+     match format {
+@@ -215,75 +283,36 @@ fn sample_etc1(data: &[u8], format: TextureFormat, width: u32, x: u32, y: u32) -
+     [rgb[0], rgb[1], rgb[2], alpha]
+ }
+ 
+-/// decodes one pixel of a plain 8-byte ETC1 block.
+ fn decode_etc1_block(block: &[u8], x: u32, y: u32) -> [u8; 3] {
+-    // little-endian, because why the hell would it match the spec
+-    let word = u64::from_le_bytes(block.try_into().unwrap());
+-    let low = (word & 0xFFFF_FFFF) as u32;
+-    let high = (word >> 32) as u32;
++    etc1_block(block)[(x * 4 + y) as usize]
++}
+ 
++fn etc1_block(block: &[u8]) -> [[u8; 3]; 16] {
++    let word = u64::from_le_bytes(block.try_into().unwrap());
++    let (low, high) = (word as u32, (word >> 32) as u32);
+     let flip = high & 1 != 0;
+-    let diff = high & 2 != 0;
+-
+-    let (base0, base1) = if diff {
+-        let r0 = ((high >> 27) & 0x1F) as i32;
+-        let g0 = ((high >> 19) & 0x1F) as i32;
+-        let b0 = ((high >> 11) & 0x1F) as i32;
+-        let dr = sign_extend_3((high >> 24) & 0x7);
+-        let dg = sign_extend_3((high >> 16) & 0x7);
+-        let db = sign_extend_3((high >> 8) & 0x7);
+-        (
+-            [expand5((r0) as u8), expand5((g0) as u8), expand5((b0) as u8)],
+-            [
+-                expand5((r0 + dr).clamp(0, 31) as u8),
+-                expand5((g0 + dg).clamp(0, 31) as u8),
+-                expand5((b0 + db).clamp(0, 31) as u8),
+-            ],
+-        )
+-    } else {
+-        (
+-            [
+-                expand4(((high >> 28) & 0xF) as u8),
+-                expand4(((high >> 20) & 0xF) as u8),
+-                expand4(((high >> 12) & 0xF) as u8),
+-            ],
+-            [
+-                expand4(((high >> 24) & 0xF) as u8),
+-                expand4(((high >> 16) & 0xF) as u8),
+-                expand4(((high >> 8) & 0xF) as u8),
+-            ],
+-        )
+-    };
+-
+-    let table0 = ((high >> 5) & 0x7) as usize;
+-    let table1 = ((high >> 2) & 0x7) as usize;
+-
+-    // which sub-block this pixel belongs to depends on the flip bit, an
+-    // unflipped block splits into left/right halves, a flipped one into
+-    // top/bottom.
+-    let first_half = if flip { y < 2 } else { x < 2 };
+-    let (base, table) = if first_half {
+-        (base0, table0)
++    let channel = |shift: u32| (high >> shift) as i32;
++    let bases = if high & 2 != 0 {
++        let first = [channel(27) & 0x1F, channel(19) & 0x1F, channel(11) & 0x1F];
++        let deltas = [24, 16, 8].map(|shift| sign_extend_3((high >> shift) & 0x7));
++        [
++            first.map(|c| expand5(c as u8)),
++            [0, 1, 2].map(|i| expand5((first[i] + deltas[i]).clamp(0, 31) as u8)),
++        ]
+     } else {
+-        (base1, table1)
++        [
++            [28, 20, 12].map(|shift| expand4((channel(shift) & 0xF) as u8)),
++            [24, 16, 8].map(|shift| expand4((channel(shift) & 0xF) as u8)),
++        ]
+     };
+-
+-    // the two 16-bit pixel-index planes are stored transposed (column-major)
+-    // relative to (x, y).
+-    let pixel_index = x * 4 + y;
+-    let msb = (low >> (pixel_index + 16)) & 1;
+-    let lsb = (low >> pixel_index) & 1;
+-    // the table's four entries already alternate sign (e.g. [2, 8, -2, -8]),
+-    // so the (msb, lsb) pair selecting one of them via modifier_index
+-    // already encodes the sign, nothing further needs to branch on msb.
+-    let modifier_index = ((msb << 1) | lsb) as usize;
+-    let delta = ETC1_MODIFIERS[table][modifier_index];
+-
+-    [
+-        (base[0] as i32 + delta).clamp(0, 255) as u8,
+-        (base[1] as i32 + delta).clamp(0, 255) as u8,
+-        (base[2] as i32 + delta).clamp(0, 255) as u8,
+-    ]
++    let tables = [((high >> 5) & 0x7) as usize, ((high >> 2) & 0x7) as usize];
++    std::array::from_fn(|index| {
++        let (x, y) = (index / 4, index % 4);
++        let half = usize::from(if flip { y >= 2 } else { x >= 2 });
++        let modifier = (((low >> (index + 16)) & 1) << 1 | (low >> index) & 1) as usize;
++        let delta = ETC1_MODIFIERS[tables[half]][modifier];
++        bases[half].map(|c| (c as i32 + delta).clamp(0, 255) as u8)
++    })
+ }
+ 
+ /// decodes one pixel's alpha from ETC1A4's 8-byte, 4-bit-per-texel alpha plane.
+@@ -441,4 +470,87 @@ mod tests {
+         assert_eq!(gray_at(8, 4), block_gray(6));
+         assert_eq!(gray_at(12, 4), block_gray(7));
+     }
++
++    #[test]
++    fn whole_levels_decode_as_texel_by_texel() {
++        let formats = [
++            TextureFormat::Rgba8,
++            TextureFormat::Rgb8,
++            TextureFormat::Rgba5551,
++            TextureFormat::Rgb565,
++            TextureFormat::Rgba4,
++            TextureFormat::La8,
++            TextureFormat::Hilo8,
++            TextureFormat::L8,
++            TextureFormat::A8,
++            TextureFormat::La4,
++            TextureFormat::L4,
++            TextureFormat::A4,
++            TextureFormat::Etc1,
++            TextureFormat::Etc1A4,
++        ];
++        let mut seed = 0x2545_F491_4F6C_DD1Du64;
++        for format in formats {
++            for (width, height) in [(8, 8), (32, 16), (256, 128), (4, 4), (12, 8)] {
++                let size = (width * height * format.bits_per_pixel()).div_ceil(8) as usize;
++                let data: Vec<u8> = (0..size)
++                    .map(|_| {
++                        seed ^= seed << 13;
++                        seed ^= seed >> 7;
++                        seed ^= seed << 17;
++                        seed as u8
++                    })
++                    .collect();
++                let mut texels = vec![[0; 4]; (width * height) as usize];
++                decode_level(&data, format, width, height, &mut texels);
++                for (index, texel) in texels.iter().enumerate() {
++                    let (x, y) = (index as u32 % width, index as u32 / width);
++                    assert_eq!(*texel, sample_texel(&data, format, width, x, y), "{format:?} {width}x{height} at {x},{y}");
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn whole_blocks_decode_as_pixel_by_pixel() {
++        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
++        for _ in 0..1000 {
++            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
++            let block = seed.to_le_bytes();
++            let pixels = etc1_block(&block);
++            for x in 0..4 {
++                for y in 0..4 {
++                    assert_eq!(pixels[(x * 4 + y) as usize], reference_etc1(&block, x, y));
++                }
++            }
++        }
++    }
++
++    fn reference_etc1(block: &[u8], x: u32, y: u32) -> [u8; 3] {
++        let word = u64::from_le_bytes(block.try_into().unwrap());
++        let (low, high) = ((word & 0xFFFF_FFFF) as u32, (word >> 32) as u32);
++        let (base0, base1) = if high & 2 != 0 {
++            let (r0, g0, b0) = (((high >> 27) & 0x1F) as i32, ((high >> 19) & 0x1F) as i32, ((high >> 11) & 0x1F) as i32);
++            let (dr, dg, db) = (sign_extend_3((high >> 24) & 0x7), sign_extend_3((high >> 16) & 0x7), sign_extend_3((high >> 8) & 0x7));
++            (
++                [expand5(r0 as u8), expand5(g0 as u8), expand5(b0 as u8)],
++                [
++                    expand5((r0 + dr).clamp(0, 31) as u8),
++                    expand5((g0 + dg).clamp(0, 31) as u8),
++                    expand5((b0 + db).clamp(0, 31) as u8),
++                ],
++            )
++        } else {
++            (
++                [expand4(((high >> 28) & 0xF) as u8), expand4(((high >> 20) & 0xF) as u8), expand4(((high >> 12) & 0xF) as u8)],
++                [expand4(((high >> 24) & 0xF) as u8), expand4(((high >> 16) & 0xF) as u8), expand4(((high >> 8) & 0xF) as u8)],
++            )
++        };
++        let first_half = if high & 1 != 0 { y < 2 } else { x < 2 };
++        let (base, table) = if first_half { (base0, ((high >> 5) & 0x7) as usize) } else { (base1, ((high >> 2) & 0x7) as usize) };
++        let index = x * 4 + y;
++        let modifier = ((((low >> (index + 16)) & 1) << 1) | ((low >> index) & 1)) as usize;
++        let delta = ETC1_MODIFIERS[table][modifier];
++        base.map(|c| (c as i32 + delta).clamp(0, 255) as u8)
++    }
+ }
 diff --git a/crates/zakuro/Cargo.toml b/crates/zakuro/Cargo.toml
 index 797b370..689ea21 100644
 --- a/crates/zakuro/Cargo.toml
@@ -8764,7 +9081,7 @@ index 0000000..abc40c2
 +
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..7a5f761
+index 0000000..1866689
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,161 @@
@@ -8776,7 +9093,7 @@ index 0000000..7a5f761
 +
 +use crate::zig::{fetch, windowless, Fetcher};
 +
-+pub const RELEASE: &str = "v1.0.1";
++pub const RELEASE: &str = "v1.0.2";
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +const ASSET_SUFFIX: &str = "-windows-x64.zip";
 +const STAGING: &str = "update";

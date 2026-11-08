@@ -376,6 +376,7 @@ Added:
 Changed:
 
 - `struct Resources`
+- `fn TextureCache::decoded`
 - `fn bind_texture`
 - `fn draw`
 - `fn rasterize`
@@ -427,6 +428,23 @@ Added:
 Changed:
 
 - `fn compile`
+
+### `zakuro/crates/zakuro-gpu/src/texture.rs`
+
+Added:
+
+- `const TILE_ORDER`
+- `const PARALLEL_TEXELS`
+- `fn decode_level`
+- `fn decode_tile`
+- `fn etc1_block`
+
+Changed:
+
+- `code outside any item`
+- `fn decode_etc1_block`
+
+Its imports change too.
 
 ### `zakuro/crates/zakuro/src/audio.rs`
 

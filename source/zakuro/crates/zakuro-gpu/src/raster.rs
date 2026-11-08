@@ -1964,15 +1964,11 @@ impl TextureCache {
                     let span = level.bytes..level.bytes + (level.width * level.height) as usize * tile / 64;
                     let (old, new) = (&decoded.bytes[span.clone()], &data[span]);
                     let tiles = old.chunks(tile).zip(new.chunks(tile)).enumerate();
-                    for (index, _) in tiles.filter(|(_, (old, new))| old != new) {
+                    for (index, (_, changed)) in tiles.filter(|(_, (old, new))| old != new) {
                         let columns = level.width / 8;
                         let (tile_x, tile_y) = (index as u32 % columns * 8, index as u32 / columns * 8);
-                        for y in tile_y..tile_y + 8 {
-                            for x in tile_x..tile_x + 8 {
-                                texels[level.texels + (y * level.width + x) as usize] =
-                                    crate::texture::sample_texel(new, format, level.width, x, y);
-                            }
-                        }
+                        let corner = level.texels + (tile_y * level.width + tile_x) as usize;
+                        crate::texture::decode_tile(changed, format, &mut texels[corner..], level.width as usize);
                     }
                 }
                 decoded.bytes.copy_from_slice(data);
@@ -1985,14 +1981,13 @@ impl TextureCache {
                 return (decoded.texels.clone(), decoded.replacement.clone());
             }
         }
-        let texels: Arc<[[u8; 4]]> = texture_levels(format, width, height, levels)
-            .flat_map(|level| {
-                let data = &data[level.bytes..];
-                (0..level.height)
-                    .flat_map(move |y| (0..level.width).map(move |x| (x, y)))
-                    .map(move |(x, y)| crate::texture::sample_texel(data, format, level.width, x, y))
-            })
-            .collect();
+        let total = texture_levels(format, width, height, levels).last().map_or(0, |last| last.texels + (last.width * last.height) as usize);
+        let mut texels: Arc<[[u8; 4]]> = std::iter::repeat_n([0; 4], total).collect();
+        let slots = Arc::get_mut(&mut texels).expect("a texture no one else holds yet");
+        for level in texture_levels(format, width, height, levels) {
+            let count = (level.width * level.height) as usize;
+            crate::texture::decode_level(&data[level.bytes..], format, level.width, level.height, &mut slots[level.texels..level.texels + count]);
+        }
         let count = texels.len();
         if self.texels + count > CACHED_TEXELS {
             self.entries.clear();
