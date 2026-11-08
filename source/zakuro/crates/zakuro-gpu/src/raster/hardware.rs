@@ -915,8 +915,9 @@ impl Filtering {
     /// times the console's resolution, stays as sharp as it is.
     fn picture(bound: &BoundTexture, smallest: u32) -> Filtering {
         Filtering {
-            minify: bound.linear,
-            between: smallest > 0 && bound.linear,
+            magnify: true,
+            minify: true,
+            between: smallest > 0,
             levels: (0, smallest as u8),
             bias: if smallest > 0 { -128 } else { 0 },
             ..Filtering::wrapping(bound)

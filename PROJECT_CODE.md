@@ -443,6 +443,7 @@ Changed:
 
 - `struct Image`
 - `struct Copied`
+- `fn Filtering::picture`
 - `struct Hardware`
 - `fn Hardware::with_device`
 - `fn Hardware::image_levels`

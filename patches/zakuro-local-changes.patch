@@ -3222,7 +3222,7 @@ index 2e71e86..fa893f7 100644
      /// cost the wider one the rows it drew elsewhere, which memory lacks,
      /// when it is used again.
 diff --git a/crates/zakuro-gpu/src/raster/hardware.rs b/crates/zakuro-gpu/src/raster/hardware.rs
-index b3cd447..1477057 100644
+index b3cd447..dfd5232 100644
 --- a/crates/zakuro-gpu/src/raster/hardware.rs
 +++ b/crates/zakuro-gpu/src/raster/hardware.rs
 @@ -35,9 +35,7 @@ use crate::device::SharedDevice;
@@ -3305,7 +3305,19 @@ index b3cd447..1477057 100644
      surface: usize,
      /// the surface's generation when it was copied.
      generation: u64,
-@@ -1411,6 +1464,7 @@ fn compile_pipeline(
+@@ -862,8 +915,9 @@ impl Filtering {
+     /// times the console's resolution, stays as sharp as it is.
+     fn picture(bound: &BoundTexture, smallest: u32) -> Filtering {
+         Filtering {
+-            minify: bound.linear,
+-            between: smallest > 0 && bound.linear,
++            magnify: true,
++            minify: true,
++            between: smallest > 0,
+             levels: (0, smallest as u8),
+             bias: if smallest > 0 { -128 } else { 0 },
+             ..Filtering::wrapping(bound)
+@@ -1411,6 +1465,7 @@ fn compile_pipeline(
  pub struct Hardware {
      /// the device, maybe the presenter's too, kept until this lets go.
      _shared: Arc<SharedDevice>,
@@ -3313,7 +3325,7 @@ index b3cd447..1477057 100644
      /// whether the presenter shares the device, and shows screens straight
      /// from the images the GPU turns them upright into.
      direct: bool,
-@@ -1491,7 +1545,7 @@ pub struct Hardware {
+@@ -1491,7 +1546,7 @@ pub struct Hardware {
      /// by the address of the decoded texels.
      textures: HashMap<usize, Texture>,
      /// textures copied from surfaces, by what they are.
@@ -3322,7 +3334,7 @@ index b3cd447..1477057 100644
      /// texture pack pictures, by the hash of the textures they replace.
      replaced: HashMap<u64, Replaced>,
      /// the bytes those take, and how many they may, half the GPU's memory.
-@@ -1532,7 +1586,7 @@ pub struct Hardware {
+@@ -1532,7 +1587,7 @@ pub struct Hardware {
      /// twins once rather than once a draw.
      twin_draws: Vec<Recorded>,
      /// textures copied from twins, as copies has those from surfaces.
@@ -3331,7 +3343,7 @@ index b3cd447..1477057 100644
      /// the batch the draw a draw in between follows staged its vertices
      /// and its indices in, and where, which the one in between reads too.
      twinned_inputs: Option<(u64, Staged, Staged)>,
-@@ -1685,8 +1739,9 @@ impl Hardware {
+@@ -1685,8 +1740,9 @@ impl Hardware {
                  ring: unmade(),
                  in_flight: VecDeque::with_capacity(IN_FLIGHT),
                  free: spares.into_iter().map(|(commands, fence)| Frame { commands, fence, ring: unmade(), pending: None }).collect(),
@@ -3342,7 +3354,7 @@ index b3cd447..1477057 100644
                  direct,
                  device,
                  push,
-@@ -1855,6 +1910,29 @@ impl Hardware {
+@@ -1855,6 +1911,29 @@ impl Hardware {
          self.scale
      }
  
@@ -3372,7 +3384,7 @@ index b3cd447..1477057 100644
      /// a host visible buffer, mapped for as long as it lives. one the host
      /// reads back from is cached, reading uncached memory is slow.
      fn buffer(&self, size: u64, usage: vk::BufferUsageFlags, readback: bool) -> Result<Buffer, String> {
-@@ -1922,6 +2000,37 @@ impl Hardware {
+@@ -1922,6 +2001,37 @@ impl Hardware {
          Ok((memory, types[index].property_flags))
      }
  
@@ -3410,7 +3422,7 @@ index b3cd447..1477057 100644
      /// an image in device memory, put in the general layout by the batch
      /// being recorded, which it never leaves.
      fn image(&self, width: u32, height: u32, format: vk::Format, usage: vk::ImageUsageFlags, aspect: vk::ImageAspectFlags) -> Result<Image, String> {
-@@ -1960,15 +2069,19 @@ impl Hardware {
+@@ -1960,15 +2070,19 @@ impl Hardware {
                  .map_err(vk_error("create an image"))?;
              let requirements = self.device.get_image_memory_requirements(image);
              // what was made goes again when a later step fails
@@ -3437,7 +3449,7 @@ index b3cd447..1477057 100644
                  self.device
                      .create_image_view(
                          &vk::ImageViewCreateInfo::default()
-@@ -1984,7 +2097,7 @@ impl Hardware {
+@@ -1984,7 +2098,7 @@ impl Hardware {
                  Ok(view) => view,
                  Err(error) => {
                      self.device.destroy_image(image, None);
@@ -3446,7 +3458,7 @@ index b3cd447..1477057 100644
                      return Err(error);
                  }
              };
-@@ -1997,7 +2110,33 @@ impl Hardware {
+@@ -1997,7 +2111,33 @@ impl Hardware {
                  .image(image)
                  .subresource_range(range)];
              self.device.cmd_pipeline_barrier2(self.commands, &vk::DependencyInfo::default().image_memory_barriers(&barrier));
@@ -3481,7 +3493,7 @@ index b3cd447..1477057 100644
          }
      }
  
-@@ -2006,7 +2145,9 @@ impl Hardware {
+@@ -2006,7 +2146,9 @@ impl Hardware {
          unsafe {
              self.device.destroy_image_view(image.view, None);
              self.device.destroy_image(image.image, None);
@@ -3492,7 +3504,7 @@ index b3cd447..1477057 100644
          }
      }
  
-@@ -2395,6 +2536,10 @@ impl Hardware {
+@@ -2395,6 +2537,10 @@ impl Hardware {
                      _ if matches!(kind, Kind::Depth(_)) && !self.depth_blits => None,
                      _ => {
                          let usage = vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST;
@@ -3503,7 +3515,7 @@ index b3cd447..1477057 100644
                          Some(self.image(width, height, format, usage, aspect)?)
                      }
                  };
-@@ -2512,7 +2657,7 @@ impl Hardware {
+@@ -2512,7 +2658,7 @@ impl Hardware {
  
      /// whether a texture is rows of a surface with a twin.
      fn reads_twin(&self, texture: &DrawnTexture) -> bool {
@@ -3512,7 +3524,7 @@ index b3cd447..1477057 100644
      }
  
      /// gives a surface a twin holding what the surface does, before a draw
-@@ -2680,8 +2825,16 @@ impl Hardware {
+@@ -2680,8 +2826,16 @@ impl Hardware {
      /// a surface with no such image, a depth buffer on a GPU that can't blit
      /// them, is scaled on the CPU instead, see scale_up and scale_down_depth.
      fn blit(&mut self, index: usize, up: bool) {
@@ -3529,7 +3541,7 @@ index b3cd447..1477057 100644
          let aspect = match s.kind {
              Kind::Color(_) => vk::ImageAspectFlags::COLOR,
              Kind::Depth(_) => vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
-@@ -2691,7 +2844,7 @@ impl Hardware {
+@@ -2691,7 +2845,7 @@ impl Hardware {
          let small = corner(s.width, s.height);
          let big = corner(s.width * self.scale, s.height * self.scale);
          let (from, to, from_corner, to_corner) =
@@ -3538,7 +3550,7 @@ index b3cd447..1477057 100644
          let region = [vk::ImageBlit::default()
              .src_subresource(layers)
              .src_offsets(from_corner)
-@@ -2708,7 +2861,7 @@ impl Hardware {
+@@ -2708,7 +2862,7 @@ impl Hardware {
                  to,
                  vk::ImageLayout::GENERAL,
                  &region,
@@ -3547,7 +3559,7 @@ index b3cd447..1477057 100644
              )
          };
      }
-@@ -3012,8 +3165,10 @@ impl Hardware {
+@@ -3012,8 +3166,10 @@ impl Hardware {
              return Ok(pipeline);
          }
          if !translating && self.compiler.asked.insert(key) {
@@ -3560,7 +3572,7 @@ index b3cd447..1477057 100644
              }
              // made right here when waiting for it
              self.hand(Job::Compile(key, self.vertex_module(key.vertex)));
-@@ -4081,12 +4236,105 @@ impl Hardware {
+@@ -4081,12 +4237,105 @@ impl Hardware {
          Ok(())
      }
  
@@ -3666,7 +3678,7 @@ index b3cd447..1477057 100644
          let t = transfer;
          let input_kind = Kind::Color(t.input_format);
          let output_kind = Kind::Color(t.output_format);
-@@ -4111,14 +4359,27 @@ impl Hardware {
+@@ -4111,14 +4360,27 @@ impl Hardware {
              let offset = t.input.checked_sub(s.addr).filter(|offset| offset % step_bytes == 0)? / step_bytes * step;
              (offset + rows <= s.height).then_some(offset)
          };
@@ -3698,7 +3710,7 @@ index b3cd447..1477057 100644
              return Ok(false);
          };
          // rows read where the output goes, the CPU does in order. the rest
-@@ -4126,7 +4387,7 @@ impl Hardware {
+@@ -4126,7 +4388,7 @@ impl Hardware {
          // Ultimate puts the bottom screen right before the rows it reads, and
          // the output drawn over them is the overdrawn below
          let row_bytes = (input_size.0 * input_kind.bytes()) as u64;
@@ -3707,7 +3719,7 @@ index b3cd447..1477057 100644
          let read_end = read_start + rows as u64 * row_bytes;
          let output_end = t.output as u64 + (t.output_width * t.output_height * output_kind.bytes()) as u64;
          if read_start < output_end && (t.output as u64) < read_end {
-@@ -4134,34 +4395,51 @@ impl Hardware {
+@@ -4134,34 +4396,51 @@ impl Hardware {
          }
          self.begin()?;
          // a flush looking one of them up drops what the other had checked
@@ -3779,7 +3791,7 @@ index b3cd447..1477057 100644
          let twinned = twinned
              && match self.make_twin(target) {
                  Ok(()) => true,
-@@ -4171,11 +4449,21 @@ impl Hardware {
+@@ -4171,11 +4450,21 @@ impl Hardware {
                      false
                  }
              };
@@ -3805,7 +3817,7 @@ index b3cd447..1477057 100644
              self.surfaces[target].twin_changed();
          }
          self.surfaces[target].changed();
-@@ -4188,10 +4476,25 @@ impl Hardware {
+@@ -4188,10 +4477,25 @@ impl Hardware {
          if twinned && self.direct {
              self.upright_image(target, true)?;
          }
@@ -3832,7 +3844,7 @@ index b3cd447..1477057 100644
      /// records the transfer shader going over size pixels, from one image
      /// to another, as the constants say.
      fn dispatch_transfer(&mut self, (source, target): (vk::ImageView, vk::ImageView), constants: [i32; 11], size: (u32, u32)) -> Result<(), String> {
-@@ -4234,7 +4537,7 @@ impl Hardware {
+@@ -4234,7 +4538,7 @@ impl Hardware {
      /// texture's sides are powers of two and the buffer drawn into it need
      /// not be, Inazuma Eleven GO reads 800 rows drawn as 1024, one holding
      /// all of it goes first.
@@ -3841,7 +3853,7 @@ index b3cd447..1477057 100644
          let depth = match texture.format {
              ColorFormat::Rgba8 => Some(Kind::Depth(4)),
              ColorFormat::Rgb8 => Some(Kind::Depth(3)),
-@@ -4248,16 +4551,38 @@ impl Hardware {
+@@ -4248,16 +4552,38 @@ impl Hardware {
                  if !(kinds.contains(&Some(s.kind)) && s.tiled && s.width == texture.width) {
                      return None;
                  }
@@ -3885,7 +3897,7 @@ index b3cd447..1477057 100644
      }
  
      /// whether a texture is rows of a surface the GPU drew and guest memory
-@@ -4266,10 +4591,11 @@ impl Hardware {
+@@ -4266,10 +4592,11 @@ impl Hardware {
      /// changed there since, or another surface drew over them, the texture
      /// comes from memory once what was drawn is written back.
      pub(crate) fn holds(&self, texture: &DrawnTexture) -> bool {
@@ -3899,7 +3911,7 @@ index b3cd447..1477057 100644
              let at = surface.addr + from * surface.row_bytes();
              from < to
                  && (!surface.checked
-@@ -4277,7 +4603,7 @@ impl Hardware {
+@@ -4277,7 +4604,7 @@ impl Hardware {
          });
          // nor where a fill wrote over what it drew
          let row_bytes = surface.row_bytes();
@@ -3908,7 +3920,7 @@ index b3cd447..1477057 100644
          surface.dirty.is_some() && !changed && !stale
      }
  
-@@ -4289,13 +4615,13 @@ impl Hardware {
+@@ -4289,13 +4616,13 @@ impl Hardware {
      /// width, would otherwise have the console's resolution in memory take
      /// the place of the scaled frame.
      pub(crate) fn holds_unchanged<M: GpuMemory>(&self, memory: &mut M, texture: &DrawnTexture) -> bool {
@@ -3924,7 +3936,7 @@ index b3cd447..1477057 100644
          let (at, len) = (surface.addr + row * row_bytes, rows * row_bytes);
          // memory behind another surface drawn over it says nothing of this one
          if (0..self.surfaces.len()).any(|i| i != index && self.surfaces[i].dirty_overlaps(at, len)) {
-@@ -4316,54 +4642,103 @@ impl Hardware {
+@@ -4316,54 +4643,103 @@ impl Hardware {
      /// one is copied from the surface's twin, when it has one.
      fn copy_texture(&mut self, texture: &DrawnTexture, bound: &BoundTexture, twin: bool) -> Result<vk::ImageView, String> {
          self.mark(Work::Copy, false);
@@ -4043,7 +4055,7 @@ index b3cd447..1477057 100644
              // SAFETY: recording, outside rendering, between two color images
              // in the general layout made for transfers, both their size
              unsafe {
-@@ -4380,7 +4755,7 @@ impl Hardware {
+@@ -4380,7 +4756,7 @@ impl Hardware {
              };
          }
          if let Kind::Depth(bytes) = self.surfaces[source].kind {
@@ -4052,7 +4064,7 @@ index b3cd447..1477057 100644
          } else {
              // the texture's rows run top first, the surface's bottom first,
              // so the copy flips them, and its pixels round to the format as
-@@ -4389,22 +4764,65 @@ impl Hardware {
+@@ -4389,22 +4765,65 @@ impl Hardware {
              let n = self.scale;
              let (width, height) = ((texture.width * n) as i32, (rows * n) as i32);
              let (row, source_height) = ((row * n) as i32, (self.surfaces[source].height * n) as i32);
@@ -4122,7 +4134,7 @@ index b3cd447..1477057 100644
          match twin {
              true => &mut self.twin_copies,
              false => &mut self.copies,
-@@ -4809,13 +5227,35 @@ impl Hardware {
+@@ -4809,13 +5228,35 @@ impl Hardware {
              return Ok(crop(image));
          }
          // its batch finished before a screen showed the surface
@@ -4162,7 +4174,7 @@ index b3cd447..1477057 100644
          let buffer = &capture.buffer;
          if buffer.incoherent {
              let range = [vk::MappedMemoryRange::default().memory(buffer.memory).offset(0).size(vk::WHOLE_SIZE)];
-@@ -5014,10 +5454,10 @@ impl Hardware {
+@@ -5014,10 +5455,10 @@ impl Hardware {
              }
          }
          for twin in [false, true] {
@@ -4175,7 +4187,7 @@ index b3cd447..1477057 100644
                  }
              }
          }
-@@ -5136,11 +5576,13 @@ impl Hardware {
+@@ -5136,11 +5577,13 @@ impl Hardware {
              }
          }
          // pictures for screens are read out before a later batch can draw
@@ -4193,7 +4205,7 @@ index b3cd447..1477057 100644
              }
          }
          Ok(())
-@@ -5415,7 +5857,7 @@ impl Drop for Hardware {
+@@ -5415,7 +5858,7 @@ impl Drop for Hardware {
                  self.destroy_image(&texture.image);
              }
              for copy in self.copies.values().chain(self.twin_copies.values()) {
@@ -4202,7 +4214,7 @@ index b3cd447..1477057 100644
              }
              for replaced in self.replaced.values() {
                  self.destroy_image(&replaced.image);
-@@ -5431,6 +5873,11 @@ impl Drop for Hardware {
+@@ -5431,6 +5874,11 @@ impl Drop for Hardware {
                  }
              }
              self.destroy_image(&self.blank);
@@ -4214,7 +4226,7 @@ index b3cd447..1477057 100644
              let captures = self.surfaces.iter().flat_map(|s| [&s.capture, &s.screen]).filter_map(|c| c.as_ref().map(|c| &c.buffer));
              let rings = self.free.iter().chain(&self.in_flight).map(|frame| &frame.ring);
              let buffers = [Some(&self.ring), self.readback.as_ref()].into_iter().flatten().chain(rings);
-@@ -5798,7 +6245,7 @@ mod tests {
+@@ -5798,7 +6246,7 @@ mod tests {
          let kinds = [Kind::Color(ColorFormat::Rgba8), Kind::Color(ColorFormat::Rgb8), Kind::Color(ColorFormat::Rgb565), Kind::Depth(2), Kind::Depth(3), Kind::Depth(4)];
          for kind in kinds {
              let (width, height) = (16, 24);
@@ -9992,7 +10004,7 @@ index 0000000..37fcb65
 +
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..5463b18
+index 0000000..f79262c
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,161 @@
@@ -10004,7 +10016,7 @@ index 0000000..5463b18
 +
 +use crate::zig::{fetch, windowless, Fetcher};
 +
-+pub const RELEASE: &str = "v1.0.6";
++pub const RELEASE: &str = "v1.0.7";
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +const ASSET_SUFFIX: &str = "-windows-x64.zip";
 +const STAGING: &str = "update";
