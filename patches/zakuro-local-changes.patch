@@ -610,10 +610,10 @@ index 7daa922..15b614f 100644
  204E3BA0 00000000
 diff --git a/crates/zakuro-core/src/game_ui.rs b/crates/zakuro-core/src/game_ui.rs
 new file mode 100644
-index 0000000..2938394
+index 0000000..a085e28
 --- /dev/null
 +++ b/crates/zakuro-core/src/game_ui.rs
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,162 @@
 +use zakuro_gpu::{Anchor, BannerSide, Banners, Ground, Marker, Piece, Place, Rounded};
 +
 +use crate::scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
@@ -709,24 +709,47 @@ index 0000000..2938394
 +
 +const BATTLE_PANELS: &[Piece] = &[
 +    Piece { from: [70, 88, 180, 52], across: Anchor::Middle(0), down: Anchor::End(1), size: 49, shapes: STATS, follows: None },
-+    Piece { from: [0, 6, 162, 70], across: Anchor::Middle(-85), down: Anchor::End(1), size: 49, shapes: HP_LEFT, follows: Some((LEFT_BANNER, LEFT_PANEL_REST)) },
-+    Piece { from: [162, 6, 162, 70], across: Anchor::Middle(85), down: Anchor::End(1), size: 49, shapes: HP_RIGHT, follows: Some((RIGHT_BANNER, RIGHT_PANEL_REST)) },
++    Piece { from: [0, 6, 162, 70], across: Anchor::Middle(-88), down: Anchor::End(1), size: 49, shapes: HP_LEFT, follows: Some((LEFT_BANNER, LEFT_PANEL_REST)) },
++    Piece { from: [162, 6, 162, 70], across: Anchor::Middle(88), down: Anchor::End(1), size: 49, shapes: HP_RIGHT, follows: Some((RIGHT_BANNER, RIGHT_PANEL_REST)) },
 +];
 +const HP_LEFT: &[Rounded] = &[
-+    Rounded { shift: [4, 0], ..rounded([0, 17, 158, 59], [0, 6, 0, 6]) },
-+    Rounded { shift: [-153, 0], mirror: true, shadow: false, ..rounded([153, 24, 5, 52], [0; 4]) },
++    Rounded { shift: [4, 0], ..rounded([0, 17, 152, 59], [0; 4]) },
++    Rounded { shift: [10, 0], ..rounded([146, 17, 12, 59], [0, 6, 0, 6]) },
++    Rounded { shift: [-27, 0], mirror: true, shadow: false, ..rounded([32, 28, 123, 22], [0; 4]) },
++    Rounded { shift: [98, 0], shadow: false, ..rounded([30, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [129, 0], shadow: false, ..rounded([0, 28, 31, 22], [0; 4]) },
++    Rounded { shift: [5, 0], shadow: false, ..rounded([155, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [6, 0], shadow: false, ..rounded([155, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [7, 0], shadow: false, ..rounded([155, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [8, 0], shadow: false, ..rounded([155, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [9, 0], shadow: false, ..rounded([155, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [-154, 0], mirror: true, shadow: false, ..rounded([154, 24, 4, 44], [0; 4]) },
 +    Rounded { shift: [-148, 0], mirror: true, shadow: false, ..rounded([148, 68, 10, 8], [0, 0, 6, 0]) },
 +    Rounded { shift: [-148, 0], mirror: true, shadow: false, ..rounded([148, 17, 10, 10], [6, 0, 0, 0]) },
 +    Rounded { shift: [4, 0], ..rounded([24, 6, 112, 22], [8; 4]) },
 +];
 +const HP_RIGHT: &[Rounded] = &[
-+    rounded([162, 17, 158, 59], [6, 0, 6, 0]),
-+    Rounded { shift: [157, 0], mirror: true, shadow: false, ..rounded([162, 24, 5, 52], [0; 4]) },
++    rounded([168, 17, 152, 59], [0; 4]),
++    Rounded { shift: [-6, 0], ..rounded([162, 17, 12, 59], [6, 0, 6, 0]) },
++    Rounded { shift: [-5, 0], shadow: false, ..rounded([164, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [-4, 0], shadow: false, ..rounded([164, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [-3, 0], shadow: false, ..rounded([164, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [-2, 0], shadow: false, ..rounded([164, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [-127, 0], shadow: false, ..rounded([290, 28, 30, 22], [0; 4]) },
++    Rounded { shift: [-96, 0], shadow: false, ..rounded([289, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [-95, 0], shadow: false, ..rounded([289, 28, 1, 22], [0; 4]) },
++    Rounded { shift: [30, 0], mirror: true, shadow: false, ..rounded([165, 28, 125, 22], [0; 4]) },
++    Rounded { shift: [157, 0], mirror: true, shadow: false, ..rounded([162, 24, 5, 4], [0; 4]) },
++    Rounded { shift: [158, 0], mirror: true, shadow: false, ..rounded([162, 28, 4, 22], [0; 4]) },
++    Rounded { shift: [157, 0], mirror: true, shadow: false, ..rounded([162, 50, 5, 18], [0; 4]) },
 +    Rounded { shift: [152, 0], mirror: true, shadow: false, ..rounded([162, 68, 10, 8], [0, 0, 0, 6]) },
 +    Rounded { shift: [152, 0], mirror: true, shadow: false, ..rounded([162, 17, 10, 10], [0, 6, 0, 0]) },
 +    rounded([184, 6, 112, 22], [8; 4]),
 +];
-+const STATS: &[Rounded] = &[rounded([70, 88, 180, 52], [4; 4])];
++const STATS: &[Rounded] = &[
++    rounded([70, 88, 180, 52], [4; 4]),
++    Rounded { shift: [39, 0], mirror: true, shadow: false, ..rounded([136, 88, 9, 52], [0; 4]) },
++];
 +
 +const BATTLE_BUTTONS: &[Piece] = &[Piece { from: [6, 191, 307, 42], across: Anchor::Middle(0), down: Anchor::End(4), size: 28, shapes: BUTTONS, follows: None }];
 +const BATTLE_BUTTONS_OVER_PANELS: &[Piece] = &[Piece { from: [6, 191, 307, 42], across: Anchor::Middle(0), down: Anchor::End(28), size: 28, shapes: BUTTONS, follows: None }];
@@ -4281,7 +4304,7 @@ index a5b4c18..c4783cc 100644
  
      /// Japanese names have every character to draw with the system's
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..bc7d3b6 100644
+index 6cf00db..3f74045 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,22 +3,30 @@
@@ -4356,7 +4379,7 @@ index 6cf00db..bc7d3b6 100644
  
      let data_dir = options.data.clone().map(PathBuf::from).or_else(default_data_dir);
      if let Some(dir) = &data_dir {
-@@ -97,13 +117,36 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -97,13 +117,37 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          gamepads: gamepad::Gamepads::new(settings.pad.clone()),
          scale: options.scale.unwrap_or(settings.scale).max(1),
          layout: settings.layout,
@@ -4368,6 +4391,7 @@ index 6cf00db..bc7d3b6 100644
 +        pending_overview: None,
 +        restore_inventory: false,
 +        closing_by_user: false,
++        quiet_over: false,
 +        kept_scene: None,
 +        bottom_sounds: sounds::BottomScreen::default(),
 +        scene: Scene::Plain,
@@ -4394,7 +4418,7 @@ index 6cf00db..bc7d3b6 100644
          data_dir,
          game: None,
          menus: {
-@@ -117,6 +160,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -117,6 +161,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          window: None,
          audio: None,
          mouse_down: false,
@@ -4402,7 +4426,7 @@ index 6cf00db..bc7d3b6 100644
          tilting_from: None,
          cursor: (0.0, 0.0),
          last_title_update: Instant::now(),
-@@ -147,8 +191,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
+@@ -147,8 +192,8 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
          return;
      }
  
@@ -4413,7 +4437,7 @@ index 6cf00db..bc7d3b6 100644
      }
      app.audio = if app.options.mute {
          None
-@@ -331,10 +375,11 @@ struct Running {
+@@ -331,10 +376,11 @@ struct Running {
      /// place of the keyboard's and the controllers', and the frames run.
      replay: Option<zakuro_core::replay::Replay>,
      frame: u64,
@@ -4426,7 +4450,7 @@ index 6cf00db..bc7d3b6 100644
  }
  
  impl Running {
-@@ -347,8 +392,10 @@ impl Running {
+@@ -347,8 +393,10 @@ impl Running {
              replay: None,
              frame: 0,
              frames: 0,
@@ -4437,7 +4461,7 @@ index 6cf00db..bc7d3b6 100644
          }
      }
  
-@@ -356,7 +403,12 @@ impl Running {
+@@ -356,7 +404,12 @@ impl Running {
          self.frames += 1;
          let elapsed = self.counting_since.elapsed();
          if elapsed >= Duration::from_millis(500) {
@@ -4451,7 +4475,7 @@ index 6cf00db..bc7d3b6 100644
              self.frames = 0;
              self.counting_since = Instant::now();
          }
-@@ -390,10 +442,34 @@ struct App {
+@@ -390,10 +443,35 @@ struct App {
      scale: u32,
      /// how the screens are arranged.
      layout: Screens,
@@ -4463,6 +4487,7 @@ index 6cf00db..bc7d3b6 100644
 +    pending_overview: Option<u8>,
 +    restore_inventory: bool,
 +    closing_by_user: bool,
++    quiet_over: bool,
 +    kept_scene: Option<Scene>,
 +    bottom_sounds: sounds::BottomScreen,
 +    scene: Scene,
@@ -4486,7 +4511,19 @@ index 6cf00db..bc7d3b6 100644
      /// where the pointer was when the right button went down, which tilts
      /// the console while held.
      tilting_from: Option<(f32, f32)>,
-@@ -516,7 +592,7 @@ impl ApplicationHandler for App {
+@@ -498,7 +576,10 @@ impl ApplicationHandler for App {
+             return;
+         }
+ 
+-        let size = self.window_size();
++        let size = match (self.options.rom.is_none(), self.window_size()) {
++            (true, winit::dpi::Size::Logical(size)) => winit::dpi::LogicalSize::new(size.width * 1.3, size.height * 1.3).into(),
++            (_, size) => size,
++        };
+         let attributes = Window::default_attributes().with_title("Zakuro").with_inner_size(size);
+         let renderer = self.options.renderer.unwrap_or(match self.settings.renderer {
+             Renderer::Vulkan => RendererKind::Vulkan,
+@@ -516,7 +597,7 @@ impl ApplicationHandler for App {
          match backend {
              Ok((window, mut backend)) => {
                  log::info!("presenting with the {} backend", backend.name());
@@ -4495,7 +4532,7 @@ index 6cf00db..bc7d3b6 100644
                  backend.set_top_width(self.settings.top_shape.width());
                  backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
                  backend.set_stereo(self.settings.stereo());
-@@ -563,8 +639,13 @@ impl ApplicationHandler for App {
+@@ -563,8 +644,13 @@ impl ApplicationHandler for App {
                  }
              }
              WindowEvent::KeyboardInput { event, .. } => self.key(event, consumed),
@@ -4509,7 +4546,7 @@ index 6cf00db..bc7d3b6 100644
                      self.mouse_down = state == ElementState::Pressed && !self.pointer_taken(consumed);
                      self.touch();
                  }
-@@ -575,6 +656,7 @@ impl ApplicationHandler for App {
+@@ -575,6 +661,7 @@ impl ApplicationHandler for App {
                  }
              }
              WindowEvent::CursorMoved { position, .. } => {
@@ -4517,7 +4554,7 @@ index 6cf00db..bc7d3b6 100644
                  self.cursor = (position.x as f32, position.y as f32);
                  self.touch();
                  self.tilt();
-@@ -605,13 +687,16 @@ impl App {
+@@ -605,13 +692,16 @@ impl App {
              find_recompiled: !interpret,
              hardware_renderer: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
              texture_packs: self.settings.texture_packs,
@@ -4534,7 +4571,7 @@ index 6cf00db..bc7d3b6 100644
              resolution: self.settings.resolution,
              device: self.backend.as_ref().and_then(Backend::shared_device),
              username: self.nickname(),
-@@ -661,12 +746,10 @@ impl App {
+@@ -661,12 +751,10 @@ impl App {
              config.update = game.update.as_ref().map(|update| update.path.clone());
              config.dlc = game.dlc.iter().map(|dlc| dlc.path.clone()).collect();
              config.dlp_child = game.dlp_child.as_ref().map(|child| child.path.clone());
@@ -4549,7 +4586,7 @@ index 6cf00db..bc7d3b6 100644
          }
          // a recording starts the clock at a known time, for playing it back
          let record = std::env::var_os("ZAKURO_RECORD").map(PathBuf::from);
-@@ -698,6 +781,7 @@ impl App {
+@@ -698,6 +786,7 @@ impl App {
              .or_else(|| Some(library::Smdh::parse(system.title.as_ref()?.exefs_file("icon")?)?.name).filter(|name| !name.is_empty()))
              .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
              .unwrap_or_default();
@@ -4557,7 +4594,7 @@ index 6cf00db..bc7d3b6 100644
          let mut game = Running::new(system, path.to_owned(), name);
          game.replay = replay;
          if let Some(record) = record {
-@@ -727,6 +811,9 @@ impl App {
+@@ -727,6 +816,9 @@ impl App {
          self.keyboard.release();
          self.paused = false;
          self.next_frame = Instant::now();
@@ -4567,7 +4604,7 @@ index 6cf00db..bc7d3b6 100644
          Ok(())
      }
  
-@@ -754,7 +841,9 @@ impl App {
+@@ -754,7 +846,9 @@ impl App {
          if let (true, Some(index)) = (pressed, self.menus.rebinding) {
              self.menus.rebinding = None;
              if code != KeyCode::Escape {
@@ -4578,7 +4615,7 @@ index 6cf00db..bc7d3b6 100644
                      *key = code;
                  }
                  self.apply_settings();
-@@ -766,6 +855,7 @@ impl App {
+@@ -766,6 +860,7 @@ impl App {
              self.fast_forward_key = pressed && self.game.is_some();
          }
          if pressed && !event.repeat {
@@ -4586,7 +4623,7 @@ index 6cf00db..bc7d3b6 100644
              match code {
                  KeyCode::Escape if self.game.is_some() => {
                      self.menus.menu_open = !self.menus.menu_open;
-@@ -789,6 +879,15 @@ impl App {
+@@ -789,6 +884,15 @@ impl App {
                  KeyCode::F11 => self.toggle_fullscreen(),
                  KeyCode::F5 if self.game.is_some() => self.save_state(),
                  KeyCode::F8 if self.game.is_some() => self.load_state(),
@@ -4602,7 +4639,7 @@ index 6cf00db..bc7d3b6 100644
                  _ => {}
              }
          }
-@@ -807,14 +906,24 @@ impl App {
+@@ -807,14 +911,24 @@ impl App {
      /// it, and Home opens and closes the menu over the game.
      fn poll_gamepads(&mut self) {
          for button in self.gamepads.poll() {
@@ -4628,7 +4665,7 @@ index 6cf00db..bc7d3b6 100644
              }
          }
      }
-@@ -828,7 +937,11 @@ impl App {
+@@ -828,7 +942,11 @@ impl App {
      fn touch(&mut self) {
          let Some(window) = &self.window else { return };
          let size = window.inner_size();
@@ -4641,7 +4678,7 @@ index 6cf00db..bc7d3b6 100644
          // with the top screen alone there is nothing to touch
          let Some(bottom) = bottom else {
              self.keyboard.touch(None);
-@@ -842,6 +955,28 @@ impl App {
+@@ -842,6 +960,28 @@ impl App {
          }));
      }
  
@@ -4670,7 +4707,7 @@ index 6cf00db..bc7d3b6 100644
      /// tilts the console while the right button is held, toward where the
      /// pointer went and by how far, as Citra's motion emulation does,
      /// which titles were tried with. letting go stands it upright again.
-@@ -887,11 +1022,20 @@ impl App {
+@@ -887,11 +1027,20 @@ impl App {
      /// saves the settings and puts to use what can change right away.
      fn apply_settings(&mut self) {
          self.settings.save();
@@ -4691,7 +4728,7 @@ index 6cf00db..bc7d3b6 100644
              // games read the 3D slider every frame
              let slider = self.settings.slider_3d();
              if game.system.config.slider_3d != slider {
-@@ -938,13 +1082,20 @@ impl App {
+@@ -938,13 +1087,20 @@ impl App {
              backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
              backend.set_stereo(self.settings.stereo());
          }
@@ -4713,7 +4750,7 @@ index 6cf00db..bc7d3b6 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1109,161 @@ impl App {
+@@ -958,6 +1114,180 @@ impl App {
          }
      }
  
@@ -4806,14 +4843,17 @@ index 6cf00db..bc7d3b6 100644
 +        self.scene = scene;
 +        let shown = self.game.is_some() && self.layout == Screens::TopOnly && !self.settings.original && opens && self.bottom_over_key;
 +        let sound = match (self.bottom_over, shown) {
-+            (false, true) => self.bottom_sounds.open.as_ref(),
-+            (true, false) if (!moved_on || talk_ended || self.closing_by_user) && self.game.is_some() => self.bottom_sounds.close.as_ref(),
++            (false, true) if !self.quiet_over => self.bottom_sounds.open.as_ref(),
++            (true, false) if !self.quiet_over && (!moved_on || talk_ended || self.closing_by_user) && self.game.is_some() => self.bottom_sounds.close.as_ref(),
 +            _ => None,
 +        };
 +        if let (Some(audio), Some(sound)) = (&self.audio, sound) {
 +            audio.play(sound);
 +        }
 +        self.closing_by_user = false;
++        if !shown && self.pending_overview.is_none() {
++            self.quiet_over = false;
++        }
 +        if self.bottom_over && !shown && std::mem::take(&mut self.restore_inventory) && self.bottom_map_screen() == Some(overlays::MapScreen::Overview) {
 +            self.scripted_tap = Some((overlays::INVENTORY_TAB, overlays::TAP_FRAMES));
 +        }
@@ -4836,7 +4876,16 @@ index 6cf00db..bc7d3b6 100644
 +    }
 +
 +    fn map_overview(&mut self) {
-+        if self.pending_overview.is_some() || self.layout != Screens::TopOnly || self.settings.original || self.scene != Scene::Plain {
++        if self.pending_overview.is_some() || self.layout != Screens::TopOnly || self.settings.original {
++            return;
++        }
++        if self.bottom_over && self.quiet_over {
++            self.bottom_over_key = false;
++            self.closing_by_user = true;
++            self.place_bottom_over();
++            return;
++        }
++        if self.scene != Scene::Plain {
 +            return;
 +        }
 +        if self.game.as_ref().is_none_or(|game| game.system.talking()) {
@@ -4844,13 +4893,20 @@ index 6cf00db..bc7d3b6 100644
 +        }
 +        match (self.bottom_map_screen(), self.bottom_over) {
 +            (Some(overlays::MapScreen::Overview), false) => {
++                self.quiet_over = true;
 +                self.bottom_over_key = true;
++                self.place_bottom_over();
++            }
++            (Some(overlays::MapScreen::Overview), true) => {
++                self.bottom_over_key = false;
++                self.closing_by_user = true;
 +                self.place_bottom_over();
 +            }
 +            (Some(overlays::MapScreen::Inventory), open) => {
 +                self.scripted_tap = Some((overlays::MAP_BUTTON, overlays::TAP_FRAMES));
 +                self.restore_inventory = true;
 +                if !open {
++                    self.quiet_over = true;
 +                    self.pending_overview = Some(0);
 +                }
 +            }
@@ -4875,7 +4931,7 @@ index 6cf00db..bc7d3b6 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -1007,20 +1313,57 @@ impl App {
+@@ -1007,20 +1337,57 @@ impl App {
          self.jobs.push(Job::start(&game.path, update, game.program_id, &game.name, self.data_dir.as_deref(), toolchain));
      }
  
@@ -4935,7 +4991,7 @@ index 6cf00db..bc7d3b6 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1034,7 +1377,8 @@ impl App {
+@@ -1034,7 +1401,8 @@ impl App {
                      }
                  }
                  Stage::Failed(error) if error != "cancelled" => {
@@ -4945,7 +5001,7 @@ index 6cf00db..bc7d3b6 100644
                  }
                  _ => {}
              }
-@@ -1049,6 +1393,13 @@ impl App {
+@@ -1049,6 +1417,13 @@ impl App {
                  }
              }
              Action::Recompile(index) => self.recompile(index, false),
@@ -4959,7 +5015,7 @@ index 6cf00db..bc7d3b6 100644
              Action::DownloadCompiler(index) => self.recompile(index, true),
              Action::Mods(program_id) => {
                  if let Some(data_dir) = &self.data_dir {
-@@ -1065,13 +1416,22 @@ impl App {
+@@ -1065,13 +1440,22 @@ impl App {
                      job.cancel();
                  }
              }
@@ -4987,7 +5043,7 @@ index 6cf00db..bc7d3b6 100644
              Action::SaveState => self.save_state(),
              Action::LoadState => self.load_state(),
              Action::HostRoom => self.host_room(),
-@@ -1087,32 +1447,6 @@ impl App {
+@@ -1087,32 +1471,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -5020,7 +5076,7 @@ index 6cf00db..bc7d3b6 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1484,15 @@ impl App {
+@@ -1150,6 +1508,15 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -5036,7 +5092,7 @@ index 6cf00db..bc7d3b6 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1202,7 +1545,13 @@ impl App {
+@@ -1202,7 +1569,13 @@ impl App {
          }
          self.library.poll();
          self.poll_jobs();
@@ -5050,7 +5106,7 @@ index 6cf00db..bc7d3b6 100644
          // a room that went away takes the game's local wireless with it
          if self.room.as_ref().is_some_and(|room| !room.open()) {
              self.leave_room();
-@@ -1304,10 +1653,37 @@ impl App {
+@@ -1304,10 +1677,37 @@ impl App {
      /// runs one frame of the game.
      fn emulate(&mut self) {
          let Some(game) = &mut self.game else { return };
@@ -5089,7 +5145,7 @@ index 6cf00db..bc7d3b6 100644
          game.frame += 1;
          if let Some(recorder) = &mut game.recorder {
              recorder.record(input);
-@@ -1539,16 +1915,37 @@ impl App {
+@@ -1539,16 +1939,37 @@ impl App {
      /// the menus, and the actions they asked for, done.
      fn interface(&mut self, event_loop: &ActiveEventLoop) -> Overlay {
          // when the slot chosen was saved to, while the menu shows it
@@ -5135,7 +5191,7 @@ index 6cf00db..bc7d3b6 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,18 +1958,45 @@ impl App {
+@@ -1561,18 +1982,45 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -5183,7 +5239,7 @@ index 6cf00db..bc7d3b6 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,13 +2005,16 @@ impl App {
+@@ -1581,13 +2029,16 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -5201,7 +5257,7 @@ index 6cf00db..bc7d3b6 100644
          });
          self.library.changed = false;
          for action in actions {
-@@ -1596,7 +2023,72 @@ impl App {
+@@ -1596,7 +2047,72 @@ impl App {
          overlay
      }
  
@@ -5274,7 +5330,7 @@ index 6cf00db..bc7d3b6 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
-@@ -1697,6 +2189,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
+@@ -1697,6 +2213,11 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
  /// keeps the renderer kind referenced even when a backend feature is off.
  const _: RendererKind = RendererKind::Software;
  
@@ -5624,7 +5680,7 @@ index 8a5163d..c09ab3d 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..5c6927b 100644
+index 9372f02..f0696e7 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -4,14 +4,17 @@ use std::collections::HashMap;
@@ -5777,7 +5833,7 @@ index 9372f02..5c6927b 100644
 -                    if ui.button("Choose folder…").clicked() {
 -                        actions.push(Action::ChooseFolder);
 +                    Some(UpdateButton::Installing(fraction)) => {
-+                        ui.add(egui::ProgressBar::new(*fraction).desired_width(170.0).text(format!("Updating, {:.0}%", fraction * 100.0)));
++                        theme::progress(ui, *fraction, &format!("Updating, {:.0}%", fraction * 100.0), 190.0, 28.0);
                      }
 -                });
 -            });
@@ -6037,7 +6093,7 @@ index 9372f02..5c6927b 100644
 +                        ui.horizontal(|ui| {
 +                            let cancel = Vec2::new(110.0, 32.0);
 +                            let width = ui.available_width() - cancel.x - ui.spacing().item_spacing.x;
-+                            progress(ui, job, width, 32.0, 15.0);
++                            progress(ui, job, width, 32.0);
 +                            if ui.add(egui::Button::new(RichText::new("Cancel").size(15.0)).min_size(cancel)).clicked() {
 +                                actions.push(Action::CancelRecompile(job.program_id));
 +                            }
@@ -6627,7 +6683,7 @@ index 9372f02..5c6927b 100644
      }
  
      /// a message box, when there is something to tell.
-@@ -919,25 +1001,214 @@ impl Menus {
+@@ -919,25 +1001,213 @@ impl Menus {
  
      pub fn message(&mut self, ctx: &egui::Context) {
          let Some(text) = self.message.clone() else { return };
@@ -6729,7 +6785,6 @@ index 9372f02..5c6927b 100644
 +            }
 +        });
 +    });
-+    theme::hint(ui, "Mods change the next time the game starts; everything else changes right away.");
 +    ui.add_space(8.0);
 +    let free = !settings.original;
 +    let interpolates = settings.renderer == Renderer::Vulkan;
@@ -6855,7 +6910,7 @@ index 9372f02..5c6927b 100644
  }
  
  /// a line a GameOverlay keeps over the game, in the bottom right corner.
-@@ -952,20 +1223,59 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+@@ -952,20 +1222,58 @@ pub fn corner(ctx: &egui::Context, text: &str) {
          });
  }
  
@@ -6874,7 +6929,7 @@ index 9372f02..5c6927b 100644
 +    34.0 + 26.0 + 30.0 + 42.0 + 10.0 + 5.0 * 32.0 + below + 10.0
 +}
 +
-+fn progress(ui: &mut egui::Ui, job: &Job, width: f32, height: f32, size: f32) {
++fn progress(ui: &mut egui::Ui, job: &Job, width: f32, height: f32) {
      let stage = job.stage();
      let text = match &stage {
 -        Stage::Downloading(arrived) => format!("downloading the compiler, {:.0}%", arrived * 100.0),
@@ -6894,8 +6949,7 @@ index 9372f02..5c6927b 100644
      let minutes = job.elapsed().as_secs() / 60;
      let seconds = job.elapsed().as_secs() % 60;
 -    ui.add(egui::ProgressBar::new(stage.fraction()).desired_width(220.0).text(format!("{text}, {minutes}:{seconds:02}")));
-+    let label = RichText::new(format!("{text}, {minutes}:{seconds:02}")).size(size);
-+    ui.add(egui::ProgressBar::new(stage.fraction()).desired_width(width).desired_height(height).corner_radius(height / 2.0).text(label));
++    theme::progress(ui, stage.fraction(), &format!("{text}, {minutes}:{seconds:02}"), width, height);
 +}
 +
 +pub const BOTTOM_OVER: usize = usize::MAX;
@@ -6924,7 +6978,7 @@ index 9372f02..5c6927b 100644
  }
  
  /// a key as a person would call it.
-@@ -1011,7 +1321,7 @@ mod tests {
+@@ -1011,7 +1319,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -6933,7 +6987,7 @@ index 9372f02..5c6927b 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1336,12 @@ mod tests {
+@@ -1026,6 +1334,12 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  
@@ -8304,10 +8358,10 @@ index 0000000..a41e253
 +}
 diff --git a/crates/zakuro/src/theme.rs b/crates/zakuro/src/theme.rs
 new file mode 100644
-index 0000000..13d8d52
+index 0000000..abc40c2
 --- /dev/null
 +++ b/crates/zakuro/src/theme.rs
-@@ -0,0 +1,380 @@
+@@ -0,0 +1,376 @@
 +use egui::epaint::{Mesh, Shadow};
 +use egui::{Color32, CornerRadius, FontFamily, FontId, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, TextStyle, Vec2};
 +
@@ -8541,9 +8595,6 @@ index 0000000..13d8d52
 +        (true, false) => INK,
 +    };
 +    painter.text(Pos2::new(square.right() + 10.0, rect.center().y), egui::Align2::LEFT_CENTER, label, bold(if primary { 19.0 } else { 16.0 }), text);
-+    if chosen {
-+        glove(painter, Pos2::new(square.left(), rect.center().y));
-+    }
 +    response
 +}
 +
@@ -8572,9 +8623,6 @@ index 0000000..13d8d52
 +    mesh.add_triangle(1, 3, 2);
 +    ui.painter().set(background, mesh);
 +    ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, FRAME));
-+    if hot {
-+        glove(ui.painter(), Pos2::new(rect.left() + 30.0, rect.center().y));
-+    }
 +}
 +
 +pub fn cell(ui: &mut egui::Ui, width: f32, text: &str) {
@@ -8654,6 +8702,20 @@ index 0000000..13d8d52
 +    response
 +}
 +
++pub fn progress(ui: &mut egui::Ui, fraction: f32, text: &str, width: f32, height: f32) -> Response {
++    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
++    let painter = ui.painter();
++    let radius = CornerRadius::same((height / 2.0).min(255.0) as u8);
++    painter.rect_filled(rect, radius, IVORY);
++    let done = Rect::from_min_max(rect.min, Pos2::new(rect.left() + rect.width() * fraction.clamp(0.0, 1.0), rect.bottom()));
++    if done.width() > 0.5 {
++        painter.rect_filled(done, radius, GOLD);
++    }
++    painter.rect_stroke(rect, radius, Stroke::new(1.5, FRAME_DARK), egui::StrokeKind::Inside);
++    painter.text(rect.center(), egui::Align2::CENTER_CENTER, text, bold(15.0), INK);
++    response
++}
++
 +pub fn on_backdrop(ui: &mut egui::Ui, text: &str) -> Response {
 +    ui.label(RichText::new(text).font(bold(16.0)).color(CREAM))
 +}
@@ -8676,21 +8738,9 @@ index 0000000..13d8d52
 +    painter.add(mesh);
 +}
 +
-+fn glove(painter: &egui::Painter, tip: Pos2) {
-+    let outline = Stroke::new(1.5, FRAME_DARK);
-+    let finger = Rect::from_min_max(Pos2::new(tip.x - 14.0, tip.y - 7.0), Pos2::new(tip.x, tip.y - 2.0));
-+    let hand = Rect::from_min_max(Pos2::new(tip.x - 26.0, tip.y - 8.0), Pos2::new(tip.x - 11.0, tip.y + 8.0));
-+    let cuff = Rect::from_min_max(Pos2::new(tip.x - 31.0, tip.y - 7.0), Pos2::new(tip.x - 25.0, tip.y + 7.0));
-+    for (shape, radius) in [(cuff, 2), (hand, 5), (finger, 3)] {
-+        painter.rect(shape, CornerRadius::same(radius), Color32::WHITE, outline, egui::StrokeKind::Middle);
-+    }
-+    for y in [tip.y + 1.0, tip.y + 4.5] {
-+        painter.hline((tip.x - 20.0)..=(tip.x - 12.0), y, Stroke::new(1.0, rgb(0xA8, 0xA0, 0x98)));
-+    }
-+}
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..311ad4e
+index 0000000..932dd14
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,161 @@
@@ -8702,7 +8752,7 @@ index 0000000..311ad4e
 +
 +use crate::zig::{fetch, windowless, Fetcher};
 +
-+pub const RELEASE: &str = "v0.2.12";
++pub const RELEASE: &str = "v1.0.0";
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +const ASSET_SUFFIX: &str = "-windows-x64.zip";
 +const STAGING: &str = "update";

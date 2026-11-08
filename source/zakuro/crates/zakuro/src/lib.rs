@@ -126,6 +126,7 @@ pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
         pending_overview: None,
         restore_inventory: false,
         closing_by_user: false,
+        quiet_over: false,
         kept_scene: None,
         bottom_sounds: sounds::BottomScreen::default(),
         scene: Scene::Plain,
@@ -451,6 +452,7 @@ struct App {
     pending_overview: Option<u8>,
     restore_inventory: bool,
     closing_by_user: bool,
+    quiet_over: bool,
     kept_scene: Option<Scene>,
     bottom_sounds: sounds::BottomScreen,
     scene: Scene,
@@ -575,7 +577,10 @@ impl ApplicationHandler for App {
             return;
         }
 
-        let size = self.window_size();
+        let size = match (self.options.rom.is_none(), self.window_size()) {
+            (true, winit::dpi::Size::Logical(size)) => winit::dpi::LogicalSize::new(size.width * 1.3, size.height * 1.3).into(),
+            (_, size) => size,
+        };
         let attributes = Window::default_attributes().with_title("Zakuro").with_inner_size(size);
         let renderer = self.options.renderer.unwrap_or(match self.settings.renderer {
             Renderer::Vulkan => RendererKind::Vulkan,
@@ -1199,14 +1204,17 @@ impl App {
         self.scene = scene;
         let shown = self.game.is_some() && self.layout == Screens::TopOnly && !self.settings.original && opens && self.bottom_over_key;
         let sound = match (self.bottom_over, shown) {
-            (false, true) => self.bottom_sounds.open.as_ref(),
-            (true, false) if (!moved_on || talk_ended || self.closing_by_user) && self.game.is_some() => self.bottom_sounds.close.as_ref(),
+            (false, true) if !self.quiet_over => self.bottom_sounds.open.as_ref(),
+            (true, false) if !self.quiet_over && (!moved_on || talk_ended || self.closing_by_user) && self.game.is_some() => self.bottom_sounds.close.as_ref(),
             _ => None,
         };
         if let (Some(audio), Some(sound)) = (&self.audio, sound) {
             audio.play(sound);
         }
         self.closing_by_user = false;
+        if !shown && self.pending_overview.is_none() {
+            self.quiet_over = false;
+        }
         if self.bottom_over && !shown && std::mem::take(&mut self.restore_inventory) && self.bottom_map_screen() == Some(overlays::MapScreen::Overview) {
             self.scripted_tap = Some((overlays::INVENTORY_TAB, overlays::TAP_FRAMES));
         }
@@ -1229,7 +1237,16 @@ impl App {
     }
 
     fn map_overview(&mut self) {
-        if self.pending_overview.is_some() || self.layout != Screens::TopOnly || self.settings.original || self.scene != Scene::Plain {
+        if self.pending_overview.is_some() || self.layout != Screens::TopOnly || self.settings.original {
+            return;
+        }
+        if self.bottom_over && self.quiet_over {
+            self.bottom_over_key = false;
+            self.closing_by_user = true;
+            self.place_bottom_over();
+            return;
+        }
+        if self.scene != Scene::Plain {
             return;
         }
         if self.game.as_ref().is_none_or(|game| game.system.talking()) {
@@ -1237,13 +1254,20 @@ impl App {
         }
         match (self.bottom_map_screen(), self.bottom_over) {
             (Some(overlays::MapScreen::Overview), false) => {
+                self.quiet_over = true;
                 self.bottom_over_key = true;
+                self.place_bottom_over();
+            }
+            (Some(overlays::MapScreen::Overview), true) => {
+                self.bottom_over_key = false;
+                self.closing_by_user = true;
                 self.place_bottom_over();
             }
             (Some(overlays::MapScreen::Inventory), open) => {
                 self.scripted_tap = Some((overlays::MAP_BUTTON, overlays::TAP_FRAMES));
                 self.restore_inventory = true;
                 if !open {
+                    self.quiet_over = true;
                     self.pending_overview = Some(0);
                 }
             }

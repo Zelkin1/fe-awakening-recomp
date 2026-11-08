@@ -93,24 +93,47 @@ const RIGHT_PANEL_REST: [u16; 2] = [184, 4];
 
 const BATTLE_PANELS: &[Piece] = &[
     Piece { from: [70, 88, 180, 52], across: Anchor::Middle(0), down: Anchor::End(1), size: 49, shapes: STATS, follows: None },
-    Piece { from: [0, 6, 162, 70], across: Anchor::Middle(-85), down: Anchor::End(1), size: 49, shapes: HP_LEFT, follows: Some((LEFT_BANNER, LEFT_PANEL_REST)) },
-    Piece { from: [162, 6, 162, 70], across: Anchor::Middle(85), down: Anchor::End(1), size: 49, shapes: HP_RIGHT, follows: Some((RIGHT_BANNER, RIGHT_PANEL_REST)) },
+    Piece { from: [0, 6, 162, 70], across: Anchor::Middle(-88), down: Anchor::End(1), size: 49, shapes: HP_LEFT, follows: Some((LEFT_BANNER, LEFT_PANEL_REST)) },
+    Piece { from: [162, 6, 162, 70], across: Anchor::Middle(88), down: Anchor::End(1), size: 49, shapes: HP_RIGHT, follows: Some((RIGHT_BANNER, RIGHT_PANEL_REST)) },
 ];
 const HP_LEFT: &[Rounded] = &[
-    Rounded { shift: [4, 0], ..rounded([0, 17, 158, 59], [0, 6, 0, 6]) },
-    Rounded { shift: [-153, 0], mirror: true, shadow: false, ..rounded([153, 24, 5, 52], [0; 4]) },
+    Rounded { shift: [4, 0], ..rounded([0, 17, 152, 59], [0; 4]) },
+    Rounded { shift: [10, 0], ..rounded([146, 17, 12, 59], [0, 6, 0, 6]) },
+    Rounded { shift: [-27, 0], mirror: true, shadow: false, ..rounded([32, 28, 123, 22], [0; 4]) },
+    Rounded { shift: [98, 0], shadow: false, ..rounded([30, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [129, 0], shadow: false, ..rounded([0, 28, 31, 22], [0; 4]) },
+    Rounded { shift: [5, 0], shadow: false, ..rounded([155, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [6, 0], shadow: false, ..rounded([155, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [7, 0], shadow: false, ..rounded([155, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [8, 0], shadow: false, ..rounded([155, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [9, 0], shadow: false, ..rounded([155, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [-154, 0], mirror: true, shadow: false, ..rounded([154, 24, 4, 44], [0; 4]) },
     Rounded { shift: [-148, 0], mirror: true, shadow: false, ..rounded([148, 68, 10, 8], [0, 0, 6, 0]) },
     Rounded { shift: [-148, 0], mirror: true, shadow: false, ..rounded([148, 17, 10, 10], [6, 0, 0, 0]) },
     Rounded { shift: [4, 0], ..rounded([24, 6, 112, 22], [8; 4]) },
 ];
 const HP_RIGHT: &[Rounded] = &[
-    rounded([162, 17, 158, 59], [6, 0, 6, 0]),
-    Rounded { shift: [157, 0], mirror: true, shadow: false, ..rounded([162, 24, 5, 52], [0; 4]) },
+    rounded([168, 17, 152, 59], [0; 4]),
+    Rounded { shift: [-6, 0], ..rounded([162, 17, 12, 59], [6, 0, 6, 0]) },
+    Rounded { shift: [-5, 0], shadow: false, ..rounded([164, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [-4, 0], shadow: false, ..rounded([164, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [-3, 0], shadow: false, ..rounded([164, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [-2, 0], shadow: false, ..rounded([164, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [-127, 0], shadow: false, ..rounded([290, 28, 30, 22], [0; 4]) },
+    Rounded { shift: [-96, 0], shadow: false, ..rounded([289, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [-95, 0], shadow: false, ..rounded([289, 28, 1, 22], [0; 4]) },
+    Rounded { shift: [30, 0], mirror: true, shadow: false, ..rounded([165, 28, 125, 22], [0; 4]) },
+    Rounded { shift: [157, 0], mirror: true, shadow: false, ..rounded([162, 24, 5, 4], [0; 4]) },
+    Rounded { shift: [158, 0], mirror: true, shadow: false, ..rounded([162, 28, 4, 22], [0; 4]) },
+    Rounded { shift: [157, 0], mirror: true, shadow: false, ..rounded([162, 50, 5, 18], [0; 4]) },
     Rounded { shift: [152, 0], mirror: true, shadow: false, ..rounded([162, 68, 10, 8], [0, 0, 0, 6]) },
     Rounded { shift: [152, 0], mirror: true, shadow: false, ..rounded([162, 17, 10, 10], [0, 6, 0, 0]) },
     rounded([184, 6, 112, 22], [8; 4]),
 ];
-const STATS: &[Rounded] = &[rounded([70, 88, 180, 52], [4; 4])];
+const STATS: &[Rounded] = &[
+    rounded([70, 88, 180, 52], [4; 4]),
+    Rounded { shift: [39, 0], mirror: true, shadow: false, ..rounded([136, 88, 9, 52], [0; 4]) },
+];
 
 const BATTLE_BUTTONS: &[Piece] = &[Piece { from: [6, 191, 307, 42], across: Anchor::Middle(0), down: Anchor::End(4), size: 28, shapes: BUTTONS, follows: None }];
 const BATTLE_BUTTONS_OVER_PANELS: &[Piece] = &[Piece { from: [6, 191, 307, 42], across: Anchor::Middle(0), down: Anchor::End(28), size: 28, shapes: BUTTONS, follows: None }];

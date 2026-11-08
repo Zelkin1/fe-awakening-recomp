@@ -231,9 +231,6 @@ fn styled_command(ui: &mut egui::Ui, icon: &str, label: &str, enabled: bool, pri
         (true, false) => INK,
     };
     painter.text(Pos2::new(square.right() + 10.0, rect.center().y), egui::Align2::LEFT_CENTER, label, bold(if primary { 19.0 } else { 16.0 }), text);
-    if chosen {
-        glove(painter, Pos2::new(square.left(), rect.center().y));
-    }
     response
 }
 
@@ -262,9 +259,6 @@ pub fn row(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
     mesh.add_triangle(1, 3, 2);
     ui.painter().set(background, mesh);
     ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, FRAME));
-    if hot {
-        glove(ui.painter(), Pos2::new(rect.left() + 30.0, rect.center().y));
-    }
 }
 
 pub fn cell(ui: &mut egui::Ui, width: f32, text: &str) {
@@ -344,6 +338,20 @@ pub fn band_button(ui: &mut egui::Ui, label: &str, lit: bool) -> Response {
     response
 }
 
+pub fn progress(ui: &mut egui::Ui, fraction: f32, text: &str, width: f32, height: f32) -> Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
+    let painter = ui.painter();
+    let radius = CornerRadius::same((height / 2.0).min(255.0) as u8);
+    painter.rect_filled(rect, radius, IVORY);
+    let done = Rect::from_min_max(rect.min, Pos2::new(rect.left() + rect.width() * fraction.clamp(0.0, 1.0), rect.bottom()));
+    if done.width() > 0.5 {
+        painter.rect_filled(done, radius, GOLD);
+    }
+    painter.rect_stroke(rect, radius, Stroke::new(1.5, FRAME_DARK), egui::StrokeKind::Inside);
+    painter.text(rect.center(), egui::Align2::CENTER_CENTER, text, bold(15.0), INK);
+    response
+}
+
 pub fn on_backdrop(ui: &mut egui::Ui, text: &str) -> Response {
     ui.label(RichText::new(text).font(bold(16.0)).color(CREAM))
 }
@@ -366,15 +374,3 @@ fn gradient(painter: &egui::Painter, rect: Rect, top: Color32, bottom: Color32) 
     painter.add(mesh);
 }
 
-fn glove(painter: &egui::Painter, tip: Pos2) {
-    let outline = Stroke::new(1.5, FRAME_DARK);
-    let finger = Rect::from_min_max(Pos2::new(tip.x - 14.0, tip.y - 7.0), Pos2::new(tip.x, tip.y - 2.0));
-    let hand = Rect::from_min_max(Pos2::new(tip.x - 26.0, tip.y - 8.0), Pos2::new(tip.x - 11.0, tip.y + 8.0));
-    let cuff = Rect::from_min_max(Pos2::new(tip.x - 31.0, tip.y - 7.0), Pos2::new(tip.x - 25.0, tip.y + 7.0));
-    for (shape, radius) in [(cuff, 2), (hand, 5), (finger, 3)] {
-        painter.rect(shape, CornerRadius::same(radius), Color32::WHITE, outline, egui::StrokeKind::Middle);
-    }
-    for y in [tip.y + 1.0, tip.y + 4.5] {
-        painter.hline((tip.x - 20.0)..=(tip.x - 12.0), y, Stroke::new(1.0, rgb(0xA8, 0xA0, 0x98)));
-    }
-}

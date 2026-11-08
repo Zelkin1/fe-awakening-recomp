@@ -260,7 +260,7 @@ impl Menus {
                         }
                     }
                     Some(UpdateButton::Installing(fraction)) => {
-                        ui.add(egui::ProgressBar::new(*fraction).desired_width(170.0).text(format!("Updating, {:.0}%", fraction * 100.0)));
+                        theme::progress(ui, *fraction, &format!("Updating, {:.0}%", fraction * 100.0), 190.0, 28.0);
                     }
                     None => {}
                 },
@@ -439,7 +439,7 @@ impl Menus {
                         ui.horizontal(|ui| {
                             let cancel = Vec2::new(110.0, 32.0);
                             let width = ui.available_width() - cancel.x - ui.spacing().item_spacing.x;
-                            progress(ui, job, width, 32.0, 15.0);
+                            progress(ui, job, width, 32.0);
                             if ui.add(egui::Button::new(RichText::new("Cancel").size(15.0)).min_size(cancel)).clicked() {
                                 actions.push(Action::CancelRecompile(job.program_id));
                             }
@@ -1087,7 +1087,6 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
             }
         });
     });
-    theme::hint(ui, "Mods change the next time the game starts; everything else changes right away.");
     ui.add_space(8.0);
     let free = !settings.original;
     let interpolates = settings.renderer == Renderer::Vulkan;
@@ -1236,7 +1235,7 @@ fn card_height(job: Option<&Job>) -> f32 {
     34.0 + 26.0 + 30.0 + 42.0 + 10.0 + 5.0 * 32.0 + below + 10.0
 }
 
-fn progress(ui: &mut egui::Ui, job: &Job, width: f32, height: f32, size: f32) {
+fn progress(ui: &mut egui::Ui, job: &Job, width: f32, height: f32) {
     let stage = job.stage();
     let text = match &stage {
         Stage::Mods { .. } => "Preparing the game's files".to_owned(),
@@ -1249,8 +1248,7 @@ fn progress(ui: &mut egui::Ui, job: &Job, width: f32, height: f32, size: f32) {
     };
     let minutes = job.elapsed().as_secs() / 60;
     let seconds = job.elapsed().as_secs() % 60;
-    let label = RichText::new(format!("{text}, {minutes}:{seconds:02}")).size(size);
-    ui.add(egui::ProgressBar::new(stage.fraction()).desired_width(width).desired_height(height).corner_radius(height / 2.0).text(label));
+    theme::progress(ui, stage.fraction(), &format!("{text}, {minutes}:{seconds:02}"), width, height);
 }
 
 pub const BOTTOM_OVER: usize = usize::MAX;
