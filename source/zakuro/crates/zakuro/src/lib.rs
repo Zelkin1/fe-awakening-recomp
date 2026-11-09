@@ -1236,6 +1236,9 @@ impl App {
         if self.bottom_over && !shown && std::mem::take(&mut self.restore_inventory) && self.bottom_map_screen() == Some(overlays::MapScreen::Overview) {
             self.scripted_tap = Some((overlays::INVENTORY_TAB, overlays::TAP_FRAMES));
         }
+        if self.bottom_over && !shown && self.bottom_map_screen() == Some(overlays::MapScreen::Story) {
+            self.scripted_tap = Some((overlays::STORY_CLOSE, overlays::TAP_FRAMES));
+        }
         self.bottom_over = shown;
         if !shown {
             self.kept_scene = None;

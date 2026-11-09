@@ -323,3 +323,48 @@ pub const MAIN_MENU: &[(char, [&str; 8])] = &[
 ];
 
 pub const COPYRIGHT: &str = "©2012-2013 Nintendo / INTELLIGENT SYSTEMS";
+
+pub const CLASS_SPELLINGS: &[(char, &str, &str)] = &[
+    ('F', "Ch. ", "Chevalier "),
+    ('I', "Cav. ", "Cavaliere "),
+    ('I', "Sac. guerriero", "Sacerdote guerriero"),
+    ('I', "Sac. guerriera", "Sacerdotessa guerriera"),
+    ('I', "Gran Lord", "Gran lord"),
+    ('S', "Inf. ", "Infantería "),
+    ('S', "Cab. ", "Caballero "),
+    ('S', "Sacerd. ", "Sacerdotisa "),
+];
+
+pub const GMAP_WORDS: &[(char, [&str; 3])] = &[
+    ('F', ["Fermer", "Histoire", "Magasin"]),
+    ('G', ["Schl.", "STORY", "HÄNDLER"]),
+    ('I', ["Chiudi", "STORIA", "EMPORIO"]),
+    ('S', ["Cerrar", "HISTORIA", "TIENDA"]),
+    ('U', ["Close", "STORY", "SHOP"]),
+];
+
+pub const GMAP_PILLS: &[(char, [&str; 5], [usize; 8])] = &[
+    ('F', ["Retour", "Halte", "Menu", "Examiner", "Atteindre objectif"], [144, 24, 56, 73, 122, 149, 250, 0]),
+    ('G', ["Zurück", "Stopp", "Menü", "Überblick", "Zum Ziel gehen"], [142, 28, 61, 78, 135, 161, 250, 0]),
+    ('I', ["Indietro", "Stop", "Menu", "Zoom", "Vai all'obiettivo"], [143, 29, 64, 89, 133, 162, 250, 0]),
+    ('S', ["Acercar", "Parar", "Menú", "Alejar", "Siguiente capítulo"], [143, 28, 61, 78, 116, 143, 250, 0]),
+    ('U', ["Back", "Halt", "Menu", "Survey", "Head to Objective"], [146, 28, 62, 82, 127, 154, 250, 0]),
+];
+
+pub const GMAP_ICONS: &[(char, [usize; 8])] = &[
+    ('F', [9, 22, 59, 71, 125, 147, 131, 142]),
+    ('G', [13, 26, 64, 76, 138, 160, 128, 139]),
+    ('I', [13, 26, 75, 87, 136, 158, 129, 140]),
+    ('S', [13, 26, 64, 76, 119, 141, 128, 139]),
+    ('U', [13, 26, 68, 80, 130, 152, 131, 142]),
+];
+
+pub const OVERVIEW_WORDS: &[(char, [&str; 9])] = &[
+    ('F', ["Victoire", "Tour", "NIV", "EXP", "PV", "Vaincre", "le boss", "Décimer", "l'ennemi"]),
+    ('G', ["Sieg", "Zug", "Lv.", "Erf.", "KP", "Boss", "besiegen", "Alle", "besiegen"]),
+    ('I', ["Vinci se", "Turno", "Liv", "Esp", "PS", "sconfiggi il", "comandante", "sgomini", "i nemici"]),
+    ('S', ["Victoria", "Turno", "Niv", "Exp", "PV", "Derrota al", "comandante", "Vence a todos", "los enemigos"]),
+    ('U', ["Victory", "Turn", "LV", "EXP", "HP", "Defeat", "commander", "Rout the", "enemy"]),
+];
+
+pub const TUTORIAL_WORDS: &[(char, &str)] = &[('F', "Fermer"), ('G', "Schließen"), ('I', "Chiudi"), ('S', "Cerrar"), ('U', "Close")];

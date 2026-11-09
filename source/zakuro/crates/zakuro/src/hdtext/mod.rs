@@ -29,6 +29,7 @@ pub const STEP: ModStep = ModStep {
 
 pub struct Font {
     pub bytes: &'static [u8],
+    pub numbers: &'static [u8],
     pub lining_figures: u16,
 }
 
@@ -156,8 +157,75 @@ fn words_job<'a>(game: &'a Game, face: &'a text::Face, path: String, at: Option<
         let pictures = rom::textures_in(&bytes)
             .into_iter()
             .filter(|(offset, _)| at.is_none_or(|at| *offset == at))
-            .filter_map(|(_, texture)| Some(Picture { name: texture.name(), image: words::redraw(&texture.rgba(), &words, keep, face)? }))
+            .filter_map(|(_, texture)| Some(Picture { name: texture.name(), image: words::redraw(&texture.rgba(), &words, keep, words::SOFT, face)? }))
             .collect();
+        Made { pictures, files: Vec::new() }
+    })
+}
+
+const CLASS_ROWS: usize = 16;
+const CLASS_SLANT: f32 = 0.2;
+
+fn class_names(game: &Game, lang: char) -> Vec<String> {
+    let Some(bytes) = game.read(&format!("m/{lang}/GameData.bin.lz")) else { return Vec::new() };
+    rom::labelled(&bytes)
+        .into_iter()
+        .filter(|(key, _)| key.starts_with("MJID_") && !key.starts_with("MJID_H_"))
+        .skip(1)
+        .map(|(_, name)| data::CLASS_SPELLINGS.iter().filter(|(l, _, _)| *l == lang).fold(name, |n, (_, short, full)| n.replace(short, full)))
+        .collect()
+}
+
+fn class_job<'a>(game: &'a Game, face: &'a text::Face, lang: char) -> Job<'a> {
+    Box::new(move || {
+        let Some(bytes) = game.read(&format!("jobintro/jobname_{lang}.ctpk.lz")) else { return Made::default() };
+        let names = class_names(game, lang);
+        let slanted = face.slanted(CLASS_SLANT);
+        let mut textures = rom::textures_in(&bytes);
+        textures.sort_by_key(|(at, _)| *at);
+        let mut pictures = Vec::new();
+        let mut next = 0;
+        for (_, texture) in textures {
+            let rows = (texture.height / 32).min(CLASS_ROWS);
+            let words: Vec<(words::Box4, &str)> = (0..rows).filter_map(|r| Some(([0, r * 32, texture.width, r * 32 + 32], names.get(next + r)?.as_str()))).collect();
+            next += rows;
+            if let Some(image) = words::redraw(&texture.rgba(), &words, &[], banners::VIVID, &slanted) {
+                pictures.push(Picture { name: texture.name(), image });
+            }
+        }
+        Made { pictures, files: Vec::new() }
+    })
+}
+
+fn logo_job<'a>(game: &'a Game, face: &'a text::Face) -> Job<'a> {
+    Box::new(move || {
+        let Some(bytes) = game.read("telop/Tlp_Title_01_U.r.lz") else { return Made::default() };
+        let pictures = rom::textures_in(&bytes).into_iter().filter(|(at, _)| *at == 0xB6A00).map(|(_, t)| Picture { name: t.name(), image: words::logo(&t.rgba(), face) }).collect();
+        Made { pictures, files: Vec::new() }
+    })
+}
+
+fn gmap_job<'a>(game: &'a Game, face: &'a text::Face, lang: char) -> Job<'a> {
+    Box::new(move || {
+        let Some(bytes) = game.read(&format!("gmap/gmap_{lang}.ctpk.lz")) else { return Made::default() };
+        let (Some((_, names)), Some((_, pills, at)), Some((_, icons))) = (data::GMAP_WORDS.iter().find(|(l, _)| *l == lang), data::GMAP_PILLS.iter().find(|(l, _, _)| *l == lang), data::GMAP_ICONS.iter().find(|(l, _)| *l == lang)) else { return Made::default() };
+        let mut pictures = Vec::new();
+        for (offset, texture) in rom::textures_in(&bytes) {
+            let (image, entries): (_, Vec<(words::Box4, &str, words::Ink)>) = match offset {
+                0x180 => (words::calm(&texture.rgba()), words::GMAP_BUTTONS.iter().map(|&(b, i, light)| (b, names[i], light)).collect()),
+                0x10180 => (texture.rgba(), [([at[0], 374, 184, 395], pills[0]), (words::HALT_BOX, pills[1]), ([at[1], 437, at[2], 458], pills[2]), ([at[3], 437, at[4], 458], pills[3]), ([at[5], 437, at[6], 458], pills[4]), ([icons[0], 440, icons[1], 455], "X"), ([icons[2], 440, icons[3], 455], "R"), ([icons[4], 440, icons[5], 455], "START"), ([icons[6], 377, icons[7], 392], "B"), (words::BUBBLE_A, "A")].into_iter().map(|(b, t)| (b, t, words::Ink::Light)).collect()),
+                _ => continue,
+            };
+            pictures.push(Picture { name: texture.name(), image: words::buttons(&image, &entries, face, words::sharp_art) });
+        }
+        Made { pictures, files: Vec::new() }
+    })
+}
+
+fn buttons_job<'a>(game: &'a Game, face: &'a text::Face, path: String, at: usize, entries: Vec<(words::Box4, &'static str, words::Ink)>, enlarge: fn(&Rgba) -> Rgba) -> Job<'a> {
+    Box::new(move || {
+        let Some(bytes) = game.read(&path) else { return Made::default() };
+        let pictures = rom::textures_in(&bytes).into_iter().filter(|(offset, _)| *offset == at).map(|(_, t)| Picture { name: t.name(), image: words::buttons(&t.rgba(), &entries, face, enlarge) }).collect();
         Made { pictures, files: Vec::new() }
     })
 }
@@ -187,6 +255,7 @@ pub fn generate(rom: &Path, root: &Path, font: &Font, progress: &(dyn Fn(usize, 
     }
     let game = Game { title };
     let face = text::Face::new(font.bytes, 40.0).with_figures(font.lining_figures);
+    let numbers = text::Face::new(font.numbers, 40.0).with_figures(font.lining_figures);
     let mut names: Vec<&'static str> = data::BANNER_SPECS.iter().map(|(n, _, _)| *n).collect();
     names.dedup();
     let messages: HashMap<char, HashMap<String, String>> = LANGUAGES.iter().map(|&lang| (lang, game.read(&format!("m/{lang}/GameData.bin.lz")).map(|d| rom::messages(&d)).unwrap_or_default())).collect();
@@ -199,6 +268,7 @@ pub fn generate(rom: &Path, root: &Path, font: &Font, progress: &(dyn Fn(usize, 
             }
         }
     }
+    jobs.push(logo_job(&game, &face));
     jobs.push(words_job(&game, &face, "telop/Tlp_Title_02_U.r.lz".into(), Some(0x44D80), vec![(words::COPYRIGHT_BOX, data::COPYRIGHT)], &[]));
     for (lang, text) in data::PRESS_ANY_BUTTON {
         jobs.push(words_job(&game, &face, format!("bs/press_{lang}.tp.lz"), None, vec![(words::PRESS_ANY_BUTTON_BOX, *text)], &words::PRESS_ANY_BUTTON_KEEP));
@@ -207,12 +277,22 @@ pub fn generate(rom: &Path, root: &Path, font: &Font, progress: &(dyn Fn(usize, 
         jobs.push(words_job(&game, &face, format!("ui/filemenu_{lang}.ctpk.lz"), Some(0x20180), words::MENU_BOXES.into_iter().zip(texts.iter().copied()).collect(), &words::MENU_KEEP));
     }
     for name in ["System", "UI_L", "UI_M", "UI_S"] {
-        jobs.push(font_job(&game, &face, name));
+        jobs.push(font_job(&game, if name == "System" { &face } else { &numbers }, name));
     }
     for lang in LANGUAGES {
         for &name in &names {
             jobs.push(banner_job(&game, &face, lang, name));
         }
+        jobs.push(class_job(&game, &face, lang));
+        jobs.push(gmap_job(&game, &face, lang));
+        if let Some((_, names)) = data::OVERVIEW_WORDS.iter().find(|(l, _)| *l == lang) {
+            jobs.push(buttons_job(&game, &face, format!("ui/status_{lang}.ctpk.lz"), 0x100, words::OVERVIEW.iter().map(|&(b, i, ink)| (b, names[i], ink)).collect(), words::sharp_art));
+        }
+        if let Some(&(_, close)) = data::TUTORIAL_WORDS.iter().find(|(l, _)| *l == lang) {
+            let names = [close, "START", "L", "R"];
+            jobs.push(buttons_job(&game, &face, format!("ui/tutorial_{lang}.ctpk.lz"), 0x100, words::TUTORIAL.iter().map(|&(b, i, ink)| (b, names[i], ink)).collect(), words::sharp_art));
+        }
+        jobs.push(buttons_job(&game, &face, format!("ui/system_{lang}.ctpk.lz"), 0x46300, words::SYSTEM_ICONS.iter().map(|&(b, text)| (b, text, words::Ink::Light)).collect(), labels::enlarge));
         for file in game.list(&format!("chapter/title/{lang}")) {
             jobs.push(title_job(&game, &face, &messages[&lang], lang, file));
         }
@@ -267,7 +347,7 @@ fn build(rom: &Path, data_dir: &Path, progress: &(dyn Fn(usize, usize) + Sync), 
     generate(rom, &STEP.folder_in(data_dir), &BUNDLED, progress, cancel)
 }
 
-const BUNDLED: Font = Font { bytes: include_bytes!("fonts/AlegreyaSans-Bold.ttf"), lining_figures: 1686 };
+const BUNDLED: Font = Font { bytes: include_bytes!("fonts/AlegreyaSans-Bold.ttf"), numbers: include_bytes!("fonts/AlegreyaSans-ExtraBold.ttf"), lining_figures: 1686 };
 
 #[cfg(test)]
 mod tests {

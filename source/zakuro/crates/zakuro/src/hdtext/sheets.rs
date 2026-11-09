@@ -187,7 +187,17 @@ pub fn redraw(face: &Face, data: &[u8], font: &Bfnt, images: &[Plane], style: &S
     if originals.is_empty() || drawn.is_empty() {
         return None;
     }
-    let em = 400.0 * median_of(&mut originals) / median_of(&mut drawn);
+    let mut em = 400.0 * median_of(&mut originals) / median_of(&mut drawn);
+    if style.measure == Measure::Capitals {
+        let tallest = by_code.get(&('É' as u32)).filter(|g| g.sheet < images.len()).map(|g| {
+            let cell = cell_of(images, g);
+            let first = (0..cell.h).find(|&y| cell.row_max(y) > 0.5).unwrap_or(0);
+            g.top as f32 - first as f32
+        });
+        if let (Some(room), Some((_, top, _, _))) = (tallest, probe.ink_box('É')) {
+            em = em.min(400.0 * (room + 0.5) / -top);
+        }
+    }
     let face = probe.sized(em);
     let fine = probe.sized(em * SCALE as f32);
     let natural_digits = "0123456789".chars().filter(|&c| face.has(c)).map(|c| face.advance(c)).fold(0.0f32, f32::max).round() as i32;

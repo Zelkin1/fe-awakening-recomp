@@ -11,6 +11,7 @@ pub struct Face {
     pub font: FontRef<'static>,
     pub em: f32,
     figures: Option<u16>,
+    slant: f32,
 }
 
 pub struct Raster {
@@ -21,7 +22,11 @@ pub struct Raster {
 
 impl Face {
     pub fn new(bytes: &'static [u8], em: f32) -> Face {
-        Face { font: FontRef::try_from_slice(bytes).expect("a bundled font"), em, figures: None }
+        Face { font: FontRef::try_from_slice(bytes).expect("a bundled font"), em, figures: None, slant: 0.0 }
+    }
+
+    pub fn slanted(&self, slant: f32) -> Face {
+        Face { slant, ..self.clone() }
     }
 
     pub fn with_figures(self, first: u16) -> Face {
@@ -129,7 +134,25 @@ impl Face {
                 }
             }
         }
+        let out = if self.slant > 0.0 { sheared(&out, self.slant) } else { out };
         let (bx0, bx1, by0, by1) = out.bbox(0.5)?;
         Some(out.crop(bx0, by0, bx1, by1))
     }
+}
+
+fn sheared(p: &Plane, slant: f32) -> Plane {
+    let extra = (p.h as f32 * slant).ceil() as usize;
+    let mut out = Plane::new(p.w + extra, p.h);
+    for y in 0..p.h {
+        let shift = (p.h - 1 - y) as f32 * slant;
+        let (whole, part) = (shift.floor() as usize, shift.fract());
+        for x in 0..p.w {
+            let v = p.at(x, y);
+            out.v[y * out.w + x + whole] += v * (1.0 - part);
+            if x + whole + 1 < out.w {
+                out.v[y * out.w + x + whole + 1] += v * part;
+            }
+        }
+    }
+    out
 }

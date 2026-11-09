@@ -104,7 +104,11 @@ pub fn textures_in(d: &[u8]) -> Vec<(usize, Texture)> {
 }
 
 pub fn messages(d: &[u8]) -> HashMap<String, String> {
-    let mut out = HashMap::new();
+    labelled(d).into_iter().collect()
+}
+
+pub fn labelled(d: &[u8]) -> Vec<(String, String)> {
+    let mut out = Vec::new();
     let (Some(data_size), Some(pointers), Some(labels)) = (u32_at(d, 4), u32_at(d, 8), u32_at(d, 12)) else { return out };
     let table = 0x20 + data_size + pointers * 4;
     let names = table + labels * 8;
@@ -119,7 +123,7 @@ pub fn messages(d: &[u8]) -> HashMap<String, String> {
             stop += 2;
         }
         let units: Vec<u16> = d[start..stop].as_chunks::<2>().0.iter().map(|&c| u16::from_le_bytes(c)).collect();
-        out.insert(name, String::from_utf16_lossy(&units));
+        out.push((name, String::from_utf16_lossy(&units)));
     }
     out
 }

@@ -1,4 +1,4 @@
-Alegreya Sans Bold (AlegreyaSans-Bold.ttf)
+Alegreya Sans Bold and ExtraBold (AlegreyaSans-Bold.ttf, AlegreyaSans-ExtraBold.ttf)
 Copyright 2013 The Alegreya Sans Project Authors (https://github.com/huertatipografica/Alegreya-Sans)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.

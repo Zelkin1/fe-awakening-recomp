@@ -112,6 +112,7 @@ pub(crate) const TOUCH_KEEPS_OVER: Duration = Duration::from_secs(1);
 
 pub(crate) const MAP_BUTTON: (u16, u16) = (305, 212);
 pub(crate) const INVENTORY_TAB: (u16, u16) = (305, 70);
+pub(crate) const STORY_CLOSE: (u16, u16) = (293, 213);
 
 pub(crate) fn on_portrait((x, y): (u16, u16)) -> bool {
     x < 64 && y < 62
@@ -143,6 +144,7 @@ pub(crate) fn level_up_screen(picture: &[u8]) -> bool {
 pub(crate) enum MapScreen {
     Inventory,
     Overview,
+    Story,
 }
 
 pub(crate) fn map_screen(picture: &[u8]) -> Option<MapScreen> {
@@ -160,7 +162,9 @@ pub(crate) fn map_screen(picture: &[u8]) -> Option<MapScreen> {
         sum / (3 * ((right - left) * (bottom - top)) as u32)
     };
     let (corner, icon, edge) = (light([225, 22, 300, 38]), light([292, 198, 318, 226]), light([290, 105, 318, 185]));
+    let (page, close, bar) = (light([30, 60, 260, 165]), light([282, 204, 304, 222]), light([80, 12, 250, 28]));
     match () {
+        _ if page > 130 && close > 150 && bar < 90 => Some(MapScreen::Story),
         _ if edge >= 40 => None,
         _ if corner > 115 && icon < 75 => Some(MapScreen::Inventory),
         _ if corner < 85 && icon > 90 => Some(MapScreen::Overview),
@@ -537,6 +541,8 @@ mod tests {
         assert_eq!(map_screen(&paint(&[([292, 198, 318, 226], 110)])), Some(MapScreen::Overview));
         assert_eq!(map_screen(&paint(&[([225, 22, 300, 38], 140), ([292, 198, 318, 226], 110)])), None);
         assert_eq!(map_screen(&paint(&[([290, 105, 318, 185], 200), ([225, 22, 300, 38], 140)])), None);
+        assert_eq!(map_screen(&paint(&[([30, 60, 260, 165], 160), ([282, 204, 304, 222], 190)])), Some(MapScreen::Story));
+        assert_eq!(map_screen(&paint(&[([30, 60, 260, 165], 160), ([282, 204, 304, 222], 190), ([80, 12, 250, 28], 140)])), None);
         assert_eq!(map_screen(&[]), None);
     }
 
