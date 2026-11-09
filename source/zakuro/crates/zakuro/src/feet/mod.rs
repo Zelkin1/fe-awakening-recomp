@@ -4,7 +4,7 @@ mod formats;
 mod model;
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
@@ -12,11 +12,14 @@ use crate::recompile::ModStep;
 
 pub const PROGRAM_ID: u64 = 0x0004_0000_0009_F100;
 
-pub const STEP: ModStep = ModStep { name: "the feet mod", program_id: PROGRAM_ID, build };
-
-pub fn folder(data_dir: &Path) -> PathBuf {
-    zakuro_core::mods::dir(data_dir, PROGRAM_ID).join("feet")
-}
+pub const STEP: ModStep = ModStep {
+    name: "the feet mod",
+    label: "Feet",
+    about: "The characters' feet, built from your copy of the game.",
+    folder: "feet",
+    program_id: PROGRAM_ID,
+    build,
+};
 
 fn bodies(romfs: &zakuro_fs::romfs::RomFs) -> Result<Vec<String>, String> {
     let mut dir = romfs.root().map_err(|error| error.to_string())?;
@@ -37,18 +40,18 @@ fn build(rom: &Path, data_dir: &Path, progress: &(dyn Fn(usize, usize) + Sync), 
     }
     let romfs = title.romfs.as_ref().ok_or("the game has no RomFS")?;
     let bodies = bodies(romfs)?;
-    let out = folder(data_dir).join("romfs").join("b");
+    let out = STEP.folder_in(data_dir).join("romfs").join("b");
     std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
     let read = |name: &str| -> Option<Vec<u8>> {
         let file = romfs.lookup(&format!("b/{name}")).ok()?;
-        formats::unpack(title.read_romfs(&file, 0, file.data_size as usize)?).ok()
+        crate::lz::unpack(title.read_romfs(&file, 0, file.data_size as usize)?).ok()
     };
     let one = |name: &str| -> Result<&'static str, String> {
         let model = read(name).ok_or("its file can't be read")?;
         let texture = read(&name.replace(".m.lz", "_c0.t.lz")).and_then(|file| foot::colour_texture(&file));
         let (bytes, style) = foot::build(&format!("b/{name}"), &model, texture.as_ref())?;
         let path = out.join(name);
-        std::fs::write(&path, formats::lz13(&bytes)).map_err(|error| format!("{}: {error}", path.display()))?;
+        std::fs::write(&path, crate::lz::lz13(&bytes)).map_err(|error| format!("{}: {error}", path.display()))?;
         Ok(style)
     };
     let (next, done, results) = (AtomicUsize::new(0), AtomicUsize::new(0), Mutex::new(Vec::new()));

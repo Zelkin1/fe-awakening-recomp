@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::zig::{fetch, windowless, Fetcher};
 
-pub const RELEASE: &str = "v1.0.7";
+pub const RELEASE: &str = "v1.0.8";
 const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 const ASSET_SUFFIX: &str = "-windows-x64.zip";
 const STAGING: &str = "update";

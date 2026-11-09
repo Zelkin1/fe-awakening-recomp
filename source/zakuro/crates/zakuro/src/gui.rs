@@ -332,11 +332,13 @@ mod tests {
             ("settings-graphics.png", SettingsTab::Graphics, None, false),
             ("settings-graphics-original.png", SettingsTab::Graphics, None, true),
             ("settings-keybinds.png", SettingsTab::Keybinds, None, false),
+            ("settings-mods.png", SettingsTab::Mods, None, false),
         ] {
             let ctx = crate::gui::context();
             let mut menus = crate::menus::Menus::default();
             menus.settings_open = true;
             menus.settings_tab = tab;
+            menus.mods = crate::recompile::MOD_STEPS.iter().enumerate().map(|(index, step)| crate::menus::ModSwitch { label: step.label, about: step.about, on: index == 0 }).collect();
             let mut settings = crate::settings::Settings::default();
             settings.set_original(original);
             let window = paint(&ctx, [1280, 1100], pointer, |ui| {

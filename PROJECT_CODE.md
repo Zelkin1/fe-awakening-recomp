@@ -10,14 +10,30 @@ This list separates the project's code from Zakuro's and 3dsrecomp's. Paths star
 | `zakuro/crates/zakuro-core/src/scenes.rs` | 146 | Scene detection from the markers the GPU sees: which scene shows, the end of a battle, marker positions, and the unit selection. |
 | `zakuro/crates/zakuro/src/banners.rs` | 221 | Reads the text of the FE3H-style banners (names, HP, weapon, stats) off the bottom screen. |
 | `zakuro/crates/zakuro/src/console.rs` | 81 | The optional console window with Zakuro's log (Settings, System). |
+| `zakuro/crates/zakuro/src/hdtext/banners.rs` | 196 | The phase, mission and result banners: lettering fitted with its spacing, glow, outline or stone fill drawn again. |
+| `zakuro/crates/zakuro/src/hdtext/data.rs` | 313 | The words the redrawn pictures spell, in each language, and the boxes of the inventory labels. |
+| `zakuro/crates/zakuro/src/hdtext/fonts/ArchivoNarrow[wght].ttf` | binary | Open font, under the SIL Open Font License. |
+| `zakuro/crates/zakuro/src/hdtext/fonts/FiraSans-Bold.ttf` | binary | Open font, under the SIL Open Font License. |
+| `zakuro/crates/zakuro/src/hdtext/fonts/FiraSans-SemiBold.ttf` | binary | Open font, under the SIL Open Font License. |
+| `zakuro/crates/zakuro/src/hdtext/fonts/Lato-Bold.ttf` | binary | Open font, under the SIL Open Font License. |
+| `zakuro/crates/zakuro/src/hdtext/fonts/OFL.txt` | 103 | The open fonts' copyright notices and the SIL Open Font License. |
+| `zakuro/crates/zakuro/src/hdtext/fonts/PT_Sans-Web-Bold.ttf` | binary | Open font, under the SIL Open Font License. |
+| `zakuro/crates/zakuro/src/hdtext/labels.rs` | 994 | The inventory's labels: letters taken off their plates, plates and cells evened with their grain given back, words drawn again with shadow, shine or engraving. |
+| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 294 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
+| `zakuro/crates/zakuro/src/hdtext/ops.rs` | 683 | Image operations for the redraws: planes, masks, blurs, resizing, labelling and distance transforms. |
+| `zakuro/crates/zakuro/src/hdtext/rom.rs` | 125 | Finds textures in the game's files and reads its message files. |
+| `zakuro/crates/zakuro/src/hdtext/sheets.rs` | 291 | Reads and writes the game's font files: each letter drawn at its natural width from an open font, packed into new sheets, with the 4x pictures. |
+| `zakuro/crates/zakuro/src/hdtext/text.rs` | 116 | Draws letters and lines from an open font. |
+| `zakuro/crates/zakuro/src/hdtext/titles.rs` | 223 | Chapter titles: each line fitted to where the original's lettering is, its fill and glow measured and drawn again. |
+| `zakuro/crates/zakuro/src/lz.rs` | 157 | LZ11 and LZ13 compression of the game's files, for the mods' build steps. |
 | `zakuro/crates/zakuro/src/overlays.rs` | 605 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
 | `zakuro/crates/zakuro/src/sounds.rs` | 301 | Reads the bottom screen's open and close sounds from the game's sound archive. |
 | `zakuro/crates/zakuro/src/theme.rs` | 380 | The launcher's look: colours, fonts, window frames, tabs and buttons. |
 | `zakuro/crates/zakuro/src/update.rs` | 161 | Update Launcher: finds the latest release on GitHub, downloads it and puts it in place of the running launcher. |
 | `zakuro/crates/zakuro-core/src/feet.rs` | 212 | The feet mod's per-frame hook: turns each foot so that it rests flat on the ground. (feet mod) |
 | `zakuro/crates/zakuro/src/feet/foot.rs` | 1123 | Builds the feet for one body model and writes the changed model. (feet mod) |
-| `zakuro/crates/zakuro/src/feet/formats.rs` | 369 | The game's formats the builder reads and writes: LZ compression, CGFX dictionaries and ETC1 textures. (feet mod) |
-| `zakuro/crates/zakuro/src/feet/mod.rs` | 108 | The feet mod's build step: runs the builder over every body model of the game. (feet mod) |
+| `zakuro/crates/zakuro/src/feet/formats.rs` | 218 | The game's formats the builder reads and writes: CGFX dictionaries and ETC1 textures. (feet mod) |
+| `zakuro/crates/zakuro/src/feet/mod.rs` | 111 | The feet mod's build step: runs the builder over every body model of the game. (feet mod) |
 | `zakuro/crates/zakuro/src/feet/model.rs` | 133 | Reads a CGFX model's skeleton, vertices and submeshes. (feet mod) |
 
 ## Changes inside Zakuro's files
@@ -191,6 +207,9 @@ Its imports change too.
 Added:
 
 - `const MOD_PARTS`
+- `const DISABLED`
+- `fn enabled`
+- `fn set_enabled`
 - `fn folders`
 - `fn is_mod_folder`
 - `fn describe`
@@ -452,6 +471,7 @@ Changed:
 - `fn Hardware::reads_twin`
 - `fn Hardware::blit`
 - `fn Hardware::pipeline_for`
+- `fn Hardware::draw`
 - `fn Hardware::display_transfer`
 - `fn Hardware::texture_source`
 - `fn Hardware::covers`
@@ -570,6 +590,8 @@ Added:
 - `mod banners`
 - `mod console`
 - `mod feet` (feet mod)
+- `mod hdtext`
+- `mod lz`
 - `mod overlays`
 - `mod sounds`
 - `mod theme`
@@ -588,7 +610,7 @@ Added:
 - `fn App::close_bottom_over_with_cancel`
 - `fn App::map_overview`
 - `fn App::toggle_bottom_over`
-- `fn App::build_feet`
+- `fn App::build_mods`
 - `fn App::poll_update`
 - `fn App::window_layout`
 - `fn App::bottom_over_frame`
@@ -669,12 +691,14 @@ Added:
 - `enum Confirm`
 - `enum SettingsTab`
 - `const SETTINGS_TABS`
+- `struct ModSwitch`
 - `fn Menus::game_card`
 - `fn Menus::keybinds_tab`
 - `fn Menus::controller_tab`
 - `fn system_tab`
 - `fn cheat_lists`
 - `fn graphics_tab`
+- `fn mods_tab`
 - `fn sound_tab`
 - `const ICON`
 - `const CARD_WIDTH`
@@ -706,6 +730,8 @@ Added:
 
 - `type ModBuilder`
 - `struct ModStep`
+- `impl ModStep`
+- `fn ModStep::folder_in`
 - `const MOD_STEPS` (feet mod)
 - `fn mod_steps`
 - `fn has_mod_steps`
@@ -815,5 +841,6 @@ Changed:
 
 - `zakuro/Cargo.toml`: 3dsrecomp's ABI crate taken from the 3dsrecomp folder beside Zakuro.
 - `zakuro/crates/zakuro-core/src/enhancements.txt`: The section for Fire Emblem: Awakening (EUR): 16:9, Smooth map sprites and Faster battles, with the Speed setting.
-- `zakuro/crates/zakuro/Cargo.toml`: 3dsrecomp taken from the folder beside Zakuro; serde_json for Update Launcher.
+- `zakuro/crates/zakuro-gpu/shaders/raster.frag`: Texture pack pictures sampled sharply, blending only across each pixel's edge; `raster.frag.spv` and `raster_depth.frag.spv` are its compiled forms.
+- `zakuro/crates/zakuro/Cargo.toml`: 3dsrecomp taken from the folder beside Zakuro; serde_json for Update Launcher; cityhasher for the names of the HD text's pictures.
 - `3dsrecomp/hints.txt`: The section for Fire Emblem: Awakening: where 3dsrecomp starts functions.

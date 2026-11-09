@@ -24,6 +24,24 @@ const EXHEADER: &str = "exheader.bin";
 
 const MOD_PARTS: [&str; 4] = ["romfs", "romfs_ext", "exefs", "textures"];
 
+const DISABLED: &str = "disabled";
+
+pub fn enabled(folder: &Path) -> bool {
+    !folder.join(DISABLED).exists()
+}
+
+pub fn set_enabled(folder: &Path, on: bool) -> std::io::Result<()> {
+    let marker = folder.join(DISABLED);
+    if on {
+        return match std::fs::remove_file(&marker) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        };
+    }
+    std::fs::create_dir_all(folder)?;
+    std::fs::write(marker, b"")
+}
+
 pub fn folders(data_dir: &Path, program_id: u64) -> Vec<PathBuf> {
     let title_folder = dir(data_dir, program_id);
     let mut mod_folders: Vec<PathBuf> = std::fs::read_dir(&title_folder).into_iter().flatten().flatten().map(|entry| entry.path()).filter(|path| is_mod_folder(path)).collect();
@@ -35,7 +53,7 @@ fn is_mod_folder(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
-    path.is_dir() && !MOD_PARTS.iter().any(|part| part.eq_ignore_ascii_case(name))
+    path.is_dir() && !MOD_PARTS.iter().any(|part| part.eq_ignore_ascii_case(name)) && enabled(path)
 }
 
 /// whether the title's mods folder holds a mod.
@@ -192,6 +210,11 @@ mod tests {
         assert!(!present(&data_dir, program_id));
         std::fs::create_dir_all(dir.join("feet/romfs/b")).unwrap();
         std::fs::write(dir.join("feet/romfs/b/body.bin"), b"body").unwrap();
+        assert!(present(&data_dir, program_id));
+        set_enabled(&dir.join("feet"), false).unwrap();
+        assert_eq!(folders(&data_dir, program_id), [dir.clone(), dir.join("zeta")]);
+        assert!(!present(&data_dir, program_id));
+        set_enabled(&dir.join("feet"), true).unwrap();
         assert!(present(&data_dir, program_id));
         std::fs::remove_dir_all(data_dir).unwrap();
     }

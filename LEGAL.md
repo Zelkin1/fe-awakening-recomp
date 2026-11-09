@@ -33,6 +33,11 @@ place:
   (`SE_SYS_SELECT1` and `SE_SYS_CANCEL1`, the game's sounds for choosing a
   unit and letting it go). The launcher reads them from your copy's sound
   archive when the game starts, and keeps them in memory only;
+- words: the short words the game paints on its phase, mission and result
+  banners and on its inventory panels, and the chapter and place names its
+  title pictures spell differently from its text files, in its five
+  languages (`hdtext/data.rs`). The HD text mod draws them again in open
+  fonts, over pictures it reads from your copy;
 - what the game draws: the format, size and position of the textures that
   tell Zakuro which screen is showing, the rectangles of the panels and text
   the project redraws, the outline of the world map's name panel, and the
@@ -59,8 +64,11 @@ or data, changed or not. Don't share or upload them:
 
 - what the launcher's Build button makes: the game's code converted to
   native code, a library in `%APPDATA%\3dsrecomp\`, and the feet mod's
-  models in `%APPDATA%\zakuro\mods\000400000009F100\feet\`. The builder is
-  the project's; the models it writes are the game's, changed;
+  models in `%APPDATA%\zakuro\mods\000400000009F100\feet\`, and the HD
+  text mod's fonts and pictures in
+  `%APPDATA%\zakuro\mods\000400000009F100\hd\`. The builders are the
+  project's; what they write holds the game's models, fonts and pictures,
+  changed;
 - Zakuro's folder, `%APPDATA%\zakuro`, with your saves, states, settings
   and mods;
 - in a development copy, `FireEmblemAwakeningRecomp/` (the C that 3dsrecomp
@@ -79,7 +87,9 @@ The project's own files are under the MIT license in `LICENSE`. So are the
 changes the patches make to Zakuro and 3dsrecomp, which keep fearkov's MIT
 notice (`THIRD_PARTY_NOTICES.md`). The files in `source/` hold those
 changes together with fearkov's code around them, under the same notices.
-The license covers none of the game, nor anything made from it. The
+The license covers none of the game, nor anything made from it. The open
+fonts the HD text mod draws with are under the SIL Open Font License, with
+their notices in `THIRD_PARTY_NOTICES.md`. The
 launcher download lists the licenses of the
 crates it is built from in `THIRD_PARTY_LICENSES.txt`. The Rust toolchain in
 `tools/rust/` is a download under its own licenses.

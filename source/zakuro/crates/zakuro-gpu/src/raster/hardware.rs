@@ -3783,6 +3783,7 @@ impl Hardware {
         let real = pass != Pass::Twin;
         let twin = twinned && pass != Pass::Twinned;
 
+        let mut pictured = [false; 3];
         let mut views = [self.blank.view; 3];
         let mut twin_views = [self.blank.view; 3];
         let mut samplers = [vk::Sampler::null(); 3];
@@ -3803,6 +3804,7 @@ impl Hardware {
                         None => {
                             let (view, picture) = self.texture(bound)?;
                             (views[unit], twin_views[unit]) = (view, view);
+                            pictured[unit] = picture.is_some();
                             match picture {
                                 Some(smallest) => Filtering::picture(bound, smallest),
                                 None => Filtering::of(bound),
@@ -3844,8 +3846,8 @@ impl Hardware {
         }
         let texture_config = (r[REG_TEXTURE_CONFIG] & !7) | enabled;
         words.extend([r[REG_UPDATE_BUFFER], r[REG_BUFFER_COLOR], r[REG_ALPHA_TEST], texture_config]);
-        for base in TEXTURE_UNIT_BASES {
-            words.extend([r[base + 2], r[base], 0, 0]);
+        for (base, pictured) in TEXTURE_UNIT_BASES.into_iter().zip(pictured) {
+            words.extend([r[base + 2], r[base], pictured as u32, 0]);
         }
         let depth_flags = depth_map.w_buffer as u32 | (shaded.is_some() as u32) << 1;
         // the depth map goes through the viewport where it fits, and what

@@ -22,7 +22,8 @@ pub enum Action {
     Play(PathBuf),
     /// recompile the library's game at this index.
     Recompile(usize),
-    BuildFeet(usize),
+    BuildMods(usize),
+    ModEnabled(usize, bool),
     Update,
     /// download a compiler, then recompile the library's game at this
     /// index with it.
@@ -102,6 +103,7 @@ pub struct Menus {
     /// compiler for it.
     pub compiler_offer: Option<usize>,
     pub update: Option<UpdateButton>,
+    pub mods: Vec<ModSwitch>,
     pub(crate) confirm: Option<Confirm>,
     icons: HashMap<PathBuf, egui::TextureHandle>,
     background: Background,
@@ -123,15 +125,23 @@ pub enum SettingsTab {
     Sound,
     Keybinds,
     Controller,
+    Mods,
 }
 
-const SETTINGS_TABS: [(SettingsTab, &str); 5] = [
+const SETTINGS_TABS: [(SettingsTab, &str); 6] = [
     (SettingsTab::System, "System"),
     (SettingsTab::Graphics, "Graphics"),
     (SettingsTab::Sound, "Sound"),
     (SettingsTab::Keybinds, "Keybinds"),
     (SettingsTab::Controller, "Controller"),
+    (SettingsTab::Mods, "Mods"),
 ];
+
+pub struct ModSwitch {
+    pub label: &'static str,
+    pub about: &'static str,
+    pub on: bool,
+}
 
 /// the room the player is in, as the multiplayer window shows it.
 pub struct RoomView {
@@ -410,11 +420,11 @@ impl Menus {
                                     actions.push(Action::Recompile(index));
                                 }
                                 if builds
-                                    && theme::command(ui, "\u{2728}", "Build Feet mod", true)
-                                        .on_hover_text("Build only the feet mod from your copy of the game, in a few seconds, without converting the game's code again. The feet show from the next time the game starts.")
+                                    && theme::command(ui, "\u{2728}", "Build mods", true)
+                                        .on_hover_text("Build only the mods from your copy of the game, in a few seconds, without converting the game's code again. They show from the next time the game starts.")
                                         .clicked()
                                 {
-                                    actions.push(Action::BuildFeet(index));
+                                    actions.push(Action::BuildMods(index));
                                 }
                             }
                             if theme::command(ui, "\u{2699}", "Settings", true).clicked() {
@@ -813,6 +823,7 @@ impl Menus {
                         SettingsTab::Sound => sound_tab(ui, settings),
                         SettingsTab::Keybinds => self.keybinds_tab(ui, settings),
                         SettingsTab::Controller => self.controller_tab(ui, settings),
+                        SettingsTab::Mods => mods_tab(ui, &self.mods, &mut actions),
                     })
                 });
             });
@@ -1219,6 +1230,20 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         "Press F9 while playing to switch between screen layouts, and F10 to switch between the top and bottom screen alone. When the top screen is shown alone, the key set in Keybinds shows the bottom screen in the middle of it, and you can use the mouse on it. The game's buttons wait until the same key, or the game's B button, closes it.",
     );
     theme::hint(ui, "Resolution changes apply right away. A change of presenter applies the next time Zakuro starts.");
+}
+
+fn mods_tab(ui: &mut egui::Ui, mods: &[ModSwitch], actions: &mut Vec<Action>) {
+    theme::commands(ui, |ui| {
+        for (index, switch) in mods.iter().enumerate() {
+            theme::row(ui, |ui| {
+                let mut on = switch.on;
+                if ui.checkbox(&mut on, switch.label).on_hover_text(switch.about).changed() {
+                    actions.push(Action::ModEnabled(index, on));
+                }
+            });
+        }
+    });
+    ui.label(RichText::new("A mod turned on or off shows so from the next time the game starts.").weak());
 }
 
 fn sound_tab(ui: &mut egui::Ui, settings: &mut Settings) {

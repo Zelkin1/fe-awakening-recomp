@@ -21,11 +21,20 @@ pub type ModBuilder = fn(rom: &Path, data_dir: &Path, progress: &(dyn Fn(usize, 
 
 pub struct ModStep {
     pub name: &'static str,
+    pub label: &'static str,
+    pub about: &'static str,
+    pub folder: &'static str,
     pub program_id: u64,
     pub build: ModBuilder,
 }
 
-pub const MOD_STEPS: &[ModStep] = &[crate::feet::STEP];
+impl ModStep {
+    pub fn folder_in(&self, data_dir: &Path) -> PathBuf {
+        zakuro_core::mods::dir(data_dir, self.program_id).join(self.folder)
+    }
+}
+
+pub const MOD_STEPS: &[ModStep] = &[crate::feet::STEP, crate::hdtext::STEP];
 
 fn mod_steps(program_id: u64) -> impl Iterator<Item = &'static ModStep> {
     MOD_STEPS.iter().filter(move |step| step.program_id == program_id)

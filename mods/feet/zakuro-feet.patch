@@ -1469,10 +1469,10 @@ index 0000000..03050ee
 +}
 diff --git a/crates/zakuro/src/feet/formats.rs b/crates/zakuro/src/feet/formats.rs
 new file mode 100644
-index 0000000..13b3366
+index 0000000..d73a024
 --- /dev/null
 +++ b/crates/zakuro/src/feet/formats.rs
-@@ -0,0 +1,369 @@
+@@ -0,0 +1,218 @@
 +
 +use std::collections::HashMap;
 +
@@ -1599,149 +1599,6 @@ index 0000000..13b3366
 +    out
 +}
 +
-+pub fn unpack(data: &[u8]) -> Result<Vec<u8>, String> {
-+    match data.first() {
-+        Some(0x13) => lz11_unpack(&data[4..]),
-+        Some(0x10 | 0x11) => lz11_unpack(data),
-+        _ => Ok(data.to_vec()),
-+    }
-+}
-+
-+fn lz11_unpack(src: &[u8]) -> Result<Vec<u8>, String> {
-+    let short = || "an LZ stream ends early".to_owned();
-+    let kind = src[0];
-+    let (mut length, mut at) = (src[1] as usize | (src[2] as usize) << 8 | (src[3] as usize) << 16, 4);
-+    if length == 0 {
-+        length = u32::from_le_bytes(src.get(4..8).ok_or_else(short)?.try_into().unwrap()) as usize;
-+        at = 8;
-+    }
-+    let mut out = Vec::with_capacity(length);
-+    let byte = |at: usize| src.get(at).copied().ok_or_else(short);
-+    while out.len() < length {
-+        let flags = byte(at)?;
-+        at += 1;
-+        for bit in 0..8 {
-+            if out.len() >= length {
-+                break;
-+            }
-+            if flags & (0x80 >> bit) == 0 {
-+                out.push(byte(at)?);
-+                at += 1;
-+                continue;
-+            }
-+            let (count, disp);
-+            let b0 = byte(at)? as usize;
-+            if kind == 0x10 {
-+                (count, disp) = ((b0 >> 4) + 3, ((b0 & 0xF) << 8 | byte(at + 1)? as usize) + 1);
-+                at += 2;
-+            } else {
-+                match b0 >> 4 {
-+                    0 => {
-+                        let (b1, b2) = (byte(at + 1)? as usize, byte(at + 2)? as usize);
-+                        (count, disp) = (((b0 & 0xF) << 4 | b1 >> 4) + 0x11, ((b1 & 0xF) << 8 | b2) + 1);
-+                        at += 3;
-+                    }
-+                    1 => {
-+                        let (b1, b2, b3) = (byte(at + 1)? as usize, byte(at + 2)? as usize, byte(at + 3)? as usize);
-+                        (count, disp) = (((b0 & 0xF) << 12 | b1 << 4 | b2 >> 4) + 0x111, ((b2 & 0xF) << 8 | b3) + 1);
-+                        at += 4;
-+                    }
-+                    top => {
-+                        (count, disp) = (top + 1, ((b0 & 0xF) << 8 | byte(at + 1)? as usize) + 1);
-+                        at += 2;
-+                    }
-+                }
-+            }
-+            if disp > out.len() {
-+                return Err("an LZ stream reaches before its start".into());
-+            }
-+            for _ in 0..count {
-+                out.push(out[out.len() - disp]);
-+            }
-+        }
-+    }
-+    Ok(out)
-+}
-+
-+pub fn lz11(data: &[u8], chain: usize) -> Vec<u8> {
-+    let n = data.len();
-+    let mut out = vec![0x11, n as u8, (n >> 8) as u8, (n >> 16) as u8];
-+    let mut heads: HashMap<[u8; 3], i64> = HashMap::new();
-+    let mut previous = vec![-1i64; n];
-+    let remember = |i: usize, heads: &mut HashMap<[u8; 3], i64>, previous: &mut Vec<i64>| {
-+        if i + 3 <= n {
-+            let key = [data[i], data[i + 1], data[i + 2]];
-+            previous[i] = heads.get(&key).copied().unwrap_or(-1);
-+            heads.insert(key, i as i64);
-+        }
-+    };
-+    let mut at = 0;
-+    while at < n {
-+        let flag_at = out.len();
-+        out.push(0);
-+        let mut flags = 0u8;
-+        for bit in 0..8 {
-+            if at >= n {
-+                break;
-+            }
-+            let (mut best_len, mut best_disp) = (0usize, 0usize);
-+            if at + 3 <= n {
-+                let mut cand = heads.get(&[data[at], data[at + 1], data[at + 2]]).copied().unwrap_or(-1);
-+                let limit = (n - at).min(0x10110);
-+                let mut tries = 0;
-+                while cand >= 0 && at - cand as usize <= 0x1000 && tries < chain {
-+                    let c = cand as usize;
-+                    let mut length = 3;
-+                    while length < limit && data[c + length] == data[at + length] {
-+                        length += 1;
-+                    }
-+                    if length > best_len {
-+                        (best_len, best_disp) = (length, at - c);
-+                        if length == limit {
-+                            break;
-+                        }
-+                    }
-+                    cand = previous[c];
-+                    tries += 1;
-+                }
-+            }
-+            if best_len >= 3 {
-+                flags |= 0x80 >> bit;
-+                let d = best_disp - 1;
-+                if best_len <= 16 {
-+                    out.extend_from_slice(&[((best_len - 1) << 4 | d >> 8) as u8, d as u8]);
-+                } else if best_len <= 0x110 {
-+                    let m = best_len - 0x11;
-+                    out.extend_from_slice(&[(m >> 4) as u8, ((m & 0xF) << 4 | d >> 8) as u8, d as u8]);
-+                } else {
-+                    let m = best_len - 0x111;
-+                    out.extend_from_slice(&[(0x10 | m >> 12) as u8, (m >> 4) as u8, ((m & 0xF) << 4 | d >> 8) as u8, d as u8]);
-+                }
-+                for i in at..at + best_len {
-+                    remember(i, &mut heads, &mut previous);
-+                }
-+                at += best_len;
-+            } else {
-+                out.push(data[at]);
-+                remember(at, &mut heads, &mut previous);
-+                at += 1;
-+            }
-+        }
-+        out[flag_at] = flags;
-+    }
-+    while out.len() % 4 != 0 {
-+        out.push(0);
-+    }
-+    out
-+}
-+
-+pub fn lz13(data: &[u8]) -> Vec<u8> {
-+    let n = data.len();
-+    let mut out = vec![0x13, n as u8, (n >> 8) as u8, (n >> 16) as u8];
-+    out.extend(lz11(data, 64));
-+    out
-+}
-+
 +pub struct Image {
 +    pub width: usize,
 +    pub height: usize,
@@ -1825,14 +1682,6 @@ index 0000000..13b3366
 +    use super::*;
 +
 +    #[test]
-+    fn lz11_unpacks_to_what_it_packed() {
-+        let data: Vec<u8> = (0..5000u32).map(|i| ((i * 7) % 13) as u8).chain(std::iter::repeat_n(9, 300)).collect();
-+        let packed = lz13(&data);
-+        assert!(packed.len() < data.len() / 4);
-+        assert_eq!(unpack(&packed).unwrap(), data);
-+    }
-+
-+    #[test]
 +    fn a_dictionary_finds_its_names() {
 +        let names: Vec<String> = ["hip", "l_leg1", "l_leg2", "l_leg3", "r_leg2", "l_shoe", "r_shoe"].map(String::from).to_vec();
 +        let nodes = dict_nodes(&names).unwrap();
@@ -1844,17 +1693,17 @@ index 0000000..13b3366
 +}
 diff --git a/crates/zakuro/src/feet/mod.rs b/crates/zakuro/src/feet/mod.rs
 new file mode 100644
-index 0000000..ba14da4
+index 0000000..8e708f4
 --- /dev/null
 +++ b/crates/zakuro/src/feet/mod.rs
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,111 @@
 +
 +mod foot;
 +mod formats;
 +mod model;
 +
 +use std::collections::BTreeSet;
-+use std::path::{Path, PathBuf};
++use std::path::Path;
 +use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 +use std::sync::Mutex;
 +
@@ -1862,11 +1711,14 @@ index 0000000..ba14da4
 +
 +pub const PROGRAM_ID: u64 = 0x0004_0000_0009_F100;
 +
-+pub const STEP: ModStep = ModStep { name: "the feet mod", program_id: PROGRAM_ID, build };
-+
-+pub fn folder(data_dir: &Path) -> PathBuf {
-+    zakuro_core::mods::dir(data_dir, PROGRAM_ID).join("feet")
-+}
++pub const STEP: ModStep = ModStep {
++    name: "the feet mod",
++    label: "Feet",
++    about: "The characters' feet, built from your copy of the game.",
++    folder: "feet",
++    program_id: PROGRAM_ID,
++    build,
++};
 +
 +fn bodies(romfs: &zakuro_fs::romfs::RomFs) -> Result<Vec<String>, String> {
 +    let mut dir = romfs.root().map_err(|error| error.to_string())?;
@@ -1887,18 +1739,18 @@ index 0000000..ba14da4
 +    }
 +    let romfs = title.romfs.as_ref().ok_or("the game has no RomFS")?;
 +    let bodies = bodies(romfs)?;
-+    let out = folder(data_dir).join("romfs").join("b");
++    let out = STEP.folder_in(data_dir).join("romfs").join("b");
 +    std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
 +    let read = |name: &str| -> Option<Vec<u8>> {
 +        let file = romfs.lookup(&format!("b/{name}")).ok()?;
-+        formats::unpack(title.read_romfs(&file, 0, file.data_size as usize)?).ok()
++        crate::lz::unpack(title.read_romfs(&file, 0, file.data_size as usize)?).ok()
 +    };
 +    let one = |name: &str| -> Result<&'static str, String> {
 +        let model = read(name).ok_or("its file can't be read")?;
 +        let texture = read(&name.replace(".m.lz", "_c0.t.lz")).and_then(|file| foot::colour_texture(&file));
 +        let (bytes, style) = foot::build(&format!("b/{name}"), &model, texture.as_ref())?;
 +        let path = out.join(name);
-+        std::fs::write(&path, formats::lz13(&bytes)).map_err(|error| format!("{}: {error}", path.display()))?;
++        std::fs::write(&path, crate::lz::lz13(&bytes)).map_err(|error| format!("{}: {error}", path.display()))?;
 +        Ok(style)
 +    };
 +    let (next, done, results) = (AtomicUsize::new(0), AtomicUsize::new(0), Mutex::new(Vec::new()));
@@ -2096,7 +1948,7 @@ index 0000000..562ad05
 +    Ok(out)
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 4515b11..b78b847 100644
+index 25b9c7f..c938f28 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -7,6 +7,7 @@ mod banners;
@@ -2106,17 +1958,17 @@ index 4515b11..b78b847 100644
 +mod feet;
  mod gamepad;
  mod gui;
- mod input;
+ mod hdtext;
 diff --git a/crates/zakuro/src/recompile.rs b/crates/zakuro/src/recompile.rs
-index ed96243..b14dcf6 100644
+index ea312ad..73fae60 100644
 --- a/crates/zakuro/src/recompile.rs
 +++ b/crates/zakuro/src/recompile.rs
-@@ -25,7 +25,7 @@ pub struct ModStep {
-     pub build: ModBuilder,
+@@ -34,7 +34,7 @@ impl ModStep {
+     }
  }
  
--pub const MOD_STEPS: &[ModStep] = &[];
-+pub const MOD_STEPS: &[ModStep] = &[crate::feet::STEP];
+-pub const MOD_STEPS: &[ModStep] = &[crate::hdtext::STEP];
++pub const MOD_STEPS: &[ModStep] = &[crate::feet::STEP, crate::hdtext::STEP];
  
  fn mod_steps(program_id: u64) -> impl Iterator<Item = &'static ModStep> {
      MOD_STEPS.iter().filter(move |step| step.program_id == program_id)

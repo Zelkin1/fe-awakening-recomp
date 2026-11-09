@@ -10,8 +10,10 @@ mod console;
 mod feet;
 mod gamepad;
 mod gui;
+mod hdtext;
 mod input;
 mod library;
+mod lz;
 mod menus;
 mod overlays;
 mod present;
@@ -1354,10 +1356,10 @@ impl App {
         self.jobs.push(Job::start(&game.path, update, game.program_id, &game.name, self.data_dir.as_deref(), toolchain));
     }
 
-    fn build_feet(&mut self, index: usize) {
+    fn build_mods(&mut self, index: usize) {
         let Some(game) = self.library.games.get(index) else { return };
         let Some(data_dir) = self.data_dir.as_deref() else {
-            self.menus.message = Some("The feet mod needs Zakuro's data folder.".to_owned());
+            self.menus.message = Some("The mods need Zakuro's data folder.".to_owned());
             return;
         };
         self.jobs.retain(|job| job.program_id != game.program_id || !job.stage().finished());
@@ -1397,8 +1399,8 @@ impl App {
         }
         for (program_id, name, stage, mods_only) in finished {
             match stage {
-                Stage::Done if mods_only => self.menus.message = Some(format!("The feet for {name} are built. They show from the next time the game starts.")),
-                Stage::Failed(error) if mods_only && error != "cancelled" => self.menus.message = Some(format!("Building the feet for {name} failed, {error}")),
+                Stage::Done if mods_only => self.menus.message = Some(format!("The mods for {name} are built. They show from the next time the game starts.")),
+                Stage::Failed(error) if mods_only && error != "cancelled" => self.menus.message = Some(format!("Building the mods for {name} failed, {error}")),
                 Stage::Done => {
                     self.library.refresh_recompiled();
                     let playing = self.game.as_ref().is_some_and(|game| game.system.title.as_ref().is_some_and(|title| title.program_id() == program_id));
@@ -1434,7 +1436,14 @@ impl App {
                 }
             }
             Action::Recompile(index) => self.recompile(index, false),
-            Action::BuildFeet(index) => self.build_feet(index),
+            Action::BuildMods(index) => self.build_mods(index),
+            Action::ModEnabled(index, on) => {
+                if let (Some(data_dir), Some(step)) = (&self.data_dir, recompile::MOD_STEPS.get(index)) {
+                    if let Err(error) = zakuro_core::mods::set_enabled(&step.folder_in(data_dir), on) {
+                        self.menus.message = Some(format!("{} can't be turned {}, {error}", step.label, if on { "on" } else { "off" }));
+                    }
+                }
+            }
             Action::Update => match (self.update_offer.clone(), &self.update_install) {
                 (_, Some(_)) => {}
                 (Some(release), None) => self.update_install = Some(update::install_in_background(release)),
@@ -1587,6 +1596,13 @@ impl App {
         self.library.poll();
         self.poll_jobs();
         self.poll_update();
+        if self.menus.settings_open {
+            self.menus.mods = self
+                .data_dir
+                .as_deref()
+                .map(|data_dir| recompile::MOD_STEPS.iter().map(|step| menus::ModSwitch { label: step.label, about: step.about, on: zakuro_core::mods::enabled(&step.folder_in(data_dir)) }).collect())
+                .unwrap_or_default();
+        }
         self.poll_gamepads();
         if self.bottom_over && !matches!(self.scene, Scene::UnitView | Scene::LevelUp) {
             self.pad_pointer.steer(self.gamepads.lean(), now);
