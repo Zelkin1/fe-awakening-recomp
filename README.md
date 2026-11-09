@@ -22,7 +22,7 @@ copy of the game, on your computer.
    unzip it and run `zakuro.exe`. You can also build it yourself (see below).
 2. Click Select game files and choose the game's `.3ds` or `.cci` file. If
    you have the DLC, choose its `.cia` file under DLC in Settings, System.
-3. Click Build. The launcher converts the game's code in 10 to 20 minutes. If your computer has no C
+3. Click Recompile. The launcher converts the game's code in 10 to 20 minutes. If your computer has no C
    compiler, the launcher offers to download one.
 4. Click Play.
 
