@@ -6,6 +6,7 @@ mod rom;
 mod sheets;
 mod text;
 mod titles;
+mod words;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -26,16 +27,12 @@ pub const STEP: ModStep = ModStep {
     build,
 };
 
-pub struct Fonts {
-    pub dialogue: &'static [u8],
-    pub numbers: &'static [u8],
-    pub rounded: &'static [u8],
-    pub narrow: &'static [u8],
-    pub banner: &'static [u8],
+pub struct Font {
+    pub bytes: &'static [u8],
+    pub lining_figures: u16,
 }
 
 const LANGUAGES: [char; 5] = ['F', 'G', 'I', 'S', 'U'];
-const NARROW_WEIGHT: f32 = 600.0;
 
 struct Game {
     title: zakuro_fs::Title,
@@ -85,17 +82,17 @@ pub struct Made {
 
 type Job<'a> = Box<dyn Fn() -> Made + Send + Sync + 'a>;
 
-fn font_job<'a>(game: &'a Game, fonts: &'a Fonts, name: &'static str) -> Job<'a> {
+fn font_job<'a>(game: &'a Game, face: &'a text::Face, name: &'static str) -> Job<'a> {
     Box::new(move || {
         let path = format!("fonts/{name}.bfnt.lz");
         let Some(data) = game.read(&path) else { return Made::default() };
         let Some(font) = sheets::parse(&data) else { return Made::default() };
         let images: Vec<Plane> = font.sheets.iter().filter_map(|&at| rom::texture(&data, at, font.width, font.height, 11)).map(|t| t.alpha()).collect();
-        let (bytes, style) = match name {
-            "System" => (fonts.dialogue, sheets::Style { measure: sheets::Measure::Capitals, natural_space: true, keep_digit_advance: false }),
-            _ => (fonts.numbers, sheets::Style { measure: sheets::Measure::Digits, natural_space: false, keep_digit_advance: true }),
+        let style = match name {
+            "System" => sheets::Style { measure: sheets::Measure::Capitals, natural_space: true, keep_digit_advance: false },
+            _ => sheets::Style { measure: sheets::Measure::Digits, natural_space: false, keep_digit_advance: true },
         };
-        let Some(redrawn) = sheets::redraw(bytes, &data, &font, &images, &style) else {
+        let Some(redrawn) = sheets::redraw(face, &data, &font, &images, &style) else {
             log::info!("the HD text keeps the game's {name} font, its letters don't fit its sheets");
             return Made::default();
         };
@@ -114,25 +111,12 @@ fn title_job<'a>(game: &'a Game, face: &'a text::Face, messages: &'a HashMap<Str
     })
 }
 
-pub struct Faces {
-    sans: text::Face,
-    rounded: text::Face,
-    narrow: text::Face,
-    banner: text::Face,
-}
-
-fn banner_job<'a>(game: &'a Game, faces: &'a Faces, lang: char, name: &'static str) -> Job<'a> {
+fn banner_job<'a>(game: &'a Game, face: &'a text::Face, lang: char, name: &'static str) -> Job<'a> {
     Box::new(move || {
         let Some(bytes) = game.read(&format!("telop/Tlp_{name}_{lang}.r.lz")) else { return Made::default() };
         let mut textures = rom::textures_in(&bytes);
         textures.sort_by_key(|(at, _)| *at);
         let Some((_, words)) = data::BANNER_TEXTS.iter().find(|(l, _)| *l == lang) else { return Made::default() };
-        let face = match name {
-            "StageClear" | "YouWin" => &faces.sans,
-            "YouLose" | "YouRetire" => &faces.narrow,
-            "GameOver" => &faces.rounded,
-            _ => &faces.banner,
-        };
         let mut layouts: Vec<((usize, usize), Plane)> = Vec::new();
         let mut pictures = Vec::new();
         for &(_, index, kind) in data::BANNER_SPECS.iter().filter(|(n, _, _)| *n == name) {
@@ -151,18 +135,30 @@ fn banner_job<'a>(game: &'a Game, faces: &'a Faces, lang: char, name: &'static s
             if kind != banners::Kind::Glow {
                 layouts.push((size, layout.clone()));
             }
-            pictures.push(Picture { name: texture.name(), image: banners::redraw(&image, kind, &layout) });
+            pictures.push(Picture { name: texture.name(), image: banners::redraw(&image, &banners::core(&image), kind, banners::VIVID, &layout) });
         }
         Made { pictures, files: Vec::new() }
     })
 }
 
-fn label_job<'a>(faces: &'a Faces, texture: rom::Texture, list: &'static [data::Label]) -> Job<'a> {
+fn label_job<'a>(face: &'a text::Face, texture: rom::Texture, list: &'static [data::Label]) -> Job<'a> {
     Box::new(move || {
         let image = texture.rgba();
-        let mut out = labels::redraw(&image, list, &faces.sans, &faces.narrow);
+        let mut out = labels::redraw(&image, list, face);
         labels::mirror_copies(&texture.texels, texture.width, texture.height, &mut out, list, &labels::sharp_enlarge(&image, 8.0));
         Made { pictures: vec![Picture { name: texture.name(), image: out }], files: Vec::new() }
+    })
+}
+
+fn words_job<'a>(game: &'a Game, face: &'a text::Face, path: String, at: Option<usize>, words: Vec<(words::Box4, &'static str)>, keep: &'static [words::Box4]) -> Job<'a> {
+    Box::new(move || {
+        let Some(bytes) = game.read(&path) else { return Made::default() };
+        let pictures = rom::textures_in(&bytes)
+            .into_iter()
+            .filter(|(offset, _)| at.is_none_or(|at| *offset == at))
+            .filter_map(|(_, texture)| Some(Picture { name: texture.name(), image: words::redraw(&texture.rgba(), &words, keep, face)? }))
+            .collect();
+        Made { pictures, files: Vec::new() }
     })
 }
 
@@ -184,18 +180,13 @@ fn write_file(root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
     std::fs::write(&target, bytes).map_err(|error| format!("{}: {error}", target.display()))
 }
 
-pub fn generate(rom: &Path, root: &Path, fonts: &Fonts, progress: &(dyn Fn(usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
+pub fn generate(rom: &Path, root: &Path, font: &Font, progress: &(dyn Fn(usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
     let title = zakuro_fs::Title::load(rom).map_err(|error| format!("{}: {error}", rom.display()))?;
     if title.program_id() != PROGRAM_ID {
         return Err("the HD text is made for the European release".into());
     }
     let game = Game { title };
-    let faces = Faces {
-        sans: text::Face::new(fonts.dialogue, 40.0),
-        rounded: text::Face::new(fonts.rounded, 40.0),
-        narrow: text::Face::weighted(fonts.narrow, 40.0, NARROW_WEIGHT),
-        banner: text::Face::new(fonts.banner, 40.0),
-    };
+    let face = text::Face::new(font.bytes, 40.0).with_figures(font.lining_figures);
     let mut names: Vec<&'static str> = data::BANNER_SPECS.iter().map(|(n, _, _)| *n).collect();
     names.dedup();
     let messages: HashMap<char, HashMap<String, String>> = LANGUAGES.iter().map(|&lang| (lang, game.read(&format!("m/{lang}/GameData.bin.lz")).map(|d| rom::messages(&d)).unwrap_or_default())).collect();
@@ -204,19 +195,26 @@ pub fn generate(rom: &Path, root: &Path, fonts: &Fonts, progress: &(dyn Fn(usize
         let atlases = game.read(&format!("ui/status_{lang}.ctpk.lz")).map(|bytes| rom::textures_in(&bytes)).unwrap_or_default();
         for (at, texture) in atlases {
             if let Some((_, _, list)) = data::LABELS.iter().find(|(l, offset, _)| *l == lang && *offset == at) {
-                jobs.push(label_job(&faces, texture, list));
+                jobs.push(label_job(&face, texture, list));
             }
         }
     }
+    jobs.push(words_job(&game, &face, "telop/Tlp_Title_02_U.r.lz".into(), Some(0x44D80), vec![(words::COPYRIGHT_BOX, data::COPYRIGHT)], &[]));
+    for (lang, text) in data::PRESS_ANY_BUTTON {
+        jobs.push(words_job(&game, &face, format!("bs/press_{lang}.tp.lz"), None, vec![(words::PRESS_ANY_BUTTON_BOX, *text)], &words::PRESS_ANY_BUTTON_KEEP));
+    }
+    for (lang, texts) in data::MAIN_MENU {
+        jobs.push(words_job(&game, &face, format!("ui/filemenu_{lang}.ctpk.lz"), Some(0x20180), words::MENU_BOXES.into_iter().zip(texts.iter().copied()).collect(), &words::MENU_KEEP));
+    }
     for name in ["System", "UI_L", "UI_M", "UI_S"] {
-        jobs.push(font_job(&game, fonts, name));
+        jobs.push(font_job(&game, &face, name));
     }
     for lang in LANGUAGES {
         for &name in &names {
-            jobs.push(banner_job(&game, &faces, lang, name));
+            jobs.push(banner_job(&game, &face, lang, name));
         }
         for file in game.list(&format!("chapter/title/{lang}")) {
-            jobs.push(title_job(&game, &faces.narrow, &messages[&lang], lang, file));
+            jobs.push(title_job(&game, &face, &messages[&lang], lang, file));
         }
     }
     let out = root.join("textures");
@@ -269,13 +267,7 @@ fn build(rom: &Path, data_dir: &Path, progress: &(dyn Fn(usize, usize) + Sync), 
     generate(rom, &STEP.folder_in(data_dir), &BUNDLED, progress, cancel)
 }
 
-const BUNDLED: Fonts = Fonts {
-    dialogue: include_bytes!("fonts/PT_Sans-Web-Bold.ttf"),
-    numbers: include_bytes!("fonts/FiraSans-Bold.ttf"),
-    rounded: include_bytes!("fonts/Lato-Bold.ttf"),
-    narrow: include_bytes!("fonts/ArchivoNarrow[wght].ttf"),
-    banner: include_bytes!("fonts/FiraSans-SemiBold.ttf"),
-};
+const BUNDLED: Font = Font { bytes: include_bytes!("fonts/AlegreyaSans-Bold.ttf"), lining_figures: 1686 };
 
 #[cfg(test)]
 mod tests {

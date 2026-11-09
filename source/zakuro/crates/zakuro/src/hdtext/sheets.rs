@@ -131,8 +131,7 @@ struct Made {
     coarse: Plane,
 }
 
-fn vector(face: &Face, fine: &Face, c: char, advance: i32) -> Option<(i32, usize, usize, i32, Plane)> {
-    let shift = (advance as f32 - face.advance(c)) / 2.0;
+fn vector(fine: &Face, c: char, shift: f32) -> Option<(i32, usize, usize, i32, Plane)> {
     let (plane, ox, oy) = fine.placed(c, shift * SCALE as f32, 0.0)?;
     let s = SCALE as f32;
     let left = (ox as f32 / s).floor() as i32;
@@ -176,9 +175,9 @@ fn pack(sizes: &[(usize, usize)], width: usize, height: usize, sheets: usize) ->
     Some(places)
 }
 
-pub fn redraw(face_bytes: &'static [u8], data: &[u8], font: &Bfnt, images: &[Plane], style: &Style) -> Option<Redrawn> {
+pub fn redraw(face: &Face, data: &[u8], font: &Bfnt, images: &[Plane], style: &Style) -> Option<Redrawn> {
     let by_code: HashMap<u32, Glyph> = font.glyphs.iter().map(|g| (g.code, *g)).collect();
-    let probe = Face::new(face_bytes, 400.0);
+    let probe = face.sized(400.0);
     let reference: Vec<char> = match style.measure {
         Measure::Capitals => vec!['H'],
         Measure::Digits => "0123456789".chars().collect(),
@@ -222,13 +221,19 @@ pub fn redraw(face_bytes: &'static [u8], data: &[u8], font: &Bfnt, images: &[Pla
                     Kind::Blank => {
                         let mut glyph = *g;
                         if style.natural_space && (g.code == 0x20 || g.code == 0xA0) {
-                            glyph.advance = face.advance(' ').round() as i32;
+                            glyph.advance = face.spaced(' ').0.round() as i32;
                         }
                         Some(Made { glyph, fine: Plane::new(1, 1), coarse: Plane::new(1, 1) })
                     }
                     Kind::Vector(c) => {
-                        let advance = if c.is_ascii_digit() { digit_advance } else { face.advance(c).round().max(1.0) as i32 };
-                        vector(&face, &fine, c, advance).map(|(left, w, h, top, picture)| Made {
+                        let (spaced, cut) = face.spaced(c);
+                        let (advance, shift) = if c.is_ascii_digit() {
+                            (digit_advance, (digit_advance as f32 - face.advance(c)) / 2.0)
+                        } else {
+                            let advance = spaced.round().max(1.0) as i32;
+                            (advance, (advance as f32 - spaced) / 2.0 - cut)
+                        };
+                        vector(&fine, c, shift).map(|(left, w, h, top, picture)| Made {
                             glyph: Glyph { w, h, left, top, advance, ..*g },
                             coarse: picture.down(SCALE),
                             fine: picture,

@@ -4,7 +4,7 @@ use super::banners;
 use super::data::Label;
 use super::ops::{dilate, distance, erode, fill_holes, gaussian, label, largest, luminance, median, median_colour, median_of, percentile, resize, sobel_magnitude, uniform, Filter, Mask, Plane, Rgba, Rng};
 use super::text::Face;
-use super::titles::{SCALE, SS};
+use super::titles::SCALE;
 
 const EDGE: f32 = 0.05;
 const SMALLEST: usize = 12;
@@ -583,7 +583,7 @@ fn unpremultiply(channels: &[Plane; 4]) -> Rgba {
     out
 }
 
-fn enlarge(image: &Rgba) -> Rgba {
+pub fn enlarge(image: &Rgba) -> Rgba {
     let pre = premultiplied(image);
     unpremultiply(&pre.map(|c| resize(&c, image.w * SCALE, image.h * SCALE, Filter::Bicubic).map(|v| v.clamp(0.0, 1.0))))
 }
@@ -618,12 +618,6 @@ pub fn sharp_enlarge(image: &Rgba, squeeze: f32) -> Rgba {
     unpremultiply(&channels)
 }
 
-fn squeeze_needed(face: &Face, text: &str, core: &Plane) -> f32 {
-    let Some((x0, x1, y0, y1)) = core.bbox(0.4) else { return 1.0 };
-    let Some(m) = face.sized(40.0 * SS as f32).line(text, 0.0) else { return 1.0 };
-    ((x1 - x0) as f32 / (y1 - y0).max(1) as f32) / (m.w as f32 / m.h as f32)
-}
-
 fn group(label: &Label) -> &str {
     if label.group.is_empty() { label.text } else { label.group }
 }
@@ -655,7 +649,7 @@ fn shift(p: &Plane, dx: isize, dy: isize) -> Plane {
     out
 }
 
-pub fn redraw(image: &Rgba, labels: &[Label], sans: &Face, condensed: &Face) -> Rgba {
+pub fn redraw(image: &Rgba, labels: &[Label], face: &Face) -> Rgba {
     let (w, h) = (image.w, image.h);
     let region = |l: &Label| image.crop(l.box_[0], l.box_[1], l.box_[2], l.box_[3]);
     let mut clean = image.clone();
@@ -706,12 +700,9 @@ pub fn redraw(image: &Rgba, labels: &[Label], sans: &Face, condensed: &Face) -> 
             Some([0, 1, 2, 3].map(|k| median_of(&mut alike.iter().map(|c| c[k]).collect::<Vec<f32>>())))
         })
         .collect();
-    let condensed_groups: HashSet<String> =
-        labels.iter().zip(&found).filter(|(l, f)| !l.button && f.as_ref().is_some_and(|(core, _)| squeeze_needed(sans, l.text, core) < 0.75)).map(|(l, _)| group(l).to_string()).collect();
     let mut drawn: Vec<Drawn> = Vec::new();
     for (i, l) in labels.iter().enumerate() {
         let Some((core, _)) = &found[i] else { continue };
-        let face = if condensed_groups.contains(group(l)) { condensed } else { sans };
         let Some(layout) = banners::layout(face, l.text, core, &TRACKINGS) else { continue };
         let r = region(l);
         let cleaned = if l.button { button_without_letters(&r, core, erasing[i].as_ref().unwrap()) } else { without_letters(&r, core, plain_for[i]) };

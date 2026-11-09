@@ -6,7 +6,7 @@
 | [3dsrecomp](https://github.com/fearkov/3dsrecomp) | `3dsrecomp/` (a clone), changed by `patches/3dsrecomp-*.patch` | MIT, as its `Cargo.toml` declares (the repository has no license file) | The recompiler |
 | Rust toolchain (rustup) | `tools/rust/` | MIT or Apache-2.0 | Builds Zakuro and 3dsrecomp; downloaded, not part of the project |
 | Python with NumPy and Pillow | installed separately | BSD-3-Clause (NumPy), MIT-CMU (Pillow) | The scripts in `tools/` |
-| Open fonts: PT Sans, Lato, Archivo Narrow, Fira Sans | `source/zakuro/crates/zakuro/src/hdtext/fonts/` and the patch, built into the launcher | SIL Open Font License 1.1, below | The fonts the HD text mod draws the game's text with |
+| Open font: Alegreya Sans Bold | `source/zakuro/crates/zakuro/src/hdtext/fonts/` and the patch, built into the launcher | SIL Open Font License 1.1, below | The font the HD text mod draws the game's text with |
 
 The crates Zakuro and 3dsrecomp depend on keep their own licenses, listed in
 their `Cargo.lock` files.
@@ -41,23 +41,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Open fonts
+## Open font
 
-The launcher carries these fonts unchanged and draws with them. Their notices
-and license, as `hdtext/fonts/OFL.txt` holds them:
+The launcher carries this font unchanged and draws with it. Its notice and
+license, as `hdtext/fonts/OFL.txt` holds them:
 
 ```
-PT Sans Bold (PT_Sans-Web-Bold.ttf)
-Copyright (c) 2010, ParaType Ltd. (http://www.paratype.com/public), with Reserved Font Names "PT Sans", "PT Serif" and "ParaType".
-
-Lato Bold (Lato-Bold.ttf)
-Copyright (c) 2011-2015 by tyPoland Lukasz Dziedzic (http://www.typoland.com/) with Reserved Font Name "Lato".
-
-Archivo Narrow (ArchivoNarrow[wght].ttf)
-Copyright 2019 The Archivo Narrow Project Authors (https://github.com/Omnibus-Type/ArchivoNarrow)
-
-Fira Sans SemiBold and Bold (FiraSans-SemiBold.ttf, FiraSans-Bold.ttf)
-Copyright (c) 2012-2015, The Mozilla Foundation and Telefonica S.A.
+Alegreya Sans Bold (AlegreyaSans-Bold.ttf)
+Copyright 2013 The Alegreya Sans Project Authors (https://github.com/huertatipografica/Alegreya-Sans)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

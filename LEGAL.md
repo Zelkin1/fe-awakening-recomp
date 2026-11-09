@@ -36,8 +36,9 @@ place:
 - words: the short words the game paints on its phase, mission and result
   banners and on its inventory panels, and the chapter and place names its
   title pictures spell differently from its text files, in its five
-  languages (`hdtext/data.rs`). The HD text mod draws them again in open
-  fonts, over pictures it reads from your copy;
+  languages, with the words of its title screen and main menu
+  (`hdtext/data.rs`). The HD text mod draws them again in an open font, over
+  pictures it reads from your copy;
 - what the game draws: the format, size and position of the textures that
   tell Zakuro which screen is showing, the rectangles of the panels and text
   the project redraws, the outline of the world map's name panel, and the
@@ -88,8 +89,8 @@ changes the patches make to Zakuro and 3dsrecomp, which keep fearkov's MIT
 notice (`THIRD_PARTY_NOTICES.md`). The files in `source/` hold those
 changes together with fearkov's code around them, under the same notices.
 The license covers none of the game, nor anything made from it. The open
-fonts the HD text mod draws with are under the SIL Open Font License, with
-their notices in `THIRD_PARTY_NOTICES.md`. The
+font the HD text mod draws with is under the SIL Open Font License, with
+its notice in `THIRD_PARTY_NOTICES.md`. The
 launcher download lists the licenses of the
 crates it is built from in `THIRD_PARTY_LICENSES.txt`. The Rust toolchain in
 `tools/rust/` is a download under its own licenses.

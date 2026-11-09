@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::ops::{gaussian, luminance, median_colour, resize, Filter, Mask, Plane, Rgba};
+use super::ops::{luminance, median_colour, resize, Filter, Mask, Plane, Rgba};
 use super::text::Face;
 
 pub const SS: usize = 8;
@@ -132,33 +132,13 @@ fn core_of(image: &Rgba, glow: [f32; 3]) -> Plane {
     Plane { w: image.w, h: image.h, v: image.v.iter().map(|p| (p[3] * (1.0 - luminance([p[0], p[1], p[2]]) / glow_lum)).clamp(0.0, 1.0)).collect() }
 }
 
-fn measure_style(image: &Rgba) -> ([f32; 3], [f32; 3]) {
-    let dark = Mask { w: image.w, h: image.h, v: image.v.iter().map(|p| p[3] > 0.8 && luminance([p[0], p[1], p[2]]) < 0.25).collect() };
+fn glow_colour(image: &Rgba) -> [f32; 3] {
     let halo = Mask { w: image.w, h: image.h, v: image.v.iter().map(|p| p[3] > 0.2 && p[3] < 0.8).collect() };
-    let fill = if dark.count() > 20 { median_colour(image, &dark).map(|c| [c[0], c[1], c[2]]).unwrap_or([0.0; 3]) } else { [0.0; 3] };
-    let glow = if halo.count() > 20 { median_colour(image, &halo).map(|c| [c[0], c[1], c[2]]).unwrap_or([1.0; 3]) } else { [1.0; 3] };
-    (fill, glow)
-}
-
-fn compose(core: &Plane, fill: [f32; 3], glow: [f32; 3], sigma: f32, gain: f32, factor: f32) -> Rgba {
-    let halo = gaussian(core, sigma * factor).map(|v| (gain * v).clamp(0.0, 1.0));
-    let mut out = Rgba::new(core.w, core.h);
-    for i in 0..core.v.len() {
-        let (c, h) = (core.v[i], halo.v[i]);
-        let alpha = c + (1.0 - c) * h;
-        let mut rgb = [0.0; 3];
-        if alpha > 1e-4 {
-            for k in 0..3 {
-                rgb[k] = ((c * fill[k] + (1.0 - c) * h * glow[k]) / alpha).clamp(0.0, 1.0);
-            }
-        }
-        out.v[i] = [rgb[0], rgb[1], rgb[2], alpha.clamp(0.0, 1.0)];
-    }
-    out
+    if halo.count() > 20 { median_colour(image, &halo).map(|c| [c[0], c[1], c[2]]).unwrap_or([1.0; 3]) } else { [1.0; 3] }
 }
 
 pub fn redraw(image: &Rgba, texts: &[String], face: &Face) -> Option<Rgba> {
-    let (fill, glow) = measure_style(image);
+    let glow = glow_colour(image);
     let core = core_of(image, glow);
     let alpha = image.channel(3);
     let lines: Vec<(usize, usize)> = split_lines(&alpha, 0.3).into_iter().filter(|s| s.1 - s.0 >= 4).collect();
@@ -178,18 +158,7 @@ pub fn redraw(image: &Rgba, texts: &[String], face: &Face) -> Option<Rgba> {
             *b = b.max(*f);
         }
     }
-    let small = big.down(SCALE);
-    let mut best = (f32::INFINITY, 1.0, 2.0);
-    for sigma in [0.6, 0.8, 1.0, 1.2, 1.5, 1.8] {
-        for gain in [1.5, 2.0, 2.5, 3.0, 4.0] {
-            let drawn = compose(&small, fill, glow, sigma, gain, 1.0);
-            let error: f32 = drawn.v.iter().zip(&image.v).map(|(d, o)| (d[3] - o[3]) * (d[3] - o[3])).sum();
-            if error < best.0 {
-                best = (error, sigma, gain);
-            }
-        }
-    }
-    Some(compose(&big, fill, glow, best.1, best.2, SCALE as f32))
+    Some(super::banners::redraw(image, &core, super::banners::Kind::Plain, super::banners::Tone { share: 1.0, grey: 1.0 }, &big))
 }
 
 pub fn texts(messages: &HashMap<String, String>, name: &str, lang: char, places: &[(char, &str, &str)], names: &[(char, &str, &str)]) -> Option<Vec<String>> {

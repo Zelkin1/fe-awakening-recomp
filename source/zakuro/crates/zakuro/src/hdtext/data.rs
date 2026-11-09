@@ -311,3 +311,15 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
         Label { box_: [441, 233, 479, 250], text: "Companion", group: "family", button: false, letters: "", shine: false, size: "" },
     ]),
 ];
+
+pub const PRESS_ANY_BUTTON: &[(char, &str)] = &[('F', "Appuyez sur un bouton"), ('G', "KNOPF DRÜCKEN"), ('I', "PREMI UN PULSANTE"), ('S', "PULSA UN BOTÓN"), ('U', "PRESS ANY BUTTON")];
+
+pub const MAIN_MENU: &[(char, [&str; 8])] = &[
+    ('F', ["Continuer", "Signet", "Nouvelle partie", "Classique", "Débutant", "Copier", "Effacer", "Extras"]),
+    ('G', ["Fortsetzen", "Lesezeichen", "Neues Spiel", "Klassisch", "Anfänger", "Kopieren", "Löschen", "Extras"]),
+    ('I', ["Partite salvate", "Segnalibro", "Nuova partita", "Classica", "Principiante", "Copia", "Cancella", "Extra"]),
+    ('S', ["Continuar", "Reanudar batalla", "Nueva partida", "Clásico", "Novato", "Copiar", "Borrar", "Extras"]),
+    ('U', ["Continue", "Bookmark", "New Game", "Classic", "Newcomer", "Copy", "Delete", "Extras"]),
+];
+
+pub const COPYRIGHT: &str = "©2012-2013 Nintendo / INTELLIGENT SYSTEMS";

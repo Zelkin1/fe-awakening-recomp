@@ -1,11 +1,16 @@
-use ab_glyph::{point, Font, FontRef, GlyphId, PxScale, ScaleFont, VariableFont};
+use ab_glyph::{point, Font, FontRef, GlyphId, PxScale, ScaleFont};
 
 use super::ops::Plane;
+
+const TRIM: f32 = 0.02;
+const MIN_BEARING: f32 = 0.025;
+const WORD_SPACING: f32 = 0.06;
 
 #[derive(Clone)]
 pub struct Face {
     pub font: FontRef<'static>,
     pub em: f32,
+    figures: Option<u16>,
 }
 
 pub struct Raster {
@@ -16,17 +21,15 @@ pub struct Raster {
 
 impl Face {
     pub fn new(bytes: &'static [u8], em: f32) -> Face {
-        Face { font: FontRef::try_from_slice(bytes).expect("a bundled font"), em }
+        Face { font: FontRef::try_from_slice(bytes).expect("a bundled font"), em, figures: None }
     }
 
-    pub fn weighted(bytes: &'static [u8], em: f32, weight: f32) -> Face {
-        let mut face = Face::new(bytes, em);
-        face.font.set_variation(b"wght", weight);
-        face
+    pub fn with_figures(self, first: u16) -> Face {
+        Face { figures: Some(first), ..self }
     }
 
     pub fn sized(&self, em: f32) -> Face {
-        Face { font: self.font.clone(), em }
+        Face { em, ..self.clone() }
     }
 
     fn scale(&self) -> PxScale {
@@ -35,16 +38,31 @@ impl Face {
     }
 
     pub fn has(&self, c: char) -> bool {
-        let id = self.font.glyph_id(c);
+        let id = self.id(c);
         id.0 != 0 && self.font.outline(id).is_some()
     }
 
     fn id(&self, c: char) -> GlyphId {
-        self.font.glyph_id(c)
+        match (self.figures, c.to_digit(10)) {
+            (Some(first), Some(digit)) => GlyphId(first + digit as u16),
+            _ => self.font.glyph_id(c),
+        }
     }
 
     pub fn advance(&self, c: char) -> f32 {
         self.font.as_scaled(self.scale()).h_advance(self.id(c))
+    }
+
+    pub fn spaced(&self, c: char) -> (f32, f32) {
+        let advance = self.advance(c);
+        if c.is_whitespace() {
+            return (advance + (WORD_SPACING + 2.0 * TRIM) * self.em, 0.0);
+        }
+        let Some(outline) = self.font.outline(self.id(c)) else { return (advance, 0.0) };
+        let per = self.em / self.font.units_per_em().unwrap_or(1000.0);
+        let trim = |bearing: f32| (bearing - MIN_BEARING * self.em).clamp(0.0, TRIM * self.em);
+        let (left, right) = (trim(outline.bounds.min.x * per), trim(advance - outline.bounds.max.x * per));
+        (advance - left - right, left)
     }
 
     pub fn kern(&self, a: char, b: char) -> f32 {
@@ -83,10 +101,11 @@ impl Face {
         let mut pen = 0.0f32;
         for (i, &c) in chars.iter().enumerate() {
             if i > 0 {
-                pen += self.kern(chars[i - 1], c);
+                pen += self.kern(chars[i - 1], c) + tracking * self.em;
             }
-            pens.push(pen + tracking * i as f32 * self.em);
-            pen += self.advance(c);
+            let (advance, shift) = self.spaced(c);
+            pens.push(pen - shift);
+            pen += advance;
         }
         let rasters: Vec<(f32, Raster)> = chars.iter().zip(&pens).filter_map(|(&c, &x)| Some((x, self.glyph(c)?))).collect();
         if rasters.is_empty() {
