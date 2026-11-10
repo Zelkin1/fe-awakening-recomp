@@ -211,9 +211,9 @@ fn gmap_job<'a>(game: &'a Game, face: &'a text::Face, lang: char) -> Job<'a> {
         let (Some((_, names)), Some((_, pills, at)), Some((_, icons))) = (data::GMAP_WORDS.iter().find(|(l, _)| *l == lang), data::GMAP_PILLS.iter().find(|(l, _, _)| *l == lang), data::GMAP_ICONS.iter().find(|(l, _)| *l == lang)) else { return Made::default() };
         let mut pictures = Vec::new();
         for (offset, texture) in rom::textures_in(&bytes) {
-            let (image, entries): (_, Vec<(words::Box4, &str, words::Ink)>) = match offset {
-                0x180 => (words::calm(&texture.rgba()), words::GMAP_BUTTONS.iter().map(|&(b, i, light)| (b, names[i], light)).collect()),
-                0x10180 => (texture.rgba(), [([at[0], 374, 184, 395], pills[0]), (words::HALT_BOX, pills[1]), ([at[1], 437, at[2], 458], pills[2]), ([at[3], 437, at[4], 458], pills[3]), ([at[5], 437, at[6], 458], pills[4]), ([icons[0], 440, icons[1], 455], "X"), ([icons[2], 440, icons[3], 455], "R"), ([icons[4], 440, icons[5], 455], "START"), ([icons[6], 377, icons[7], 392], "B"), (words::BUBBLE_A, "A")].into_iter().map(|(b, t)| (b, t, words::Ink::Light)).collect()),
+            let (image, entries): (_, Vec<words::Word>) = match offset {
+                0x180 => (words::calm(&texture.rgba()), words::GMAP_BUTTONS.iter().map(|&(b, i, ink)| words::Word::flat(b, names[i], ink)).collect()),
+                0x10180 => (texture.rgba(), [([at[0], 374, 184, 395], pills[0]), (words::HALT_BOX, pills[1]), ([at[1], 437, at[2], 458], pills[2]), ([at[3], 437, at[4], 458], pills[3]), ([at[5], 437, at[6], 458], pills[4]), ([icons[0], 440, icons[1], 455], "X"), ([icons[2], 440, icons[3], 455], "R"), ([icons[4], 440, icons[5], 455], "START"), ([icons[6], 377, icons[7], 392], "B"), (words::BUBBLE_A, "A")].into_iter().map(|(b, t)| words::Word::flat(b, t, words::Ink::Light)).collect()),
                 _ => continue,
             };
             pictures.push(Picture { name: texture.name(), image: words::buttons(&image, &entries, face, words::sharp_art) });
@@ -222,7 +222,7 @@ fn gmap_job<'a>(game: &'a Game, face: &'a text::Face, lang: char) -> Job<'a> {
     })
 }
 
-fn buttons_job<'a>(game: &'a Game, face: &'a text::Face, path: String, at: usize, entries: Vec<(words::Box4, &'static str, words::Ink)>, enlarge: fn(&Rgba) -> Rgba) -> Job<'a> {
+fn buttons_job<'a>(game: &'a Game, face: &'a text::Face, path: String, at: usize, entries: Vec<words::Word>, enlarge: fn(&Rgba) -> Rgba) -> Job<'a> {
     Box::new(move || {
         let Some(bytes) = game.read(&path) else { return Made::default() };
         let pictures = rom::textures_in(&bytes).into_iter().filter(|(offset, _)| *offset == at).map(|(_, t)| Picture { name: t.name(), image: words::buttons(&t.rgba(), &entries, face, enlarge) }).collect();
@@ -286,13 +286,25 @@ pub fn generate(rom: &Path, root: &Path, font: &Font, progress: &(dyn Fn(usize, 
         jobs.push(class_job(&game, &face, lang));
         jobs.push(gmap_job(&game, &face, lang));
         if let Some((_, names)) = data::OVERVIEW_WORDS.iter().find(|(l, _)| *l == lang) {
-            jobs.push(buttons_job(&game, &face, format!("ui/status_{lang}.ctpk.lz"), 0x100, words::OVERVIEW.iter().map(|&(b, i, ink)| (b, names[i], ink)).collect(), words::sharp_art));
+            jobs.push(buttons_job(&game, &face, format!("ui/status_{lang}.ctpk.lz"), 0x100, words::OVERVIEW.iter().map(|&(b, i, ink)| words::Word::flat(b, names[i], ink)).collect(), words::sharp_art));
         }
         if let Some(&(_, close)) = data::TUTORIAL_WORDS.iter().find(|(l, _)| *l == lang) {
             let names = [close, "START", "L", "R"];
-            jobs.push(buttons_job(&game, &face, format!("ui/tutorial_{lang}.ctpk.lz"), 0x100, words::TUTORIAL.iter().map(|&(b, i, ink)| (b, names[i], ink)).collect(), words::sharp_art));
+            jobs.push(buttons_job(&game, &face, format!("ui/tutorial_{lang}.ctpk.lz"), 0x100, words::TUTORIAL.iter().map(|&(b, i, ink)| words::Word::flat(b, names[i], ink)).collect(), words::sharp_art));
         }
-        jobs.push(buttons_job(&game, &face, format!("ui/system_{lang}.ctpk.lz"), 0x46300, words::SYSTEM_ICONS.iter().map(|&(b, text)| (b, text, words::Ink::Light)).collect(), labels::enlarge));
+        if let Some((_, names)) = data::FORECAST_WORDS.iter().find(|(l, _)| *l == lang) {
+            let icons = words::SYSTEM_ICONS.iter().map(|&(b, text)| words::Word::flat(b, text, words::Ink::Light));
+            let forecast = words::FORECAST.iter().map(|&(at, i, ink, look)| words::Word { at, text: names[i], ink, look, align: words::Align::Centre, slant: 0.0 });
+            jobs.push(buttons_job(&game, &face, format!("ui/system_{lang}.ctpk.lz"), 0x46300, icons.chain(forecast).collect(), words::faithful_art));
+        }
+        if let Some((_, names)) = data::UNIT_WORDS.iter().find(|(l, _)| *l == lang) {
+            let entries = words::UNIT.iter().map(|&(at, i, ink, look, align, slant)| words::Word { at, text: names[i], ink, look, align, slant }).collect();
+            jobs.push(buttons_job(&game, &face, format!("ui/system_{lang}.ctpk.lz"), 0x26300, entries, words::faithful_art));
+        }
+        if let Some((_, names)) = data::CARD_WORDS.iter().find(|(l, _)| *l == lang) {
+            let entries = words::CARDS.iter().map(|&(at, i, align)| words::Word { at, text: names[i], ink: words::Ink::Light, look: words::Look::Shadow, align, slant: 0.0 }).collect();
+            jobs.push(buttons_job(&game, &face, format!("ui/filemenu_{lang}.ctpk.lz"), 0x80180, entries, words::faithful_art));
+        }
         for file in game.list(&format!("chapter/title/{lang}")) {
             jobs.push(title_job(&game, &face, &messages[&lang], lang, file));
         }

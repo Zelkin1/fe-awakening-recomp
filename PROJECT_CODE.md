@@ -11,18 +11,18 @@ This list separates the project's code from Zakuro's and 3dsrecomp's. Paths star
 | `zakuro/crates/zakuro/src/banners.rs` | 221 | Reads the text of the FE3H-style banners (names, HP, weapon, stats) off the bottom screen. |
 | `zakuro/crates/zakuro/src/console.rs` | 81 | The optional console window with Zakuro's log (Settings, System). |
 | `zakuro/crates/zakuro/src/hdtext/banners.rs` | 213 | The phase, mission and result banners: lettering fitted with its spacing, glow, outline or stone fill drawn again. |
-| `zakuro/crates/zakuro/src/hdtext/data.rs` | 370 | The words the redrawn pictures spell, in each language: banners, inventory labels, title screen and main menu. |
+| `zakuro/crates/zakuro/src/hdtext/data.rs` | 394 | The words the redrawn pictures spell, in each language: banners, inventory labels, title screen and main menu. |
 | `zakuro/crates/zakuro/src/hdtext/fonts/AlegreyaSans-Bold.ttf` | binary | Open font, under the SIL Open Font License. |
 | `zakuro/crates/zakuro/src/hdtext/fonts/AlegreyaSans-ExtraBold.ttf` | binary | Open font, under the SIL Open Font License. |
 | `zakuro/crates/zakuro/src/hdtext/fonts/OFL.txt` | 94 | The open font's copyright notice and the SIL Open Font License. |
 | `zakuro/crates/zakuro/src/hdtext/labels.rs` | 985 | The inventory's labels: letters taken off their plates, plates and cells evened with their grain given back, words drawn again with shadow, shine or engraving. |
-| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 366 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
+| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 378 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
 | `zakuro/crates/zakuro/src/hdtext/ops.rs` | 683 | Image operations for the redraws: planes, masks, blurs, resizing, labelling and distance transforms. |
 | `zakuro/crates/zakuro/src/hdtext/rom.rs` | 129 | Finds textures in the game's files and reads its message files. |
-| `zakuro/crates/zakuro/src/hdtext/sheets.rs` | 306 | Reads and writes the game's font files: each letter drawn at its natural width from an open font, packed into new sheets, with the 4x pictures. |
+| `zakuro/crates/zakuro/src/hdtext/sheets.rs` | 320 | Reads and writes the game's font files: each letter drawn at its natural width from an open font, packed into new sheets, with the 4x pictures. |
 | `zakuro/crates/zakuro/src/hdtext/text.rs` | 158 | Draws letters and lines from an open font. |
 | `zakuro/crates/zakuro/src/hdtext/titles.rs` | 192 | Chapter titles: each line fitted to where the original's lettering is, its fill and glow measured and drawn again. |
-| `zakuro/crates/zakuro/src/hdtext/words.rs` | 390 | The title screen's words, its copyright line and the main menu's buttons, drawn again with their icons kept. |
+| `zakuro/crates/zakuro/src/hdtext/words.rs` | 651 | The title screen's words, its copyright line and the main menu's buttons, drawn again with their icons kept. |
 | `zakuro/crates/zakuro/src/lz.rs` | 157 | LZ11 and LZ13 compression of the game's files, for the mods' build steps. |
 | `zakuro/crates/zakuro/src/overlays.rs` | 611 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
 | `zakuro/crates/zakuro/src/sounds.rs` | 301 | Reads the bottom screen's open and close sounds from the game's sound archive. |

@@ -368,3 +368,27 @@ pub const OVERVIEW_WORDS: &[(char, [&str; 9])] = &[
 ];
 
 pub const TUTORIAL_WORDS: &[(char, &str)] = &[('F', "Fermer"), ('G', "Schließen"), ('I', "Chiudi"), ('S', "Cerrar"), ('U', "Close")];
+
+pub const FORECAST_WORDS: &[(char, [&str; 13])] = &[
+    ('F', ["Précision", "PV", "Atq", "Prc", "Crit", "Rés", "INFO", "NOUV.", "FINI!", "MAX", "↑", "x2", "x4"]),
+    ('G', ["Trf.-Ch.", "KP", "Agr.", "Trf.", "Krt.", "Res.", "Hilfe", "Neu!", "FERTIG!", "MAX", "+", "x2", "x4"]),
+    ('I', ["Prob. Clp", "PS", "Att", "Clp", "Trpl", "Res", "INFO", "NUOVO!", "FINE!", "MAX", "SU", "x2", "x4"]),
+    ('S', ["Acierto", "PV", "Atc", "Gol", "Crí", "Res", "INFO", "NUEVO", "¡LISTO!", "Máx", "MÁS", "x2", "x4"]),
+    ('U', ["Hit Rate", "HP", "Atk", "Hit", "Crit", "Res", "HELP", "NEW!", "CLEAR!", "MAX", "UP", "x2", "x4"]),
+];
+
+pub const UNIT_WORDS: &[(char, [&str; 10])] = &[
+    ('F', ["Bases", "Carac.", "Combat", "Armes", "Techniques", "NIV", "Vous", "Aucun", "signal", "VS"]),
+    ('G', ["Allgemein", "Werte", "Kampf", "Waffen", "Fähigkeiten", "Lv.", "Du", "Kein", "Signal", "Gegen"]),
+    ('I', ["Base", "Dati", "Combatt.", "Armi", "Abilità", "Liv", "Tu", "Segn.", "ass.", "VS"]),
+    ('S', ["General", "Atributos", "Combate", "Armas", "Habilidades", "Niv", "Tú", "Sin", "señal", "VS"]),
+    ('U', ["Basics", "Stats", "Combat", "Weapons", "Skills", "LV", "You", "No", "Signal", "VS"]),
+];
+
+pub const CARD_WORDS: &[(char, [&str; 6])] = &[
+    ('F', ["Normal", "Difficile", "Expert", "Dément", "DÉB", "CLA"]),
+    ('G', ["Normal", "Schwer", "Extrem", "Extrem+", "ANF", "KLA"]),
+    ('I', ["Normale", "Difficile", "Folle", "Folle+", "PR", "CL"]),
+    ('S', ["Normal", "Difícil", "Extremo", "Brutal", "NOV", "CLÁ"]),
+    ('U', ["Normal", "Hard", "Lunatic", "Lunatic+", "NEW", "CLA"]),
+];

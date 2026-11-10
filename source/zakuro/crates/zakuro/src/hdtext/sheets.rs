@@ -219,6 +219,18 @@ pub fn redraw(face: &Face, data: &[u8], font: &Bfnt, images: &[Plane], style: &S
             }
         })
         .collect();
+    let shrink: Vec<f32> = font
+        .glyphs
+        .iter()
+        .zip(&kinds)
+        .map(|(g, kind)| match kind {
+            Kind::Vector(c) if style.measure == Measure::Digits && !c.is_alphanumeric() => match probe.ink_box(*c) {
+                Some((_, top, _, bottom)) if bottom > top => (ink_height(&cell_of(images, g)) / ((bottom - top) * em / 400.0)).min(1.0),
+                _ => 1.0,
+            },
+            _ => 1.0,
+        })
+        .collect();
     let made: Mutex<Vec<Option<Made>>> = Mutex::new((0..font.glyphs.len()).map(|_| None).collect());
     let next = AtomicUsize::new(0);
     let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
@@ -236,6 +248,8 @@ pub fn redraw(face: &Face, data: &[u8], font: &Bfnt, images: &[Plane], style: &S
                         Some(Made { glyph, fine: Plane::new(1, 1), coarse: Plane::new(1, 1) })
                     }
                     Kind::Vector(c) => {
+                        let smaller = (shrink[i] < 1.0).then(|| (probe.sized(em * shrink[i]), probe.sized(em * shrink[i] * SCALE as f32)));
+                        let (face, fine) = smaller.as_ref().map_or((&face, &fine), |(coarse, fine)| (coarse, fine));
                         let (spaced, cut) = face.spaced(c);
                         let (advance, shift) = if c.is_ascii_digit() {
                             (digit_advance, (digit_advance as f32 - face.advance(c)) / 2.0)
@@ -243,7 +257,7 @@ pub fn redraw(face: &Face, data: &[u8], font: &Bfnt, images: &[Plane], style: &S
                             let advance = spaced.round().max(1.0) as i32;
                             (advance, (advance as f32 - spaced) / 2.0 - cut)
                         };
-                        vector(&fine, c, shift).map(|(left, w, h, top, picture)| Made {
+                        vector(fine, c, shift).map(|(left, w, h, top, picture)| Made {
                             glyph: Glyph { w, h, left, top, advance, ..*g },
                             coarse: picture.down(SCALE),
                             fine: picture,
