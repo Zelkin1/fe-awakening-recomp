@@ -59,7 +59,6 @@ texture pack that redraws the portraits, cutscenes, battle maps and menus at
 2. Unzip all three into a folder of its own in the game's mods folder:
    `%APPDATA%\zakuro\mods\000400000009F100\aahd\textures` on Windows, or
    `~/.local/share/zakuro/mods/000400000009F100/aahd/textures` on Linux.
-3. Keep Texture packs on in Settings, Graphics, and play at 4x or above.
 
 The pack was made for the North American release, so a few textures with
 regional differences stay as they are on the European one.
