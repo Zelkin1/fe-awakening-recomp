@@ -41,7 +41,7 @@ Esc opens the menu, with the settings, the cheats and save states.
 - You can play on the top screen alone. The bottom screen can be displayed as an overlay with the press of a button
   (the right trigger, or E on the keyboard).
 - Battles UI has 3 styles: vanilla style, FE3H style, or no UI.
-- HD fonts in all languages (still WIP)
+- HD fonts in all languages.
 - A mod that adds feet to every characters in the game is implemented.
 - Cheat codes and built-in tweaks such as top screen 16:9 aspect ratio and faster
   battles.
