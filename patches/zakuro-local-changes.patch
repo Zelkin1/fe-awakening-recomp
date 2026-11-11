@@ -887,7 +887,7 @@ index 0000000..def6d35
 +    labels: [[146, 92, 28, 14], [146, 108, 28, 14], [146, 124, 28, 14]],
 +};
 diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
-index a9d239c..194854c 100644
+index a9d239c..e283cb0 100644
 --- a/crates/zakuro-core/src/lib.rs
 +++ b/crates/zakuro-core/src/lib.rs
 @@ -4,6 +4,7 @@
@@ -1013,7 +1013,20 @@ index a9d239c..194854c 100644
              cro: cro::CroManager::default(),
              camera: None,
              room: None,
-@@ -610,6 +660,11 @@ impl System {
+@@ -464,8 +514,10 @@ impl System {
+ 
+         let exit = match self.run_recompiled(deadline) {
+             Some(exit) => {
+-                // its writes do not go through the log a watch keeps
+-                self.idle_interrupted(false);
++                // its writes do not go through the log a watch keeps.
++                // The thread counts as busy, so the few instructions the interpreter steps to the next entry point start no watch.
++                // A watch then waits until the interpreter has run on its own for a while.
++                self.idle_interrupted(true);
+                 if let Some(hints) = &mut self.hints {
+                     hints.library_ran();
+                 }
+@@ -610,6 +662,11 @@ impl System {
          out
      }
  
@@ -1025,7 +1038,7 @@ index a9d239c..194854c 100644
      /// starts collecting PC samples.
      pub fn enable_profiler(&mut self) {
          self.profile = Some(BTreeMap::new());
-@@ -716,6 +771,11 @@ impl System {
+@@ -716,6 +773,11 @@ impl System {
          }
  
          self.renderer.end_frame();
@@ -1037,7 +1050,7 @@ index a9d239c..194854c 100644
  
          // pick up any buffer swap the game queued directly in GSP shared
          // memory before the LCDs latch whatever is currently configured.
-@@ -747,6 +807,7 @@ impl System {
+@@ -747,6 +809,7 @@ impl System {
              if pacing.refreshes - pacing.new_at > 2 {
                  // the title slowed down or stopped, the pictures in between
                  // of its next frame would be shown too late
@@ -1045,7 +1058,7 @@ index a9d239c..194854c 100644
                  self.gpu.set_twins(false);
              }
              return;
-@@ -757,11 +818,16 @@ impl System {
+@@ -757,11 +820,16 @@ impl System {
          let matches = self.gpu.frame_done();
          let pacing = &mut self.pacing;
          pacing.matches = matches;
@@ -1064,7 +1077,7 @@ index a9d239c..194854c 100644
      }
  
      /// draws a picture in between each two of the title's own from now on,
-@@ -783,6 +849,87 @@ impl System {
+@@ -783,6 +851,87 @@ impl System {
          self.pacing.between
      }
  
@@ -1152,7 +1165,7 @@ index a9d239c..194854c 100644
      /// the DSP finishing an audio frame, it plays its voices one frame on and
      /// interrupts the title, whose sound library does one update per interrupt.
      fn audio_frame(&mut self) {
-@@ -843,6 +990,10 @@ impl System {
+@@ -843,6 +992,10 @@ impl System {
          stride: u32,
          format: u32,
      ) {
@@ -1163,7 +1176,7 @@ index a9d239c..194854c 100644
          self.gpu
              .set_framebuffer(screen, active, left, right, stride, format);
      }
-@@ -995,6 +1146,14 @@ impl System {
+@@ -995,6 +1148,14 @@ impl System {
          memory::config::set_slider_3d(self.memory.phys.shared_page_mut(), value);
      }
  
@@ -1178,7 +1191,7 @@ index a9d239c..194854c 100644
      /// where a screen's picture is on the host's GPU, for a presenter sharing
      /// its device to draw straight from, none when the GPU does not show the
      /// screens itself or did not draw what the screen shows, read_screen_scaled
-@@ -1088,6 +1247,16 @@ impl System {
+@@ -1088,6 +1249,16 @@ impl System {
          self.gpu.scaled_screen(base, (height, width), stride / bpp, format, &bytes)
      }
  
@@ -5877,10 +5890,18 @@ index 2e71e86..b8ce10c 100644
      /// cost the wider one the rows it drew elsewhere, which memory lacks,
      /// when it is used again.
 diff --git a/crates/zakuro-gpu/src/raster/hardware.rs b/crates/zakuro-gpu/src/raster/hardware.rs
-index b3cd447..104d7ac 100644
+index b3cd447..2f644a7 100644
 --- a/crates/zakuro-gpu/src/raster/hardware.rs
 +++ b/crates/zakuro-gpu/src/raster/hardware.rs
-@@ -35,9 +35,7 @@ use crate::device::SharedDevice;
+@@ -14,7 +14,6 @@
+ //! output for the host to read later. recording goes on in a second command
+ //! buffer meanwhile, so the CPU rarely waits for the GPU.
+ 
+-use std::collections::hash_map::Entry;
+ use std::collections::{HashMap, VecDeque};
+ use std::io::Cursor;
+ use std::sync::{mpsc, Arc, Condvar, Mutex, PoisonError};
+@@ -35,9 +34,7 @@ use crate::device::SharedDevice;
  use crate::shader::glsl::{self, SEMANTICS};
  use crate::shader::{Program, ShaderUnit, Vec4, DESCRIPTOR_SIZE, INPUT_REGISTERS, PROGRAM_SIZE};
  use crate::GpuMemory;
@@ -5891,7 +5912,7 @@ index b3cd447..104d7ac 100644
  
  const SHADE_SPIRV: &[u8] = include_bytes!("../../shaders/shade.vert.spv");
  const VERTEX_SPIRV: &[u8] = include_bytes!("../../shaders/raster.vert.spv");
-@@ -275,6 +273,71 @@ struct Image {
+@@ -275,6 +272,71 @@ struct Image {
      image: vk::Image,
      memory: vk::DeviceMemory,
      view: vk::ImageView,
@@ -5963,7 +5984,7 @@ index b3cd447..104d7ac 100644
  }
  
  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-@@ -791,6 +854,14 @@ struct Local {
+@@ -791,6 +853,14 @@ struct Local {
  /// a texture copied from a surface the GPU drew.
  struct Copied {
      image: Image,
@@ -5978,7 +5999,7 @@ index b3cd447..104d7ac 100644
      surface: usize,
      /// the surface's generation when it was copied.
      generation: u64,
-@@ -861,9 +932,11 @@ impl Filtering {
+@@ -861,9 +931,11 @@ impl Filtering {
      /// gives, so that one drawn a little smaller than its own size, as at 3
      /// times the console's resolution, stays as sharp as it is.
      fn picture(bound: &BoundTexture, smallest: u32) -> Filtering {
@@ -5992,7 +6013,136 @@ index b3cd447..104d7ac 100644
              levels: (0, smallest as u8),
              bias: if smallest > 0 { -128 } else { 0 },
              ..Filtering::wrapping(bound)
-@@ -1411,6 +1484,8 @@ fn compile_pipeline(
+@@ -1048,7 +1120,8 @@ enum Job {
+     /// a program to translate.
+     Translate(ProgramKey, Arc<Program>),
+     /// a pipeline to compile, with its vertex shader's module.
+-    Compile(PipelineKey, vk::ShaderModule),
++    /// The flag asks for a quick compile without the optimizations of the driver.
++    Compile(PipelineKey, vk::ShaderModule, bool),
+ }
+ 
+ /// what the compiler thread made of a job.
+@@ -1056,9 +1129,14 @@ enum Made {
+     /// the SPIR-V and the source it came from, which programs that run
+     /// the same share a module by.
+     Translated(ProgramKey, Result<(Vec<u32>, String), String>),
+-    Compiled(PipelineKey, Result<vk::Pipeline, String>),
++    /// A compiled pipeline, with the flag of a quick compile.
++    Compiled(PipelineKey, Result<vk::Pipeline, String>, bool),
+ }
+ 
++/// The number of threads that compile pipelines.
++/// A driver compiling three pipelines at once took the time of the emulation away and made frames late, so there is one.
++const COMPILER_THREADS: usize = 1;
++
+ /// the jobs waiting for the compiler threads, translations first, as they
+ /// are quick and pipelines wait for them, then the generic pipelines made at
+ /// the start, which draws fall back on, then the pipelines asked for last,
+@@ -1067,6 +1145,8 @@ struct Queue {
+     translations: VecDeque<Job>,
+     generic: VecDeque<Job>,
+     compiles: Vec<Job>,
++    /// The optimized compiles of pipelines that are already drawn through a quick compile, made when nothing else waits.
++    refines: Vec<Job>,
+     stopped: bool,
+     /// pipelines compiled since the cache was last kept on disk, and when
+     /// that was, which a thread with nothing else to do sees to.
+@@ -1091,8 +1171,8 @@ impl Compiler {
+     /// the threads, compiling with a cache, a layout and a fragment shader
+     /// that outlive them. a slow driver takes a long while over a scene's
+     /// pipelines, which are drawn through the slower generic shader until
+-    /// then, so there is one for each core the emulation and the driver
+-    /// leave, up to three.
++    /// then.
++    /// Each pipeline is first compiled quickly without optimizations, and later again in full.
+     fn start(
+         device: ash::Device,
+         cache: vk::PipelineCache,
+@@ -1106,14 +1186,14 @@ impl Compiler {
+             translations: VecDeque::new(),
+             generic: VecDeque::new(),
+             compiles: Vec::new(),
++            refines: Vec::new(),
+             stopped: false,
+             compiled: 0,
+             saved: std::time::Instant::now(),
+         };
+         let queue = Arc::new((Mutex::new(waiting), Condvar::new()));
+         let (sent, made) = mpsc::channel();
+-        let count = thread::available_parallelism().map_or(1, |cores| cores.get().saturating_sub(2).clamp(1, 3));
+-        let threads = (0..count)
++        let threads = (0..COMPILER_THREADS)
+             .map_while(|_| {
+                 let (jobs, sent, device, kept) = (queue.clone(), sent.clone(), device.clone(), kept.clone());
+                 thread::Builder::new()
+@@ -1153,6 +1233,17 @@ impl Compiler {
+         None
+     }
+ 
++    /// Queues the optimized compile of a pipeline behind every other job.
++    fn refine(&mut self, job: Job) {
++        if self.threads.is_empty() {
++            return;
++        }
++        let (queue, ready) = &*self.queue;
++        queue.lock().unwrap_or_else(PoisonError::into_inner).refines.push(job);
++        ready.notify_one();
++        self.outstanding += 1;
++    }
++
+     /// waits for the jobs the threads are on and drops the rest, giving
+     /// back the pipelines they made that no one took.
+     fn finish(&mut self) -> Vec<vk::Pipeline> {
+@@ -1162,13 +1253,14 @@ impl Compiler {
+         waiting.translations.clear();
+         waiting.generic.clear();
+         waiting.compiles.clear();
++        waiting.refines.clear();
+         ready.notify_all();
+         drop(waiting);
+         for thread in self.threads.drain(..) {
+             let _ = thread.join();
+         }
+         let made = self.made.try_iter().filter_map(|made| match made {
+-            Made::Compiled(_, Ok(pipeline)) => Some(pipeline),
++            Made::Compiled(_, Ok(pipeline), _) => Some(pipeline),
+             _ => None,
+         });
+         made.collect()
+@@ -1198,7 +1290,7 @@ fn compile(
+                 return;
+             }
+             if let Some(job) =
+-                waiting.translations.pop_front().or_else(|| waiting.generic.pop_front()).or_else(|| waiting.compiles.pop())
++                waiting.translations.pop_front().or_else(|| waiting.generic.pop_front()).or_else(|| waiting.compiles.pop()).or_else(|| waiting.refines.pop())
+             {
+                 break job;
+             }
+@@ -1262,15 +1354,18 @@ fn work(
+             }
+             Made::Translated(key, made)
+         }
+-        Job::Compile(key, module) => {
++        Job::Compile(key, module, quick) => {
+             let modules = [module, fragment_module(fragments, &key)];
+-            let made = compile_pipeline(device, cache, layout, modules, &key, vk::PipelineCreateFlags::empty(), dynamic, depth_format);
++            // A quick compile skips the optimizations of the driver, which on a first run took seconds for one pipeline.
++            let flags = if quick { vk::PipelineCreateFlags::DISABLE_OPTIMIZATION } else { vk::PipelineCreateFlags::empty() };
++            let made = compile_pipeline(device, cache, layout, modules, &key, flags, dynamic, depth_format);
+             log::debug!(
+                 target: "zakuro_gpu::pipelines",
+-                "compiled a pipeline while drawing went on, in {:.1} ms",
++                "compiled a pipeline{} while drawing went on, in {:.1} ms",
++                if quick { " quickly" } else { " in full" },
+                 started.elapsed().as_secs_f64() * 1000.0
+             );
+-            Made::Compiled(key, made)
++            Made::Compiled(key, made, quick)
+         }
+     }
+ }
+@@ -1411,6 +1506,8 @@ fn compile_pipeline(
  pub struct Hardware {
      /// the device, maybe the presenter's too, kept until this lets go.
      _shared: Arc<SharedDevice>,
@@ -6001,7 +6151,19 @@ index b3cd447..104d7ac 100644
      /// whether the presenter shares the device, and shows screens straight
      /// from the images the GPU turns them upright into.
      direct: bool,
-@@ -1491,7 +1566,7 @@ pub struct Hardware {
+@@ -1468,8 +1565,10 @@ pub struct Hardware {
+     uniforms: Block,
+     shading: Block,
+     pipelines: QuickMap<PipelineKey, vk::Pipeline>,
++    /// The quick builds that full builds took over from, kept until the end.
++    retired: Vec<vk::Pipeline>,
+     /// the last pipeline a draw found made for its own key, which the next
+-    /// draw mostly shares. a pipeline stays in the map for good.
++    /// draw mostly shares.
+     last_pipeline: Option<(PipelineKey, vk::Pipeline)>,
+     /// made the first time a display transfer runs here.
+     transfer: Option<Compute>,
+@@ -1491,7 +1590,7 @@ pub struct Hardware {
      /// by the address of the decoded texels.
      textures: HashMap<usize, Texture>,
      /// textures copied from surfaces, by what they are.
@@ -6010,7 +6172,7 @@ index b3cd447..104d7ac 100644
      /// texture pack pictures, by the hash of the textures they replace.
      replaced: HashMap<u64, Replaced>,
      /// the bytes those take, and how many they may, half the GPU's memory.
-@@ -1532,7 +1607,7 @@ pub struct Hardware {
+@@ -1532,7 +1631,7 @@ pub struct Hardware {
      /// twins once rather than once a draw.
      twin_draws: Vec<Recorded>,
      /// textures copied from twins, as copies has those from surfaces.
@@ -6019,7 +6181,7 @@ index b3cd447..104d7ac 100644
      /// the batch the draw a draw in between follows staged its vertices
      /// and its indices in, and where, which the one in between reads too.
      twinned_inputs: Option<(u64, Staged, Staged)>,
-@@ -1685,8 +1760,9 @@ impl Hardware {
+@@ -1685,8 +1784,9 @@ impl Hardware {
                  ring: unmade(),
                  in_flight: VecDeque::with_capacity(IN_FLIGHT),
                  free: spares.into_iter().map(|(commands, fence)| Frame { commands, fence, ring: unmade(), pending: None }).collect(),
@@ -6030,7 +6192,25 @@ index b3cd447..104d7ac 100644
                  direct,
                  device,
                  push,
-@@ -1855,6 +1931,31 @@ impl Hardware {
+@@ -1732,6 +1832,7 @@ impl Hardware {
+                 uniforms: Block::default(),
+                 shading: Block::default(),
+                 pipelines: QuickMap::default(),
++                retired: Vec::new(),
+                 last_pipeline: None,
+                 transfer: None,
+                 depth: None,
+@@ -1822,7 +1923,8 @@ impl Hardware {
+             if dynamic.blend && !hardware.waits {
+                 for key in generic_keys(hardware.shades) {
+                     let module = hardware.vertex_module(key.vertex);
+-                    hardware.compiler.send_generic(Job::Compile(key, module));
++                    hardware.compiler.asked.insert(key);
++                    hardware.compiler.send_generic(Job::Compile(key, module, true));
+                 }
+             }
+             Ok(hardware)
+@@ -1855,6 +1957,31 @@ impl Hardware {
          self.scale
      }
  
@@ -6062,7 +6242,7 @@ index b3cd447..104d7ac 100644
      /// a host visible buffer, mapped for as long as it lives. one the host
      /// reads back from is cached, reading uncached memory is slow.
      fn buffer(&self, size: u64, usage: vk::BufferUsageFlags, readback: bool) -> Result<Buffer, String> {
-@@ -1922,6 +2023,40 @@ impl Hardware {
+@@ -1922,6 +2049,40 @@ impl Hardware {
          Ok((memory, types[index].property_flags))
      }
  
@@ -6103,7 +6283,7 @@ index b3cd447..104d7ac 100644
      /// an image in device memory, put in the general layout by the batch
      /// being recorded, which it never leaves.
      fn image(&self, width: u32, height: u32, format: vk::Format, usage: vk::ImageUsageFlags, aspect: vk::ImageAspectFlags) -> Result<Image, String> {
-@@ -1960,15 +2095,20 @@ impl Hardware {
+@@ -1960,15 +2121,20 @@ impl Hardware {
                  .map_err(vk_error("create an image"))?;
              let requirements = self.device.get_image_memory_requirements(image);
              // what was made goes again when a later step fails
@@ -6131,7 +6311,7 @@ index b3cd447..104d7ac 100644
                  self.device
                      .create_image_view(
                          &vk::ImageViewCreateInfo::default()
-@@ -1984,7 +2124,7 @@ impl Hardware {
+@@ -1984,7 +2150,7 @@ impl Hardware {
                  Ok(view) => view,
                  Err(error) => {
                      self.device.destroy_image(image, None);
@@ -6140,7 +6320,7 @@ index b3cd447..104d7ac 100644
                      return Err(error);
                  }
              };
-@@ -1997,7 +2137,36 @@ impl Hardware {
+@@ -1997,7 +2163,36 @@ impl Hardware {
                  .image(image)
                  .subresource_range(range)];
              self.device.cmd_pipeline_barrier2(self.commands, &vk::DependencyInfo::default().image_memory_barriers(&barrier));
@@ -6178,7 +6358,7 @@ index b3cd447..104d7ac 100644
          }
      }
  
-@@ -2006,7 +2175,9 @@ impl Hardware {
+@@ -2006,7 +2201,9 @@ impl Hardware {
          unsafe {
              self.device.destroy_image_view(image.view, None);
              self.device.destroy_image(image.image, None);
@@ -6189,7 +6369,7 @@ index b3cd447..104d7ac 100644
          }
      }
  
-@@ -2395,6 +2566,11 @@ impl Hardware {
+@@ -2395,6 +2592,11 @@ impl Hardware {
                      _ if matches!(kind, Kind::Depth(_)) && !self.depth_blits => None,
                      _ => {
                          let usage = vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST;
@@ -6201,7 +6381,7 @@ index b3cd447..104d7ac 100644
                          Some(self.image(width, height, format, usage, aspect)?)
                      }
                  };
-@@ -2512,7 +2688,7 @@ impl Hardware {
+@@ -2512,7 +2714,7 @@ impl Hardware {
  
      /// whether a texture is rows of a surface with a twin.
      fn reads_twin(&self, texture: &DrawnTexture) -> bool {
@@ -6210,7 +6390,7 @@ index b3cd447..104d7ac 100644
      }
  
      /// gives a surface a twin holding what the surface does, before a draw
-@@ -2680,8 +2856,17 @@ impl Hardware {
+@@ -2680,8 +2882,17 @@ impl Hardware {
      /// a surface with no such image, a depth buffer on a GPU that can't blit
      /// them, is scaled on the CPU instead, see scale_up and scale_down_depth.
      fn blit(&mut self, index: usize, up: bool) {
@@ -6228,7 +6408,7 @@ index b3cd447..104d7ac 100644
          let aspect = match s.kind {
              Kind::Color(_) => vk::ImageAspectFlags::COLOR,
              Kind::Depth(_) => vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
-@@ -2691,7 +2876,7 @@ impl Hardware {
+@@ -2691,7 +2902,7 @@ impl Hardware {
          let small = corner(s.width, s.height);
          let big = corner(s.width * self.scale, s.height * self.scale);
          let (from, to, from_corner, to_corner) =
@@ -6237,7 +6417,7 @@ index b3cd447..104d7ac 100644
          let region = [vk::ImageBlit::default()
              .src_subresource(layers)
              .src_offsets(from_corner)
-@@ -2708,7 +2893,7 @@ impl Hardware {
+@@ -2708,7 +2919,7 @@ impl Hardware {
                  to,
                  vk::ImageLayout::GENERAL,
                  &region,
@@ -6246,8 +6426,40 @@ index b3cd447..104d7ac 100644
              )
          };
      }
-@@ -3012,8 +3197,11 @@ impl Hardware {
-             return Ok(pipeline);
+@@ -2989,46 +3200,66 @@ impl Hardware {
+     /// the pipeline a draw goes through. until the one made for its key is
+     /// ready the compiler makes it, and the draw goes through one that
+     /// draws the same, the interpreter's with the same fragment stages when
+-    /// there is one, or else the generic fragment shader's, made right away
+-    /// once per blend function and the like. a program still being
+-    /// translated does not have its interpreted pipeline asked for, it
+-    /// would not be used for long.
+-    fn pipeline_for(&mut self, key: PipelineKey, translating: bool) -> Result<vk::Pipeline, String> {
++    /// there is one, or else the generic fragment shader's, one per blend
++    /// function and the like. a program still being translated does not
++    /// have its interpreted pipeline asked for, it would not be used for
++    /// long.
++    /// There is none while even the generic pipeline is being compiled, and the draw is then skipped.
++    fn pipeline_for(&mut self, key: PipelineKey, translating: bool) -> Result<Option<vk::Pipeline>, String> {
+         let vertex = match key.vertex {
+             VertexStage::Placed => VertexStage::Placed,
+             _ => VertexStage::Interpreted,
+         };
+         let generic = PipelineKey { vertex, fragment: generic(&key.fragment), ..key };
+         if self.generic {
+-            return self.pipeline(generic);
++            return self.pipeline(generic).map(Some);
+         }
+         if let Some((last, pipeline)) = self.last_pipeline {
+             if last == key {
+-                return Ok(pipeline);
++                return Ok(Some(pipeline));
+             }
+         }
+         if let Some(&pipeline) = self.pipelines.get(&key) {
+             self.last_pipeline = Some((key, pipeline));
+-            return Ok(pipeline);
++            return Ok(Some(pipeline));
          }
          if !translating && self.compiler.asked.insert(key) {
 -            if let Some(pipeline) = self.cached(key) {
@@ -6255,12 +6467,101 @@ index b3cd447..104d7ac 100644
 +            // The cache on disk is only used when the draw waits for its pipeline.
 +            if self.waits {
 +                if let Some(pipeline) = self.cached(key) {
-+                    return Ok(pipeline);
++                    return Ok(Some(pipeline));
 +                }
              }
              // made right here when waiting for it
-             self.hand(Job::Compile(key, self.vertex_module(key.vertex)));
-@@ -3627,6 +3815,8 @@ impl Hardware {
+-            self.hand(Job::Compile(key, self.vertex_module(key.vertex)));
++            self.hand(Job::Compile(key, self.vertex_module(key.vertex), true));
+             if let Some(&pipeline) = self.pipelines.get(&key) {
+-                return Ok(pipeline);
++                return Ok(Some(pipeline));
+             }
+         }
+         // meanwhile, or for good when the driver turned it down
+         if let VertexStage::Translated(_) = key.vertex {
+             let interpreted = PipelineKey { vertex: VertexStage::Interpreted, ..key };
+             if self.waits || self.pipelines.contains_key(&interpreted) {
+-                return self.pipeline(interpreted);
++                return self.pipeline(interpreted).map(Some);
+             }
+         }
+-        self.pipeline(generic)
++        self.generic_pipeline(generic)
++    }
++
++    /// The generic pipeline for a key, or none while the compiler makes it.
++    /// Compiling it on the draw held a frame for hundreds of milliseconds on a first run.
++    /// It is still compiled on the draw when draws wait for their pipelines, or when there is no compiler.
++    fn generic_pipeline(&mut self, generic: PipelineKey) -> Result<Option<vk::Pipeline>, String> {
++        if let Some(&pipeline) = self.pipelines.get(&generic) {
++            return Ok(Some(pipeline));
++        }
++        if self.waits || self.compiler.threads.is_empty() {
++            return self.pipeline(generic).map(Some);
++        }
++        if self.compiler.asked.insert(generic) {
++            self.hand(Job::Compile(generic, self.vertex_module(generic.vertex), true));
++        }
++        Ok(None)
+     }
+ 
+     /// raster.frag leaving depth to the rasterizer, and working it out.
+@@ -3347,6 +3578,11 @@ impl Hardware {
+                 None => return,
+             },
+         };
++        // A pipeline made here is not compiled again later, so it is compiled in full.
++        let job = match job {
++            Job::Compile(key, module, _) => Job::Compile(key, module, false),
++            job => job,
++        };
+         let made = work(job, &self.device, self.pipeline_cache, self.layout, self.fragment_modules(), self.dynamic, self.depth_format);
+         self.take(made);
+     }
+@@ -3391,15 +3627,33 @@ impl Hardware {
+             Made::Translated(key, Err(_)) => {
+                 self.translated.insert(key, Translation::Failed);
+             }
+-            Made::Compiled(key, Ok(pipeline)) => match self.pipelines.entry(key) {
+-                Entry::Vacant(entry) => {
+-                    entry.insert(pipeline);
++            Made::Compiled(key, Ok(pipeline), true) => {
++                if self.pipelines.contains_key(&key) {
++                    // a draw made it meanwhile
++                    // SAFETY: nothing recorded uses the one just made
++                    unsafe { self.device.destroy_pipeline(pipeline, None) };
++                    return;
+                 }
+-                // a draw made it meanwhile
+-                // SAFETY: nothing recorded uses the one just made
+-                Entry::Occupied(_) => unsafe { self.device.destroy_pipeline(pipeline, None) },
+-            },
+-            Made::Compiled(key, Err(error)) => match key.vertex {
++                self.pipelines.insert(key, pipeline);
++                // The quick build draws until the full one takes over, which is compiled when nothing else waits.
++                let module = self.vertex_module(key.vertex);
++                self.compiler.refine(Job::Compile(key, module, false));
++            }
++            Made::Compiled(key, Ok(pipeline), false) => {
++                if let Some(quick) = self.pipelines.insert(key, pipeline) {
++                    // Frames still on the GPU may draw through the quick build, so it is destroyed with the rest at the end.
++                    self.retired.push(quick);
++                    self.last_pipeline = None;
++                }
++            }
++            // The quick build goes on drawing.
++            Made::Compiled(key, Err(error), false) if self.pipelines.contains_key(&key) => {
++                log::warn!("could not compile a pipeline in full, {error}, keeping the quick build");
++            }
++            Made::Compiled(key, Err(error), _) if key.fragment == generic(&key.fragment) && !matches!(key.vertex, VertexStage::Translated(_)) => {
++                log::warn!("could not compile a generic pipeline, {error}, skipping the draws that need it");
++            }
++            Made::Compiled(key, Err(error), _) => match key.vertex {
+                 // a translated program the driver turns down goes back to
+                 // the interpreter
+                 VertexStage::Translated(failed) => {
+@@ -3627,6 +3881,8 @@ impl Hardware {
          let real = pass != Pass::Twin;
          let twin = twinned && pass != Pass::Twinned;
  
@@ -6269,7 +6570,7 @@ index b3cd447..104d7ac 100644
          let mut views = [self.blank.view; 3];
          let mut twin_views = [self.blank.view; 3];
          let mut samplers = [vk::Sampler::null(); 3];
-@@ -3647,6 +3837,7 @@ impl Hardware {
+@@ -3647,6 +3903,7 @@ impl Hardware {
                          None => {
                              let (view, picture) = self.texture(bound)?;
                              (views[unit], twin_views[unit]) = (view, view);
@@ -6277,7 +6578,7 @@ index b3cd447..104d7ac 100644
                              match picture {
                                  Some(smallest) => Filtering::picture(bound, smallest),
                                  None => Filtering::of(bound),
-@@ -3688,8 +3879,8 @@ impl Hardware {
+@@ -3688,8 +3945,8 @@ impl Hardware {
          }
          let texture_config = (r[REG_TEXTURE_CONFIG] & !7) | enabled;
          words.extend([r[REG_UPDATE_BUFFER], r[REG_BUFFER_COLOR], r[REG_ALPHA_TEST], texture_config]);
@@ -6288,7 +6589,19 @@ index b3cd447..104d7ac 100644
          }
          let depth_flags = depth_map.w_buffer as u32 | (shaded.is_some() as u32) << 1;
          // the depth map goes through the viewport where it fits, and what
-@@ -4081,12 +4272,112 @@ impl Hardware {
+@@ -3776,7 +4033,10 @@ impl Hardware {
+             vertex,
+             fragment,
+         };
+-        let pipeline = self.pipeline_for(key, translating)?;
++        // A draw with no pipeline yet is skipped rather than held up by a compile.
++        let Some(pipeline) = self.pipeline_for(key, translating)? else {
++            return Ok(());
++        };
+ 
+         self.mark(Work::Draw, false);
+         if self.uploads {
+@@ -4081,12 +4341,112 @@ impl Hardware {
          Ok(())
      }
  
@@ -6401,7 +6714,7 @@ index b3cd447..104d7ac 100644
          let t = transfer;
          let input_kind = Kind::Color(t.input_format);
          let output_kind = Kind::Color(t.output_format);
-@@ -4111,14 +4402,29 @@ impl Hardware {
+@@ -4111,14 +4471,29 @@ impl Hardware {
              let offset = t.input.checked_sub(s.addr).filter(|offset| offset % step_bytes == 0)? / step_bytes * step;
              (offset + rows <= s.height).then_some(offset)
          };
@@ -6435,7 +6748,7 @@ index b3cd447..104d7ac 100644
              return Ok(false);
          };
          // rows read where the output goes, the CPU does in order. the rest
-@@ -4126,7 +4432,8 @@ impl Hardware {
+@@ -4126,7 +4501,8 @@ impl Hardware {
          // Ultimate puts the bottom screen right before the rows it reads, and
          // the output drawn over them is the overdrawn below
          let row_bytes = (input_size.0 * input_kind.bytes()) as u64;
@@ -6445,7 +6758,7 @@ index b3cd447..104d7ac 100644
          let read_end = read_start + rows as u64 * row_bytes;
          let output_end = t.output as u64 + (t.output_width * t.output_height * output_kind.bytes()) as u64;
          if read_start < output_end && (t.output as u64) < read_end {
-@@ -4134,34 +4441,55 @@ impl Hardware {
+@@ -4134,34 +4510,55 @@ impl Hardware {
          }
          self.begin()?;
          // a flush looking one of them up drops what the other had checked
@@ -6521,7 +6834,7 @@ index b3cd447..104d7ac 100644
          let twinned = twinned
              && match self.make_twin(target) {
                  Ok(()) => true,
-@@ -4171,11 +4499,21 @@ impl Hardware {
+@@ -4171,11 +4568,21 @@ impl Hardware {
                      false
                  }
              };
@@ -6547,7 +6860,7 @@ index b3cd447..104d7ac 100644
              self.surfaces[target].twin_changed();
          }
          self.surfaces[target].changed();
-@@ -4188,10 +4526,27 @@ impl Hardware {
+@@ -4188,10 +4595,27 @@ impl Hardware {
          if twinned && self.direct {
              self.upright_image(target, true)?;
          }
@@ -6576,7 +6889,7 @@ index b3cd447..104d7ac 100644
      /// records the transfer shader going over size pixels, from one image
      /// to another, as the constants say.
      fn dispatch_transfer(&mut self, (source, target): (vk::ImageView, vk::ImageView), constants: [i32; 11], size: (u32, u32)) -> Result<(), String> {
-@@ -4234,7 +4589,7 @@ impl Hardware {
+@@ -4234,7 +4658,7 @@ impl Hardware {
      /// texture's sides are powers of two and the buffer drawn into it need
      /// not be, Inazuma Eleven GO reads 800 rows drawn as 1024, one holding
      /// all of it goes first.
@@ -6585,7 +6898,7 @@ index b3cd447..104d7ac 100644
          let depth = match texture.format {
              ColorFormat::Rgba8 => Some(Kind::Depth(4)),
              ColorFormat::Rgb8 => Some(Kind::Depth(3)),
-@@ -4248,16 +4603,42 @@ impl Hardware {
+@@ -4248,16 +4672,42 @@ impl Hardware {
                  if !(kinds.contains(&Some(s.kind)) && s.tiled && s.width == texture.width) {
                      return None;
                  }
@@ -6633,7 +6946,7 @@ index b3cd447..104d7ac 100644
      }
  
      /// whether a texture is rows of a surface the GPU drew and guest memory
-@@ -4266,10 +4647,12 @@ impl Hardware {
+@@ -4266,10 +4716,12 @@ impl Hardware {
      /// changed there since, or another surface drew over them, the texture
      /// comes from memory once what was drawn is written back.
      pub(crate) fn holds(&self, texture: &DrawnTexture) -> bool {
@@ -6648,7 +6961,7 @@ index b3cd447..104d7ac 100644
              let at = surface.addr + from * surface.row_bytes();
              from < to
                  && (!surface.checked
-@@ -4277,7 +4660,7 @@ impl Hardware {
+@@ -4277,7 +4729,7 @@ impl Hardware {
          });
          // nor where a fill wrote over what it drew
          let row_bytes = surface.row_bytes();
@@ -6657,7 +6970,7 @@ index b3cd447..104d7ac 100644
          surface.dirty.is_some() && !changed && !stale
      }
  
-@@ -4289,13 +4672,13 @@ impl Hardware {
+@@ -4289,13 +4741,13 @@ impl Hardware {
      /// width, would otherwise have the console's resolution in memory take
      /// the place of the scaled frame.
      pub(crate) fn holds_unchanged<M: GpuMemory>(&self, memory: &mut M, texture: &DrawnTexture) -> bool {
@@ -6673,7 +6986,7 @@ index b3cd447..104d7ac 100644
          let (at, len) = (surface.addr + row * row_bytes, rows * row_bytes);
          // memory behind another surface drawn over it says nothing of this one
          if (0..self.surfaces.len()).any(|i| i != index && self.surfaces[i].dirty_overlaps(at, len)) {
-@@ -4316,54 +4699,109 @@ impl Hardware {
+@@ -4316,54 +4768,109 @@ impl Hardware {
      /// one is copied from the surface's twin, when it has one.
      fn copy_texture(&mut self, texture: &DrawnTexture, bound: &BoundTexture, twin: bool) -> Result<vk::ImageView, String> {
          self.mark(Work::Copy, false);
@@ -6798,7 +7111,7 @@ index b3cd447..104d7ac 100644
              // SAFETY: recording, outside rendering, between two color images
              // in the general layout made for transfers, both their size
              unsafe {
-@@ -4380,7 +4818,7 @@ impl Hardware {
+@@ -4380,7 +4887,7 @@ impl Hardware {
              };
          }
          if let Kind::Depth(bytes) = self.surfaces[source].kind {
@@ -6807,7 +7120,7 @@ index b3cd447..104d7ac 100644
          } else {
              // the texture's rows run top first, the surface's bottom first,
              // so the copy flips them, and its pixels round to the format as
-@@ -4389,22 +4827,68 @@ impl Hardware {
+@@ -4389,22 +4896,68 @@ impl Hardware {
              let n = self.scale;
              let (width, height) = ((texture.width * n) as i32, (rows * n) as i32);
              let (row, source_height) = ((row * n) as i32, (self.surfaces[source].height * n) as i32);
@@ -6880,7 +7193,7 @@ index b3cd447..104d7ac 100644
          match twin {
              true => &mut self.twin_copies,
              false => &mut self.copies,
-@@ -4809,13 +5293,38 @@ impl Hardware {
+@@ -4809,13 +5362,38 @@ impl Hardware {
              return Ok(crop(image));
          }
          // its batch finished before a screen showed the surface
@@ -6923,7 +7236,7 @@ index b3cd447..104d7ac 100644
          let buffer = &capture.buffer;
          if buffer.incoherent {
              let range = [vk::MappedMemoryRange::default().memory(buffer.memory).offset(0).size(vk::WHOLE_SIZE)];
-@@ -5014,10 +5523,10 @@ impl Hardware {
+@@ -5014,10 +5592,10 @@ impl Hardware {
              }
          }
          for twin in [false, true] {
@@ -6936,7 +7249,7 @@ index b3cd447..104d7ac 100644
                  }
              }
          }
-@@ -5136,11 +5645,13 @@ impl Hardware {
+@@ -5136,11 +5714,13 @@ impl Hardware {
              }
          }
          // pictures for screens are read out before a later batch can draw
@@ -6954,7 +7267,7 @@ index b3cd447..104d7ac 100644
              }
          }
          Ok(())
-@@ -5415,7 +5926,7 @@ impl Drop for Hardware {
+@@ -5415,7 +5995,7 @@ impl Drop for Hardware {
                  self.destroy_image(&texture.image);
              }
              for copy in self.copies.values().chain(self.twin_copies.values()) {
@@ -6963,7 +7276,7 @@ index b3cd447..104d7ac 100644
              }
              for replaced in self.replaced.values() {
                  self.destroy_image(&replaced.image);
-@@ -5431,6 +5942,12 @@ impl Drop for Hardware {
+@@ -5431,6 +6011,12 @@ impl Drop for Hardware {
                  }
              }
              self.destroy_image(&self.blank);
@@ -6976,7 +7289,16 @@ index b3cd447..104d7ac 100644
              let captures = self.surfaces.iter().flat_map(|s| [&s.capture, &s.screen]).filter_map(|c| c.as_ref().map(|c| &c.buffer));
              let rings = self.free.iter().chain(&self.in_flight).map(|frame| &frame.ring);
              let buffers = [Some(&self.ring), self.readback.as_ref()].into_iter().flatten().chain(rings);
-@@ -5798,7 +6315,7 @@ mod tests {
+@@ -5448,7 +6034,7 @@ impl Drop for Hardware {
+                 self.device.destroy_buffer(samples.buffer, None);
+                 self.device.free_memory(samples.memory, None);
+             }
+-            for &pipeline in self.pipelines.values().chain(&unclaimed) {
++            for &pipeline in self.pipelines.values().chain(&self.retired).chain(&unclaimed) {
+                 self.device.destroy_pipeline(pipeline, None);
+             }
+             for &sampler in self.samplers.values() {
+@@ -5798,7 +6384,7 @@ mod tests {
          let kinds = [Kind::Color(ColorFormat::Rgba8), Kind::Color(ColorFormat::Rgb8), Kind::Color(ColorFormat::Rgb565), Kind::Depth(2), Kind::Depth(3), Kind::Depth(4)];
          for kind in kinds {
              let (width, height) = (16, 24);
@@ -16272,7 +16594,7 @@ index 8a5163d..e961e29 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..061ae5b 100644
+index 9372f02..d095c50 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -4,14 +4,18 @@ use std::collections::HashMap;
@@ -17473,7 +17795,7 @@ index 9372f02..061ae5b 100644
 +    theme::commands(ui, |ui| {
 +        theme::row(ui, |ui| {
 +            egui::ComboBox::from_label("Language").selected_text(settings.language.name()).show_ui(ui, |ui| {
-+                for language in Language::ALL {
++                for language in Language::IN_THE_GAME {
 +                    ui.selectable_value(&mut settings.language, language, language.name());
 +                }
 +            })
@@ -18843,7 +19165,7 @@ index 1640c7a..59a8805 100644
      fn modules_are_cro_files_and_static_crs() {
          assert!(is_module("cro/Battle.cro") && is_module("Battle.CRO") && is_module("static.crs"));
 diff --git a/crates/zakuro/src/settings.rs b/crates/zakuro/src/settings.rs
-index 1e9b15b..ef47948 100644
+index 1e9b15b..c6859b4 100644
 --- a/crates/zakuro/src/settings.rs
 +++ b/crates/zakuro/src/settings.rs
 @@ -115,7 +115,7 @@ impl TopShape {
@@ -18855,7 +19177,30 @@ index 1e9b15b..ef47948 100644
              TopShape::Wide16x9 => "16:9",
              TopShape::Wide21x9 => "21:9",
          }
-@@ -252,18 +252,6 @@ pub enum CameraSource {
+@@ -189,20 +189,8 @@ pub enum Language {
+ }
+ 
+ impl Language {
+-    pub const ALL: [Language; 12] = [
+-        Language::Japanese,
+-        Language::English,
+-        Language::French,
+-        Language::German,
+-        Language::Italian,
+-        Language::Spanish,
+-        Language::ChineseSimplified,
+-        Language::Korean,
+-        Language::Dutch,
+-        Language::Portuguese,
+-        Language::Russian,
+-        Language::ChineseTraditional,
+-    ];
++    /// The languages of the European release of Fire Emblem Awakening, the ones the settings offer.
++    pub const IN_THE_GAME: [Language; 5] = [Language::English, Language::French, Language::German, Language::Italian, Language::Spanish];
+ 
+     pub fn name(self) -> &'static str {
+         match self {
+@@ -252,18 +240,6 @@ pub enum CameraSource {
      Nothing,
  }
  
@@ -18874,7 +19219,7 @@ index 1e9b15b..ef47948 100644
  /// the keys the console's buttons, circle pad and C-stick are on.
  #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
  #[serde(default)]
-@@ -381,8 +369,9 @@ pub struct PadButtons {
+@@ -381,8 +357,9 @@ pub struct PadButtons {
  impl Default for PadButtons {
      fn default() -> Self {
          PadButtons {
@@ -18886,7 +19231,7 @@ index 1e9b15b..ef47948 100644
              x: Button::North,
              y: Button::West,
              l: Button::LeftTrigger,
-@@ -394,7 +383,8 @@ impl Default for PadButtons {
+@@ -394,7 +371,8 @@ impl Default for PadButtons {
              left: Button::DPadLeft,
              right: Button::DPadRight,
              zl: Button::LeftTrigger2,
@@ -18896,7 +19241,7 @@ index 1e9b15b..ef47948 100644
          }
      }
  }
-@@ -444,8 +434,11 @@ impl PadButtons {
+@@ -444,8 +422,11 @@ impl PadButtons {
  #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
  #[serde(default)]
  pub struct Settings {
@@ -18909,7 +19254,7 @@ index 1e9b15b..ef47948 100644
      /// the console's system language, which titles pick their localised
      /// text and files by.
      #[serde(deserialize_with = "or_default")]
-@@ -486,14 +479,21 @@ pub struct Settings {
+@@ -486,14 +467,21 @@ pub struct Settings {
      pub volume: f32,
      pub mute: bool,
      pub show_fps: bool,
@@ -18932,7 +19277,7 @@ index 1e9b15b..ef47948 100644
      /// what the console's cameras see, and the picture when it is one.
      #[serde(deserialize_with = "or_default")]
      pub camera: CameraSource,
-@@ -507,12 +507,119 @@ pub struct Settings {
+@@ -507,12 +495,119 @@ pub struct Settings {
      pub room_address: String,
      pub room_name: String,
      pub room_port: u16,
@@ -19052,7 +19397,7 @@ index 1e9b15b..ef47948 100644
              language: Language::English,
              renderer: Renderer::Vulkan,
              hardware_rasterizer: true,
-@@ -524,18 +631,24 @@ impl Default for Settings {
+@@ -524,18 +619,24 @@ impl Default for Settings {
              layout: Screens::Stacked,
              filter: Filter::Smooth,
              integer_scale: false,
@@ -19079,7 +19424,7 @@ index 1e9b15b..ef47948 100644
              camera: CameraSource::Webcam,
              camera_picture: None,
              nickname: String::new(),
-@@ -543,6 +656,9 @@ impl Default for Settings {
+@@ -543,6 +644,9 @@ impl Default for Settings {
              room_address: String::new(),
              room_name: String::new(),
              room_port: zakuro_core::room::DEFAULT_PORT,
@@ -19089,7 +19434,7 @@ index 1e9b15b..ef47948 100644
          }
      }
  }
-@@ -578,7 +694,7 @@ impl Settings {
+@@ -578,7 +682,7 @@ impl Settings {
      /// the saved settings, or the defaults when there are none.
      pub fn load() -> Settings {
          let Some(path) = path() else { return Settings::default() };
@@ -19098,7 +19443,7 @@ index 1e9b15b..ef47948 100644
              Ok(text) => toml::from_str(&text).unwrap_or_else(|error| {
                  // kept aside, the next save would write over it
                  let aside = path.with_extension("toml.bad");
-@@ -587,7 +703,12 @@ impl Settings {
+@@ -587,7 +691,12 @@ impl Settings {
                  Settings::default()
              }),
              Err(_) => Settings::default(),
@@ -19112,7 +19457,7 @@ index 1e9b15b..ef47948 100644
      }
  
      pub fn save(&self) {
-@@ -651,6 +772,24 @@ mod tests {
+@@ -651,6 +760,24 @@ mod tests {
          assert_eq!(settings.keys.b, Keys::default().b);
          assert_eq!(settings.scale, 2);
          assert_eq!(settings.layout, Screens::Stacked);
@@ -20002,7 +20347,7 @@ index 0000000..af1abea
 +
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..5d921c2
+index 0000000..2a48721
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,219 @@
@@ -20017,7 +20362,7 @@ index 0000000..5d921c2
 +use crate::zig::{fetch, windowless, Fetcher};
 +
 +/// The tag of the release this build belongs to.
-+pub const RELEASE: &str = "v1.0.13";
++pub const RELEASE: &str = "v1.0.14";
 +/// The GitHub API address that describes the latest release.
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +/// The end of the file name of the release asset that holds the launcher for this system: a zip on Windows, an AppImage on Linux.

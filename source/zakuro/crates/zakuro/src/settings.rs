@@ -189,20 +189,8 @@ pub enum Language {
 }
 
 impl Language {
-    pub const ALL: [Language; 12] = [
-        Language::Japanese,
-        Language::English,
-        Language::French,
-        Language::German,
-        Language::Italian,
-        Language::Spanish,
-        Language::ChineseSimplified,
-        Language::Korean,
-        Language::Dutch,
-        Language::Portuguese,
-        Language::Russian,
-        Language::ChineseTraditional,
-    ];
+    /// The languages of the European release of Fire Emblem Awakening, the ones the settings offer.
+    pub const IN_THE_GAME: [Language; 5] = [Language::English, Language::French, Language::German, Language::Italian, Language::Spanish];
 
     pub fn name(self) -> &'static str {
         match self {

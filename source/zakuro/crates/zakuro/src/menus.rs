@@ -1133,7 +1133,7 @@ fn system_tab(ui: &mut egui::Ui, settings: &mut Settings, actions: &mut Vec<Acti
     theme::commands(ui, |ui| {
         theme::row(ui, |ui| {
             egui::ComboBox::from_label("Language").selected_text(settings.language.name()).show_ui(ui, |ui| {
-                for language in Language::ALL {
+                for language in Language::IN_THE_GAME {
                     ui.selectable_value(&mut settings.language, language, language.name());
                 }
             })

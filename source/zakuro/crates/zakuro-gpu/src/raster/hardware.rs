@@ -14,7 +14,6 @@
 //! output for the host to read later. recording goes on in a second command
 //! buffer meanwhile, so the CPU rarely waits for the GPU.
 
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 use std::sync::{mpsc, Arc, Condvar, Mutex, PoisonError};
@@ -1121,7 +1120,8 @@ enum Job {
     /// a program to translate.
     Translate(ProgramKey, Arc<Program>),
     /// a pipeline to compile, with its vertex shader's module.
-    Compile(PipelineKey, vk::ShaderModule),
+    /// The flag asks for a quick compile without the optimizations of the driver.
+    Compile(PipelineKey, vk::ShaderModule, bool),
 }
 
 /// what the compiler thread made of a job.
@@ -1129,8 +1129,13 @@ enum Made {
     /// the SPIR-V and the source it came from, which programs that run
     /// the same share a module by.
     Translated(ProgramKey, Result<(Vec<u32>, String), String>),
-    Compiled(PipelineKey, Result<vk::Pipeline, String>),
+    /// A compiled pipeline, with the flag of a quick compile.
+    Compiled(PipelineKey, Result<vk::Pipeline, String>, bool),
 }
+
+/// The number of threads that compile pipelines.
+/// A driver compiling three pipelines at once took the time of the emulation away and made frames late, so there is one.
+const COMPILER_THREADS: usize = 1;
 
 /// the jobs waiting for the compiler threads, translations first, as they
 /// are quick and pipelines wait for them, then the generic pipelines made at
@@ -1140,6 +1145,8 @@ struct Queue {
     translations: VecDeque<Job>,
     generic: VecDeque<Job>,
     compiles: Vec<Job>,
+    /// The optimized compiles of pipelines that are already drawn through a quick compile, made when nothing else waits.
+    refines: Vec<Job>,
     stopped: bool,
     /// pipelines compiled since the cache was last kept on disk, and when
     /// that was, which a thread with nothing else to do sees to.
@@ -1164,8 +1171,8 @@ impl Compiler {
     /// the threads, compiling with a cache, a layout and a fragment shader
     /// that outlive them. a slow driver takes a long while over a scene's
     /// pipelines, which are drawn through the slower generic shader until
-    /// then, so there is one for each core the emulation and the driver
-    /// leave, up to three.
+    /// then.
+    /// Each pipeline is first compiled quickly without optimizations, and later again in full.
     fn start(
         device: ash::Device,
         cache: vk::PipelineCache,
@@ -1179,14 +1186,14 @@ impl Compiler {
             translations: VecDeque::new(),
             generic: VecDeque::new(),
             compiles: Vec::new(),
+            refines: Vec::new(),
             stopped: false,
             compiled: 0,
             saved: std::time::Instant::now(),
         };
         let queue = Arc::new((Mutex::new(waiting), Condvar::new()));
         let (sent, made) = mpsc::channel();
-        let count = thread::available_parallelism().map_or(1, |cores| cores.get().saturating_sub(2).clamp(1, 3));
-        let threads = (0..count)
+        let threads = (0..COMPILER_THREADS)
             .map_while(|_| {
                 let (jobs, sent, device, kept) = (queue.clone(), sent.clone(), device.clone(), kept.clone());
                 thread::Builder::new()
@@ -1226,6 +1233,17 @@ impl Compiler {
         None
     }
 
+    /// Queues the optimized compile of a pipeline behind every other job.
+    fn refine(&mut self, job: Job) {
+        if self.threads.is_empty() {
+            return;
+        }
+        let (queue, ready) = &*self.queue;
+        queue.lock().unwrap_or_else(PoisonError::into_inner).refines.push(job);
+        ready.notify_one();
+        self.outstanding += 1;
+    }
+
     /// waits for the jobs the threads are on and drops the rest, giving
     /// back the pipelines they made that no one took.
     fn finish(&mut self) -> Vec<vk::Pipeline> {
@@ -1235,13 +1253,14 @@ impl Compiler {
         waiting.translations.clear();
         waiting.generic.clear();
         waiting.compiles.clear();
+        waiting.refines.clear();
         ready.notify_all();
         drop(waiting);
         for thread in self.threads.drain(..) {
             let _ = thread.join();
         }
         let made = self.made.try_iter().filter_map(|made| match made {
-            Made::Compiled(_, Ok(pipeline)) => Some(pipeline),
+            Made::Compiled(_, Ok(pipeline), _) => Some(pipeline),
             _ => None,
         });
         made.collect()
@@ -1271,7 +1290,7 @@ fn compile(
                 return;
             }
             if let Some(job) =
-                waiting.translations.pop_front().or_else(|| waiting.generic.pop_front()).or_else(|| waiting.compiles.pop())
+                waiting.translations.pop_front().or_else(|| waiting.generic.pop_front()).or_else(|| waiting.compiles.pop()).or_else(|| waiting.refines.pop())
             {
                 break job;
             }
@@ -1335,15 +1354,18 @@ fn work(
             }
             Made::Translated(key, made)
         }
-        Job::Compile(key, module) => {
+        Job::Compile(key, module, quick) => {
             let modules = [module, fragment_module(fragments, &key)];
-            let made = compile_pipeline(device, cache, layout, modules, &key, vk::PipelineCreateFlags::empty(), dynamic, depth_format);
+            // A quick compile skips the optimizations of the driver, which on a first run took seconds for one pipeline.
+            let flags = if quick { vk::PipelineCreateFlags::DISABLE_OPTIMIZATION } else { vk::PipelineCreateFlags::empty() };
+            let made = compile_pipeline(device, cache, layout, modules, &key, flags, dynamic, depth_format);
             log::debug!(
                 target: "zakuro_gpu::pipelines",
-                "compiled a pipeline while drawing went on, in {:.1} ms",
+                "compiled a pipeline{} while drawing went on, in {:.1} ms",
+                if quick { " quickly" } else { " in full" },
                 started.elapsed().as_secs_f64() * 1000.0
             );
-            Made::Compiled(key, made)
+            Made::Compiled(key, made, quick)
         }
     }
 }
@@ -1543,8 +1565,10 @@ pub struct Hardware {
     uniforms: Block,
     shading: Block,
     pipelines: QuickMap<PipelineKey, vk::Pipeline>,
+    /// The quick builds that full builds took over from, kept until the end.
+    retired: Vec<vk::Pipeline>,
     /// the last pipeline a draw found made for its own key, which the next
-    /// draw mostly shares. a pipeline stays in the map for good.
+    /// draw mostly shares.
     last_pipeline: Option<(PipelineKey, vk::Pipeline)>,
     /// made the first time a display transfer runs here.
     transfer: Option<Compute>,
@@ -1808,6 +1832,7 @@ impl Hardware {
                 uniforms: Block::default(),
                 shading: Block::default(),
                 pipelines: QuickMap::default(),
+                retired: Vec::new(),
                 last_pipeline: None,
                 transfer: None,
                 depth: None,
@@ -1898,7 +1923,8 @@ impl Hardware {
             if dynamic.blend && !hardware.waits {
                 for key in generic_keys(hardware.shades) {
                     let module = hardware.vertex_module(key.vertex);
-                    hardware.compiler.send_generic(Job::Compile(key, module));
+                    hardware.compiler.asked.insert(key);
+                    hardware.compiler.send_generic(Job::Compile(key, module, true));
                 }
             }
             Ok(hardware)
@@ -3174,49 +3200,66 @@ impl Hardware {
     /// the pipeline a draw goes through. until the one made for its key is
     /// ready the compiler makes it, and the draw goes through one that
     /// draws the same, the interpreter's with the same fragment stages when
-    /// there is one, or else the generic fragment shader's, made right away
-    /// once per blend function and the like. a program still being
-    /// translated does not have its interpreted pipeline asked for, it
-    /// would not be used for long.
-    fn pipeline_for(&mut self, key: PipelineKey, translating: bool) -> Result<vk::Pipeline, String> {
+    /// there is one, or else the generic fragment shader's, one per blend
+    /// function and the like. a program still being translated does not
+    /// have its interpreted pipeline asked for, it would not be used for
+    /// long.
+    /// There is none while even the generic pipeline is being compiled, and the draw is then skipped.
+    fn pipeline_for(&mut self, key: PipelineKey, translating: bool) -> Result<Option<vk::Pipeline>, String> {
         let vertex = match key.vertex {
             VertexStage::Placed => VertexStage::Placed,
             _ => VertexStage::Interpreted,
         };
         let generic = PipelineKey { vertex, fragment: generic(&key.fragment), ..key };
         if self.generic {
-            return self.pipeline(generic);
+            return self.pipeline(generic).map(Some);
         }
         if let Some((last, pipeline)) = self.last_pipeline {
             if last == key {
-                return Ok(pipeline);
+                return Ok(Some(pipeline));
             }
         }
         if let Some(&pipeline) = self.pipelines.get(&key) {
             self.last_pipeline = Some((key, pipeline));
-            return Ok(pipeline);
+            return Ok(Some(pipeline));
         }
         if !translating && self.compiler.asked.insert(key) {
             // The cache on disk is only used when the draw waits for its pipeline.
             if self.waits {
                 if let Some(pipeline) = self.cached(key) {
-                    return Ok(pipeline);
+                    return Ok(Some(pipeline));
                 }
             }
             // made right here when waiting for it
-            self.hand(Job::Compile(key, self.vertex_module(key.vertex)));
+            self.hand(Job::Compile(key, self.vertex_module(key.vertex), true));
             if let Some(&pipeline) = self.pipelines.get(&key) {
-                return Ok(pipeline);
+                return Ok(Some(pipeline));
             }
         }
         // meanwhile, or for good when the driver turned it down
         if let VertexStage::Translated(_) = key.vertex {
             let interpreted = PipelineKey { vertex: VertexStage::Interpreted, ..key };
             if self.waits || self.pipelines.contains_key(&interpreted) {
-                return self.pipeline(interpreted);
+                return self.pipeline(interpreted).map(Some);
             }
         }
-        self.pipeline(generic)
+        self.generic_pipeline(generic)
+    }
+
+    /// The generic pipeline for a key, or none while the compiler makes it.
+    /// Compiling it on the draw held a frame for hundreds of milliseconds on a first run.
+    /// It is still compiled on the draw when draws wait for their pipelines, or when there is no compiler.
+    fn generic_pipeline(&mut self, generic: PipelineKey) -> Result<Option<vk::Pipeline>, String> {
+        if let Some(&pipeline) = self.pipelines.get(&generic) {
+            return Ok(Some(pipeline));
+        }
+        if self.waits || self.compiler.threads.is_empty() {
+            return self.pipeline(generic).map(Some);
+        }
+        if self.compiler.asked.insert(generic) {
+            self.hand(Job::Compile(generic, self.vertex_module(generic.vertex), true));
+        }
+        Ok(None)
     }
 
     /// raster.frag leaving depth to the rasterizer, and working it out.
@@ -3535,6 +3578,11 @@ impl Hardware {
                 None => return,
             },
         };
+        // A pipeline made here is not compiled again later, so it is compiled in full.
+        let job = match job {
+            Job::Compile(key, module, _) => Job::Compile(key, module, false),
+            job => job,
+        };
         let made = work(job, &self.device, self.pipeline_cache, self.layout, self.fragment_modules(), self.dynamic, self.depth_format);
         self.take(made);
     }
@@ -3579,15 +3627,33 @@ impl Hardware {
             Made::Translated(key, Err(_)) => {
                 self.translated.insert(key, Translation::Failed);
             }
-            Made::Compiled(key, Ok(pipeline)) => match self.pipelines.entry(key) {
-                Entry::Vacant(entry) => {
-                    entry.insert(pipeline);
+            Made::Compiled(key, Ok(pipeline), true) => {
+                if self.pipelines.contains_key(&key) {
+                    // a draw made it meanwhile
+                    // SAFETY: nothing recorded uses the one just made
+                    unsafe { self.device.destroy_pipeline(pipeline, None) };
+                    return;
                 }
-                // a draw made it meanwhile
-                // SAFETY: nothing recorded uses the one just made
-                Entry::Occupied(_) => unsafe { self.device.destroy_pipeline(pipeline, None) },
-            },
-            Made::Compiled(key, Err(error)) => match key.vertex {
+                self.pipelines.insert(key, pipeline);
+                // The quick build draws until the full one takes over, which is compiled when nothing else waits.
+                let module = self.vertex_module(key.vertex);
+                self.compiler.refine(Job::Compile(key, module, false));
+            }
+            Made::Compiled(key, Ok(pipeline), false) => {
+                if let Some(quick) = self.pipelines.insert(key, pipeline) {
+                    // Frames still on the GPU may draw through the quick build, so it is destroyed with the rest at the end.
+                    self.retired.push(quick);
+                    self.last_pipeline = None;
+                }
+            }
+            // The quick build goes on drawing.
+            Made::Compiled(key, Err(error), false) if self.pipelines.contains_key(&key) => {
+                log::warn!("could not compile a pipeline in full, {error}, keeping the quick build");
+            }
+            Made::Compiled(key, Err(error), _) if key.fragment == generic(&key.fragment) && !matches!(key.vertex, VertexStage::Translated(_)) => {
+                log::warn!("could not compile a generic pipeline, {error}, skipping the draws that need it");
+            }
+            Made::Compiled(key, Err(error), _) => match key.vertex {
                 // a translated program the driver turns down goes back to
                 // the interpreter
                 VertexStage::Translated(failed) => {
@@ -3967,7 +4033,10 @@ impl Hardware {
             vertex,
             fragment,
         };
-        let pipeline = self.pipeline_for(key, translating)?;
+        // A draw with no pipeline yet is skipped rather than held up by a compile.
+        let Some(pipeline) = self.pipeline_for(key, translating)? else {
+            return Ok(());
+        };
 
         self.mark(Work::Draw, false);
         if self.uploads {
@@ -5965,7 +6034,7 @@ impl Drop for Hardware {
                 self.device.destroy_buffer(samples.buffer, None);
                 self.device.free_memory(samples.memory, None);
             }
-            for &pipeline in self.pipelines.values().chain(&unclaimed) {
+            for &pipeline in self.pipelines.values().chain(&self.retired).chain(&unclaimed) {
                 self.device.destroy_pipeline(pipeline, None);
             }
             for &sampler in self.samplers.values() {

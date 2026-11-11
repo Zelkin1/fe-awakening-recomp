@@ -515,8 +515,10 @@ impl System {
 
         let exit = match self.run_recompiled(deadline) {
             Some(exit) => {
-                // its writes do not go through the log a watch keeps
-                self.idle_interrupted(false);
+                // its writes do not go through the log a watch keeps.
+                // The thread counts as busy, so the few instructions the interpreter steps to the next entry point start no watch.
+                // A watch then waits until the interpreter has run on its own for a while.
+                self.idle_interrupted(true);
                 if let Some(hints) = &mut self.hints {
                     hints.library_ran();
                 }

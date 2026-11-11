@@ -176,6 +176,7 @@ Changed:
 - `struct System`
 - `impl System`
 - `fn System::new`
+- `fn System::step`
 - `fn System::end_frame`
 - `fn System::pace`
 - `fn System::set_framebuffer`
@@ -462,6 +463,8 @@ Added:
 - `impl Pool`
 - `fn Pool::take`
 - `fn Pool::give_back`
+- `const COMPILER_THREADS`
+- `fn Compiler::refine`
 - `fn Hardware::rescale`
 - `fn Hardware::from_pool`
 - `fn Hardware::release`
@@ -469,6 +472,7 @@ Added:
 - `fn Hardware::first_level`
 - `fn Hardware::level_view`
 - `fn Hardware::blit_with`
+- `fn Hardware::generic_pipeline`
 - `fn Hardware::texture_copy`
 - `fn Hardware::texture_copy_columns`
 - `fn Hardware::transfer`
@@ -479,10 +483,18 @@ Added:
 
 Changed:
 
-- `struct Image`
 - `code outside any item`
+- `struct Image`
 - `struct Copied`
 - `fn Filtering::picture`
+- `enum Job`
+- `enum Made`
+- `struct Queue`
+- `impl Compiler`
+- `fn Compiler::start`
+- `fn Compiler::finish`
+- `fn compile`
+- `fn work`
 - `struct Hardware`
 - `impl Hardware`
 - `fn Hardware::with_device`
@@ -492,6 +504,8 @@ Changed:
 - `fn Hardware::reads_twin`
 - `fn Hardware::blit`
 - `fn Hardware::pipeline_for`
+- `fn Hardware::hand`
+- `fn Hardware::take`
 - `fn Hardware::draw`
 - `fn Hardware::display_transfer`
 - `fn Hardware::texture_source`
@@ -797,6 +811,7 @@ Changed:
 
 Added:
 
+- `const Language::IN_THE_GAME`
 - `enum BattleUi`
 - `impl BattleUi`
 - `const BattleUi::ALL`
@@ -816,6 +831,7 @@ Added:
 Changed:
 
 - `fn TopShape::name`
+- `impl Language`
 - `code outside any item`
 - `fn <PadButtons as Default>::default`
 - `struct Settings`
@@ -827,6 +843,7 @@ Changed:
 Removed:
 
 - `const CameraSource::ALL`
+- `const Language::ALL`
 - `fn CameraSource::name`
 - `impl CameraSource`
 
