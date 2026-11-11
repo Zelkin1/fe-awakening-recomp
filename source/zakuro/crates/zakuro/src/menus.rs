@@ -23,8 +23,10 @@ pub enum Action {
     Play(PathBuf),
     /// recompile the library's game at this index.
     Recompile(usize),
-    /// Install the mod at this index. The flag tells whether the downloads it needs are already agreed to.
-    InstallMod(usize, bool),
+    /// Install the mod at this index.
+    /// The choice tells whether the optional part of the mod, such as the AI cleanup, is wanted.
+    /// No choice means the player has not been asked yet.
+    InstallMod(usize, Option<bool>),
     /// Remove the files of the mod at this index.
     UninstallMod(usize),
     /// Turn the mod at this index on or off.
@@ -77,10 +79,13 @@ pub enum Action {
     CheatsFolder,
 }
 
-/// The question of whether to download the files a mod needs.
-pub struct DownloadOffer {
-    /// The index of the mod step that needs the downloads.
+/// The question of whether to install a mod with its optional part, which needs downloads.
+#[derive(Clone, Copy)]
+pub struct InstallChoice {
+    /// The index of the mod step.
     pub step: usize,
+    /// Whether the downloads of the optional part are already on the computer.
+    pub downloaded: bool,
 }
 
 #[derive(Default)]
@@ -119,8 +124,8 @@ pub struct Menus {
     /// the library's game to recompile once the player agrees to download a
     /// compiler for it.
     pub compiler_offer: Option<usize>,
-    /// The download question to show, when a mod needs files.
-    pub download_offer: Option<DownloadOffer>,
+    /// The question to show before installing a mod that has an optional part.
+    pub install_choice: Option<InstallChoice>,
     /// The state of the update button in the library, or none when it is hidden.
     pub update: Option<UpdateButton>,
     /// The mods of the game and their states, for the Mods tab.
@@ -1024,40 +1029,45 @@ impl Menus {
         action
     }
 
-    /// Asks whether to download the files a mod needs, before it is installed.
-    /// Returns the install action when the player agrees, and closes the offer in every case.
-    pub fn download_offer(&mut self, ctx: &egui::Context) -> Option<Action> {
-        let index = self.download_offer.as_ref()?.step;
+    /// Asks whether to install a mod with its optional part, which needs downloads, or without it.
+    /// Returns the install action with the choice, and closes the question in every case.
+    pub fn install_choice(&mut self, ctx: &egui::Context) -> Option<Action> {
+        let InstallChoice { step: index, downloaded } = *self.install_choice.as_ref()?;
         let step = crate::recompile::MOD_STEPS.get(index)?;
-        let size = step.needs.iter().map(|need| need.download.size_text()).collect::<Vec<_>>().join(" and ");
-        let modal = egui::Modal::new(egui::Id::new("downloads")).frame(theme::frame()).show(ctx, |ui| {
+        let need = step.needs.first()?;
+        let size = need.download.size_text();
+        let modal = egui::Modal::new(egui::Id::new("install choice")).frame(theme::frame()).show(ctx, |ui| {
             ui.set_width(420.0);
-            theme::header(ui, &format!("Download for the {} mod?", step.label), None);
+            theme::header(ui, &format!("Install the {} mod", step.label), None);
             theme::menu_body(ui, |ui| {
-                for need in step.needs {
-                    ui.label(RichText::new(need.why).size(15.0));
-                    ui.add_space(4.0);
-                    theme::hint(ui, &format!("The {} mod needs {}: {}, downloaded once from the pages of their authors.", step.label, need.what, need.download.size_text()));
-                    ui.add_space(8.0);
-                }
-                theme::hint(ui, &format!("Without it, the {} mod isn't installed.", step.label));
+                ui.label(RichText::new(need.why).size(15.0));
+                ui.add_space(4.0);
+                let source = if downloaded { format!("The {} uses {}, already downloaded.", need.name, need.what) } else { format!("The {} needs {}: {size}, downloaded once from the pages of their authors.", need.name, need.what) };
+                theme::hint(ui, &source);
+                theme::hint(ui, &format!("Without the {}, the {} mod draws over the pictures as the game stores them.", need.name, step.label));
                 ui.add_space(6.0);
                 theme::commands(ui, |ui| {
-                    let refuse = theme::command(ui, "\u{2716}", "Don't install", true);
-                    let download = theme::command(ui, "\u{2193}", &format!("Download, {size}"), true);
-                    // Focus starts on the download so that Enter accepts the offer.
-                    if !refuse.has_focus() && !download.has_focus() {
-                        download.request_focus();
+                    let cancel = theme::command(ui, "\u{2716}", "Cancel", true);
+                    let without = theme::command(ui, "\u{2192}", &format!("Without the {}", need.name), true);
+                    let with_label = if downloaded { format!("With the {}", need.name) } else { format!("With the {}, {size}", need.name) };
+                    let with = theme::command(ui, "\u{2193}", &with_label, true);
+                    // Focus starts on the install with the optional part, so that Enter takes it.
+                    if !cancel.has_focus() && !without.has_focus() && !with.has_focus() {
+                        with.request_focus();
                     }
-                    (refuse.clicked(), download.clicked())
+                    (cancel.clicked(), without.clicked(), with.clicked())
                 })
             })
         });
-        let (refuse, download) = modal.inner;
-        if download || refuse || modal.should_close() {
-            self.download_offer = None;
+        let (cancel, without, with) = modal.inner;
+        if cancel || without || with || modal.should_close() {
+            self.install_choice = None;
         }
-        download.then_some(Action::InstallMod(index, true))
+        match (without, with) {
+            (true, _) => Some(Action::InstallMod(index, Some(false))),
+            (_, true) => Some(Action::InstallMod(index, Some(true))),
+            _ => None,
+        }
     }
 
     /// Shows the message to the user in a modal, with a button to copy the report that goes with it.
@@ -1346,7 +1356,7 @@ fn mods_tab(ui: &mut egui::Ui, mods: &[ModSwitch], actions: &mut Vec<Action>) {
                             actions.push(Action::ModEnabled(index, on));
                         }
                         if ui.button("Rebuild mod").on_hover_text(format!("Build the {} mod again from your copy of the game.", switch.label)).clicked() {
-                            actions.push(Action::InstallMod(index, false));
+                            actions.push(Action::InstallMod(index, None));
                         }
                         if ui.button("Uninstall").on_hover_text(format!("Remove the {} mod's files. Install it again any time.", switch.label)).clicked() {
                             actions.push(Action::UninstallMod(index));
@@ -1357,7 +1367,7 @@ fn mods_tab(ui: &mut egui::Ui, mods: &[ModSwitch], actions: &mut Vec<Action>) {
             (None, false) => {
                 theme::commands(ui, |ui| {
                     if theme::command(ui, "\u{2193}", &format!("Install the {} mod", switch.label), true).on_hover_text(switch.about).clicked() {
-                        actions.push(Action::InstallMod(index, false));
+                        actions.push(Action::InstallMod(index, None));
                     }
                 });
             }

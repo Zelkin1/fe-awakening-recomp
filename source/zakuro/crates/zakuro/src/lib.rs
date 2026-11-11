@@ -1447,8 +1447,8 @@ impl App {
     /// Starts the installation of the mod at the index as a job.
     ///
     /// The mod is built from the game that it belongs to.
-    /// When downloads are needed and the user has not agreed yet, an offer is shown instead.
-    fn install_mod(&mut self, index: usize, agreed: bool) {
+    /// A mod with an optional part asks first whether to include it, unless the choice is given.
+    fn install_mod(&mut self, index: usize, choice: Option<bool>) {
         let Some(step) = recompile::MOD_STEPS.get(index) else { return };
         let Some(data_dir) = self.data_dir.clone() else {
             self.menus.message = Some("The mods need Zakuro's data folder.".to_owned());
@@ -1462,11 +1462,15 @@ impl App {
         if self.jobs.iter().any(|job| job.program_id == step.program_id) {
             return;
         }
-        if !agreed && step.lacks_downloads(&data_dir) {
-            self.menus.download_offer = Some(menus::DownloadOffer { step: index });
-            return;
-        }
-        self.jobs.push(Job::install(&path, &name, &data_dir, step));
+        let optional = match choice {
+            Some(optional) => optional,
+            None if !step.needs.is_empty() => {
+                self.menus.install_choice = Some(menus::InstallChoice { step: index, downloaded: !step.lacks_downloads(&data_dir) });
+                return;
+            }
+            None => false,
+        };
+        self.jobs.push(Job::install(&path, &name, &data_dir, step, optional));
     }
 
     /// Collects the results of the check for an update and of the installation, and sets the state of the update button.
@@ -2205,7 +2209,7 @@ impl App {
                 actions.extend(menus.keyboard(ui.ctx(), request));
             }
             actions.extend(menus.compiler_offer(ui.ctx()));
-            actions.extend(menus.download_offer(ui.ctx()));
+            actions.extend(menus.install_choice(ui.ctx()));
             menus.message(ui.ctx());
             if cursor_idle {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::None);

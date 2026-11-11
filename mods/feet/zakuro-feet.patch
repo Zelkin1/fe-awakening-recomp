@@ -2087,10 +2087,10 @@ index 0000000..7518981
 +}
 diff --git a/crates/zakuro/src/feet/mod.rs b/crates/zakuro/src/feet/mod.rs
 new file mode 100644
-index 0000000..b5888b8
+index 0000000..e9318a1
 --- /dev/null
 +++ b/crates/zakuro/src/feet/mod.rs
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,135 @@
 +
 +//! The feet mod.
 +//! It builds feet for the 3D body models of the characters from the files of the game, and writes the new models as a mod folder.
@@ -2142,7 +2142,8 @@ index 0000000..b5888b8
 +/// Builds the feet for every body model of the game and writes them into the folder of the mod.
 +/// A body that can not be given feet is left out, so the game keeps its own legs for it.
 +/// It returns a short summary, or an error when the game is the wrong release, the build is cancelled, or no body worked.
-+fn build(rom: &Path, data_dir: &Path, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
++/// The feet have no optional part, so the choice of one is ignored.
++fn build(rom: &Path, data_dir: &Path, _optional: bool, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
 +    let title = zakuro_fs::Title::load(rom).map_err(|error| format!("{}: {error}", rom.display()))?;
 +    if title.program_id() != PROGRAM_ID {
 +        return Err("the feet are made for the European release".into());
@@ -2221,7 +2222,7 @@ index 0000000..b5888b8
 +            panic!("set ZAKURO_FEET_ROM and ZAKURO_FEET_DATA");
 +        };
 +        let started = std::time::Instant::now();
-+        let said = build(Path::new(&rom), Path::new(&data), &|_, _, _| {}, &AtomicBool::new(false)).unwrap();
++        let said = build(Path::new(&rom), Path::new(&data), false, &|_, _, _| {}, &AtomicBool::new(false)).unwrap();
 +        println!("{said} in {:.1} s", started.elapsed().as_secs_f64());
 +    }
 +}
@@ -2411,7 +2412,7 @@ index 0000000..01e52e9
 +    Ok(out)
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 5b06f5e..688e817 100644
+index 0c5cd33..ea25a5f 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -8,6 +8,7 @@ mod camera;
@@ -2423,7 +2424,7 @@ index 5b06f5e..688e817 100644
  mod gui;
  mod hdtext;
 diff --git a/crates/zakuro/src/recompile.rs b/crates/zakuro/src/recompile.rs
-index 43c8a82..cd2ae3e 100644
+index 59a8805..e3b0a32 100644
 --- a/crates/zakuro/src/recompile.rs
 +++ b/crates/zakuro/src/recompile.rs
 @@ -48,7 +48,7 @@ impl ModStep {

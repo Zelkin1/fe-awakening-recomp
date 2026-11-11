@@ -35,7 +35,7 @@ pub const STEP: ModStep = ModStep {
     about: "The game's fonts and the words painted in its pictures, drawn again at four times the resolution from your copy of the game.",
     folder: "hd",
     program_id: PROGRAM_ID,
-    needs: if cfg!(windows) { &[clean::NEED] } else { &[] },
+    needs: if clean::AVAILABLE { &[clean::NEED] } else { &[] },
     quietly: &[FONTS],
     build,
 };
@@ -508,10 +508,11 @@ pub fn generate(rom: &Path, root: &Path, font: &Font, cleaner: Option<&clean::Cl
 
 /// The entry point of the install step.
 /// It downloads the fonts and, on Windows, the cleanup tool, then generates the HD text.
-fn build(rom: &Path, data_dir: &Path, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
+fn build(rom: &Path, data_dir: &Path, cleanup: bool, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
     let tools = crate::zig::tools_dir(Some(data_dir)).ok_or("the HD text has no folder to download into")?;
     let font = Font::read(&FONTS.ensure(&tools, &|_| {}, cancel)?)?;
-    let cleaner = if cfg!(windows) { Some(clean::Cleaner::in_folder(&clean::NEED.download.ensure(&tools, &|arrived| progress(DOWNLOADING, (arrived * 1000.0) as usize, 1000), cancel)?)) } else { None };
+    // The AI cleanup runs only when the player chose it, and only on a system that has a build of its program.
+    let cleaner = if cleanup && clean::AVAILABLE { Some(clean::Cleaner::in_folder(&clean::NEED.download.ensure(&tools, &|arrived| progress(DOWNLOADING, (arrived * 1000.0) as usize, 1000), cancel)?)) } else { None };
     generate(rom, &STEP.folder_in(data_dir), &font, cleaner.as_ref(), progress, cancel)
 }
 

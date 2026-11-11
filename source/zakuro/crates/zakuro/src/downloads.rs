@@ -1,10 +1,9 @@
 //! Downloads of the tools and fonts that the launcher needs. Every file is checked against its size and its SHA-256 hash before it is used.
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
-use crate::zig::{fetch, windowless, Fetcher};
+use crate::zig::{fetch, Fetcher};
 
 /// The name of the marker file that is written into a download folder once every source has arrived.
 const COMPLETE: &str = "complete";
@@ -33,6 +32,8 @@ pub struct Download {
 
 /// A download together with the texts that explain it to the user.
 pub struct Need {
+    /// The short name of the optional part of the mod that needs the download, such as "AI cleanup".
+    pub name: &'static str,
     /// What is downloaded.
     pub what: &'static str,
     /// Why the download is needed.
@@ -117,15 +118,66 @@ impl Source {
         Ok(())
     }
 
-    /// Moves a downloaded file into the folder under its real name. A zip file is unpacked into the folder with tar and then removed.
+    /// Moves a downloaded file into the folder under its real name. A zip file is unpacked into the folder and then removed.
     fn put(&self, part: &Path, folder: &Path) -> Result<(), String> {
         if !self.name.ends_with(".zip") {
             return std::fs::rename(part, folder.join(self.name)).map_err(|error| format!("{}: {error}", folder.display()));
         }
-        let unpacked = windowless(&mut Command::new("tar")).arg("-xf").arg(part).arg("-C").arg(folder).status().map_err(|error| format!("tar could not start, {error}"))?;
+        let unpacked = std::fs::read(part).map_err(|error| error.to_string()).and_then(|bytes| unzip(&bytes, folder));
         let _ = std::fs::remove_file(part);
-        if unpacked.success() { Ok(()) } else { Err(format!("{} could not be unpacked", self.name)) }
+        unpacked.map_err(|error| format!("{} could not be unpacked, {error}", self.name))
     }
+}
+
+/// Reads a little-endian number of up to four bytes at an offset of the bytes.
+fn number(bytes: &[u8], at: usize, size: usize) -> Result<usize, String> {
+    let field = bytes.get(at..at + size).ok_or("the zip file ends too soon")?;
+    Ok(field.iter().rev().fold(0, |value, &byte| value << 8 | byte as usize))
+}
+
+/// Unpacks the bytes of a zip file into a folder.
+/// Zakuro unpacks zip files itself, since not every system has a tool for them.
+/// Only stored and deflated entries are read, which are the ones zip files use.
+fn unzip(bytes: &[u8], folder: &Path) -> Result<(), String> {
+    // The record at the end of the file tells where the central directory starts and how many entries it lists.
+    let end = (0..bytes.len().saturating_sub(21)).rev().find(|&i| bytes[i..i + 4] == [0x50, 0x4B, 0x05, 0x06]).ok_or("it is not a zip file")?;
+    let mut at = number(bytes, end + 16, 4)?;
+    for _ in 0..number(bytes, end + 10, 2)? {
+        if number(bytes, at, 4)? != 0x0201_4B50 {
+            return Err("its directory is damaged".to_owned());
+        }
+        let (method, packed, size) = (number(bytes, at + 10, 2)?, number(bytes, at + 20, 4)?, number(bytes, at + 24, 4)?);
+        let name_length = number(bytes, at + 28, 2)?;
+        let name = String::from_utf8_lossy(bytes.get(at + 46..at + 46 + name_length).ok_or("the zip file ends too soon")?).into_owned();
+        let local = number(bytes, at + 42, 4)?;
+        at += 46 + name_length + number(bytes, at + 30, 2)? + number(bytes, at + 32, 2)?;
+        // A name that climbs out of the folder is refused, so an entry can only land inside it.
+        let relative = Path::new(&name);
+        if !relative.components().all(|part| matches!(part, Component::Normal(_))) {
+            return Err(format!("it holds an unsafe name, {name}"));
+        }
+        let target = folder.join(relative);
+        if name.ends_with('/') {
+            std::fs::create_dir_all(&target).map_err(|error| format!("{}: {error}", target.display()))?;
+            continue;
+        }
+        // The data follows the local header, whose name and extra field can differ in length from the directory.
+        let start = local + 30 + number(bytes, local + 26, 2)? + number(bytes, local + 28, 2)?;
+        let data = bytes.get(start..start + packed).ok_or("the zip file ends too soon")?;
+        let content = match method {
+            0 => data.to_vec(),
+            8 => miniz_oxide::inflate::decompress_to_vec(data).map_err(|_| format!("{name} is damaged"))?,
+            _ => return Err(format!("{name} is packed in a way Zakuro does not read")),
+        };
+        if content.len() != size {
+            return Err(format!("{name} has the wrong size"));
+        }
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+        }
+        std::fs::write(&target, content).map_err(|error| format!("{}: {error}", target.display()))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -143,6 +195,53 @@ mod tests {
         let small = Download { folder: "a", sources: &SMALL, finish: None };
         let large = Download { folder: "b", sources: &LARGE, finish: None };
         assert_eq!((small.size_text(), large.size_text()), ("535 KB".to_owned(), "113 MB".to_owned()));
+    }
+
+    /// Builds a zip file whose entries are stored or deflated, without checksums, which unzip does not read.
+    fn zip_of(entries: &[(&str, &[u8], bool)]) -> Vec<u8> {
+        let (mut out, mut central) = (Vec::new(), Vec::new());
+        for &(name, data, deflated) in entries {
+            let packed = if deflated { miniz_oxide::deflate::compress_to_vec(data, 6) } else { data.to_vec() };
+            let (method, local) = (if deflated { 8u8 } else { 0 }, out.len() as u32);
+            let sizes = [(packed.len() as u32).to_le_bytes(), (data.len() as u32).to_le_bytes()].concat();
+            out.extend(0x0403_4B50u32.to_le_bytes());
+            out.extend([20, 0, 0, 0, method, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+            out.extend(&sizes);
+            out.extend((name.len() as u16).to_le_bytes());
+            out.extend([0, 0]);
+            out.extend(name.as_bytes());
+            out.extend(&packed);
+            central.extend(0x0201_4B50u32.to_le_bytes());
+            central.extend([20, 0, 20, 0, 0, 0, method, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+            central.extend(&sizes);
+            central.extend((name.len() as u16).to_le_bytes());
+            central.extend([0; 12]);
+            central.extend(local.to_le_bytes());
+            central.extend(name.as_bytes());
+        }
+        let (offset, count) = (out.len() as u32, entries.len() as u16);
+        out.extend(&central);
+        out.extend(0x0605_4B50u32.to_le_bytes());
+        out.extend([0, 0, 0, 0]);
+        out.extend([count.to_le_bytes(), count.to_le_bytes()].concat());
+        out.extend((central.len() as u32).to_le_bytes());
+        out.extend(offset.to_le_bytes());
+        out.extend([0, 0]);
+        out
+    }
+
+    /// A zip file unpacks its folders, stored files and deflated files, and a name that climbs out of the folder is refused.
+    #[test]
+    fn zip_files_unpack_safely() {
+        let folder = std::env::temp_dir().join(format!("zakuro-unzip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let text = b"the same words again and again, the same words again and again";
+        unzip(&zip_of(&[("models/", b"", false), ("models/a.param", b"7767517", false), ("b.txt", text, true)]), &folder).unwrap();
+        assert_eq!(std::fs::read(folder.join("models").join("a.param")).unwrap(), b"7767517");
+        assert_eq!(std::fs::read(folder.join("b.txt")).unwrap(), text);
+        assert!(unzip(&zip_of(&[("../c.txt", b"x", false)]), &folder).is_err() && !folder.parent().unwrap().join("c.txt").exists());
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]

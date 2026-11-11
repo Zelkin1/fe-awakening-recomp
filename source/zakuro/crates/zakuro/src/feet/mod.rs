@@ -49,7 +49,8 @@ const FITTING: &str = "Building the characters' feet from the game's own models.
 /// Builds the feet for every body model of the game and writes them into the folder of the mod.
 /// A body that can not be given feet is left out, so the game keeps its own legs for it.
 /// It returns a short summary, or an error when the game is the wrong release, the build is cancelled, or no body worked.
-fn build(rom: &Path, data_dir: &Path, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
+/// The feet have no optional part, so the choice of one is ignored.
+fn build(rom: &Path, data_dir: &Path, _optional: bool, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
     let title = zakuro_fs::Title::load(rom).map_err(|error| format!("{}: {error}", rom.display()))?;
     if title.program_id() != PROGRAM_ID {
         return Err("the feet are made for the European release".into());
@@ -128,7 +129,7 @@ mod tests {
             panic!("set ZAKURO_FEET_ROM and ZAKURO_FEET_DATA");
         };
         let started = std::time::Instant::now();
-        let said = build(Path::new(&rom), Path::new(&data), &|_, _, _| {}, &AtomicBool::new(false)).unwrap();
+        let said = build(Path::new(&rom), Path::new(&data), false, &|_, _, _| {}, &AtomicBool::new(false)).unwrap();
         println!("{said} in {:.1} s", started.elapsed().as_secs_f64());
     }
 }

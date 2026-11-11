@@ -1,4 +1,4 @@
-//! Self-update of the launcher. This module asks GitHub for the latest release, downloads the zip of the release and replaces the files of the launcher.
+//! Self-update of the launcher. This module asks GitHub for the latest release, downloads the asset of the release for this system and replaces the launcher with it.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -9,11 +9,11 @@ use std::sync::{Arc, Mutex};
 use crate::zig::{fetch, windowless, Fetcher};
 
 /// The tag of the release this build belongs to.
-pub const RELEASE: &str = "v1.0.12";
+pub const RELEASE: &str = "v1.0.13";
 /// The GitHub API address that describes the latest release.
 const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
-/// The end of the file name of the release asset that holds the launcher for Windows.
-const ASSET_SUFFIX: &str = "-windows-x64.zip";
+/// The end of the file name of the release asset that holds the launcher for this system: a zip on Windows, an AppImage on Linux.
+const ASSET_SUFFIX: &str = if cfg!(windows) { "-windows-x64.zip" } else { "-x86_64.AppImage" };
 /// The folder next to the launcher where an update is downloaded and unpacked.
 const STAGING: &str = "update";
 /// A file that ships in the folder of a release, used to recognise an installed launcher.
@@ -42,9 +42,14 @@ pub struct Installing {
     pub done: Receiver<Result<PathBuf, String>>,
 }
 
-/// Returns true when the launcher runs from a folder of a release, so it can replace itself.
+/// Returns true when the launcher can replace itself: on Windows when it runs from the folder of a release, elsewhere when it runs as an AppImage.
 pub fn installable() -> bool {
-    launcher_folder().is_some_and(|folder| folder.join(LICENSES).is_file())
+    if cfg!(windows) { launcher_folder().is_some_and(|folder| folder.join(LICENSES).is_file()) } else { running_appimage().is_some() }
+}
+
+/// Returns the path of the AppImage the launcher runs from, which the AppImage runtime gives in an environment variable.
+fn running_appimage() -> Option<PathBuf> {
+    std::env::var_os("APPIMAGE").map(PathBuf::from).filter(|path| path.is_file())
 }
 
 /// Removes the leftovers of an earlier update: the old launcher and the staging folder.
@@ -121,8 +126,29 @@ fn is_newer(tag: &str, current: &str) -> bool {
     matches!((version(tag), version(current)), (Some(latest), Some(current)) if latest > current)
 }
 
-/// Downloads and unpacks a release, then replaces the files of the launcher. Returns the path of the new launcher.
+/// Downloads the AppImage of a release next to the running one and puts it in its place. Returns the path of the AppImage.
+fn install_appimage(release: &Release, progress: &dyn Fn(f32)) -> Result<PathBuf, String> {
+    let current = running_appimage().ok_or("the launcher updates itself only when it runs as an AppImage")?;
+    let fetcher = Fetcher::find().ok_or("Zakuro downloads with curl or wget, and this computer has neither")?;
+    let part = current.with_extension("AppImage.part");
+    fetch(fetcher, &release.url, &part, release.size, progress, &AtomicBool::new(false))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755)).map_err(|error| format!("{}: {error}", part.display()))?;
+    }
+    // Linux lets a file be renamed over a running program, which keeps running from the old file until it ends.
+    std::fs::rename(&part, &current).map_err(|error| format!("{}: {error}", current.display()))?;
+    Ok(current)
+}
+
+/// Downloads and installs a release. Returns the path of the new launcher.
+/// On Windows the zip is unpacked and the files of the launcher are replaced.
+/// Elsewhere the AppImage is replaced.
 fn install(release: &Release, progress: &dyn Fn(f32)) -> Result<PathBuf, String> {
+    if !cfg!(windows) {
+        return install_appimage(release, progress);
+    }
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let folder = exe.parent().ok_or("Zakuro can't tell which folder it runs from")?.to_owned();
     let staging = folder.join(STAGING);
@@ -181,11 +207,12 @@ mod tests {
     }
 
     #[test]
-    fn the_latest_release_names_its_zip() {
-        let json = br#"{"tag_name":"v0.2.7","assets":[{"name":"notes.txt","browser_download_url":"https://x/notes.txt","size":3},{"name":"fe-awakening-launcher-v0.2.7-windows-x64.zip","browser_download_url":"https://x/z.zip","size":9000000}]}"#;
+    fn the_latest_release_names_the_asset_of_this_system() {
+        let json = br#"{"tag_name":"v0.2.7","assets":[{"name":"notes.txt","browser_download_url":"https://x/notes.txt","size":3},{"name":"fe-awakening-launcher-v0.2.7-windows-x64.zip","browser_download_url":"https://x/z.zip","size":9000000},{"name":"fe-awakening-launcher-v0.2.7-x86_64.AppImage","browser_download_url":"https://x/a.AppImage","size":40000000}]}"#;
         let release = parse(json).unwrap();
         assert_eq!(release.tag, "v0.2.7");
-        assert_eq!((release.url.as_str(), release.size), ("https://x/z.zip", 9_000_000));
+        let expected = if cfg!(windows) { ("https://x/z.zip", 9_000_000) } else { ("https://x/a.AppImage", 40_000_000) };
+        assert_eq!((release.url.as_str(), release.size), expected);
         assert_eq!(release.name.trim_end_matches(ASSET_SUFFIX), "fe-awakening-launcher-v0.2.7");
         assert!(parse(br#"{"tag_name":"v0.2.7","assets":[]}"#).is_none());
     }

@@ -10,13 +10,13 @@ This list separates the project's code from Zakuro's and 3dsrecomp's. Paths star
 | `zakuro/crates/zakuro-core/src/scenes.rs` | 193 | Scene detection from the markers the GPU sees: which scene shows, the end of a battle, marker positions, and the unit selection. |
 | `zakuro/crates/zakuro/src/banners.rs` | 270 | Reads the text of the FE3H-style banners (names, HP, weapon, stats) off the bottom screen. |
 | `zakuro/crates/zakuro/src/console.rs` | 96 | The optional console window with Zakuro's log (Settings, System). |
-| `zakuro/crates/zakuro/src/downloads.rs` | 160 |  |
+| `zakuro/crates/zakuro/src/downloads.rs` | 259 |  |
 | `zakuro/crates/zakuro/src/hdtext/banners.rs` | 258 | The phase, mission and result banners: lettering fitted with its spacing, glow, outline or stone fill drawn again. |
-| `zakuro/crates/zakuro/src/hdtext/clean.rs` | 450 |  |
+| `zakuro/crates/zakuro/src/hdtext/clean.rs` | 485 |  |
 | `zakuro/crates/zakuro/src/hdtext/data.rs` | 435 | The words the redrawn pictures spell, in each language: banners, inventory labels, title screen and main menu. |
 | `zakuro/crates/zakuro/src/hdtext/esrgan.rs` | 406 |  |
 | `zakuro/crates/zakuro/src/hdtext/labels.rs` | 1083 | The inventory's labels: letters taken off their plates, plates and cells evened with their grain given back, words drawn again with shadow, shine or engraving. |
-| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 536 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
+| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 537 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
 | `zakuro/crates/zakuro/src/hdtext/ops.rs` | 771 | Image operations for the redraws: planes, masks, blurs, resizing, labelling and distance transforms. |
 | `zakuro/crates/zakuro/src/hdtext/rom.rs` | 161 | Finds textures in the game's files and reads its message files. |
 | `zakuro/crates/zakuro/src/hdtext/sheets.rs` | 386 | Reads and writes the game's font files: each letter drawn at its natural width from an open font, packed into new sheets, with the 4x pictures. |
@@ -27,11 +27,11 @@ This list separates the project's code from Zakuro's and 3dsrecomp's. Paths star
 | `zakuro/crates/zakuro/src/overlays.rs` | 751 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
 | `zakuro/crates/zakuro/src/sounds.rs` | 390 | Reads the bottom screen's open and close sounds from the game's sound archive. |
 | `zakuro/crates/zakuro/src/theme.rs` | 461 | The launcher's look: colours, fonts, window frames, tabs and buttons. |
-| `zakuro/crates/zakuro/src/update.rs` | 192 | Update Launcher: finds the latest release on GitHub, downloads it and puts it in place of the running launcher. |
+| `zakuro/crates/zakuro/src/update.rs` | 219 | Update Launcher: finds the latest release on GitHub, downloads it and puts it in place of the running launcher. |
 | `zakuro/crates/zakuro-core/src/feet.rs` | 262 | The feet mod's per-frame hook: turns each foot so that it rests flat on the ground. (feet mod) |
 | `zakuro/crates/zakuro/src/feet/foot.rs` | 1392 | Builds the feet for one body model and writes the changed model. (feet mod) |
 | `zakuro/crates/zakuro/src/feet/formats.rs` | 276 | The game's formats the builder reads and writes: CGFX dictionaries and ETC1 textures. (feet mod) |
-| `zakuro/crates/zakuro/src/feet/mod.rs` | 134 | The feet mod's build step: runs the builder over every body model of the game. (feet mod) |
+| `zakuro/crates/zakuro/src/feet/mod.rs` | 135 | The feet mod's build step: runs the builder over every body model of the game. (feet mod) |
 | `zakuro/crates/zakuro/src/feet/model.rs` | 179 | Reads a CGFX model's skeleton, vertices and submeshes. (feet mod) |
 
 ## Changes inside Zakuro's files
@@ -726,7 +726,7 @@ Changed:
 Added:
 
 - `const STATE_SLOTS`
-- `struct DownloadOffer`
+- `struct InstallChoice`
 - `enum Confirm`
 - `enum SettingsTab`
 - `const SETTINGS_TABS`
@@ -734,7 +734,7 @@ Added:
 - `fn Menus::game_card`
 - `fn Menus::keybinds_tab`
 - `fn Menus::controller_tab`
-- `fn Menus::download_offer`
+- `fn Menus::install_choice`
 - `fn system_tab`
 - `fn cheat_lists`
 - `fn graphics_tab`

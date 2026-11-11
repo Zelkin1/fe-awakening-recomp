@@ -7362,10 +7362,10 @@ index 9949307..5249109 100644
 +    }
  }
 diff --git a/crates/zakuro/Cargo.toml b/crates/zakuro/Cargo.toml
-index 797b370..f475219 100644
+index 797b370..3c1a678 100644
 --- a/crates/zakuro/Cargo.toml
 +++ b/crates/zakuro/Cargo.toml
-@@ -29,10 +29,12 @@ egui-winit = { version = "0.36", default-features = false, features = ["clipboar
+@@ -29,10 +29,13 @@ egui-winit = { version = "0.36", default-features = false, features = ["clipboar
  ab_glyph = "0.2"
  serde = { version = "1.0.229", features = ["derive"] }
  toml = "1.1.6"
@@ -7375,6 +7375,7 @@ index 797b370..f475219 100644
 -recomp3ds = { git = "https://github.com/fearkov/3dsrecomp" }
 +recomp3ds = { path = "../../../3dsrecomp" }
  sha2 = "0.10"
++miniz_oxide = "0.8"
 +cityhasher = "0.1"
  gilrs = { version = "0.11.2", features = ["serde-serialize"] }
  
@@ -7973,17 +7974,16 @@ index 0000000..eae6f30
 +}
 diff --git a/crates/zakuro/src/downloads.rs b/crates/zakuro/src/downloads.rs
 new file mode 100644
-index 0000000..7d311ee
+index 0000000..e2c5a14
 --- /dev/null
 +++ b/crates/zakuro/src/downloads.rs
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,259 @@
 +//! Downloads of the tools and fonts that the launcher needs. Every file is checked against its size and its SHA-256 hash before it is used.
 +
-+use std::path::{Path, PathBuf};
-+use std::process::Command;
++use std::path::{Component, Path, PathBuf};
 +use std::sync::atomic::AtomicBool;
 +
-+use crate::zig::{fetch, windowless, Fetcher};
++use crate::zig::{fetch, Fetcher};
 +
 +/// The name of the marker file that is written into a download folder once every source has arrived.
 +const COMPLETE: &str = "complete";
@@ -8012,6 +8012,8 @@ index 0000000..7d311ee
 +
 +/// A download together with the texts that explain it to the user.
 +pub struct Need {
++    /// The short name of the optional part of the mod that needs the download, such as "AI cleanup".
++    pub name: &'static str,
 +    /// What is downloaded.
 +    pub what: &'static str,
 +    /// Why the download is needed.
@@ -8096,15 +8098,66 @@ index 0000000..7d311ee
 +        Ok(())
 +    }
 +
-+    /// Moves a downloaded file into the folder under its real name. A zip file is unpacked into the folder with tar and then removed.
++    /// Moves a downloaded file into the folder under its real name. A zip file is unpacked into the folder and then removed.
 +    fn put(&self, part: &Path, folder: &Path) -> Result<(), String> {
 +        if !self.name.ends_with(".zip") {
 +            return std::fs::rename(part, folder.join(self.name)).map_err(|error| format!("{}: {error}", folder.display()));
 +        }
-+        let unpacked = windowless(&mut Command::new("tar")).arg("-xf").arg(part).arg("-C").arg(folder).status().map_err(|error| format!("tar could not start, {error}"))?;
++        let unpacked = std::fs::read(part).map_err(|error| error.to_string()).and_then(|bytes| unzip(&bytes, folder));
 +        let _ = std::fs::remove_file(part);
-+        if unpacked.success() { Ok(()) } else { Err(format!("{} could not be unpacked", self.name)) }
++        unpacked.map_err(|error| format!("{} could not be unpacked, {error}", self.name))
 +    }
++}
++
++/// Reads a little-endian number of up to four bytes at an offset of the bytes.
++fn number(bytes: &[u8], at: usize, size: usize) -> Result<usize, String> {
++    let field = bytes.get(at..at + size).ok_or("the zip file ends too soon")?;
++    Ok(field.iter().rev().fold(0, |value, &byte| value << 8 | byte as usize))
++}
++
++/// Unpacks the bytes of a zip file into a folder.
++/// Zakuro unpacks zip files itself, since not every system has a tool for them.
++/// Only stored and deflated entries are read, which are the ones zip files use.
++fn unzip(bytes: &[u8], folder: &Path) -> Result<(), String> {
++    // The record at the end of the file tells where the central directory starts and how many entries it lists.
++    let end = (0..bytes.len().saturating_sub(21)).rev().find(|&i| bytes[i..i + 4] == [0x50, 0x4B, 0x05, 0x06]).ok_or("it is not a zip file")?;
++    let mut at = number(bytes, end + 16, 4)?;
++    for _ in 0..number(bytes, end + 10, 2)? {
++        if number(bytes, at, 4)? != 0x0201_4B50 {
++            return Err("its directory is damaged".to_owned());
++        }
++        let (method, packed, size) = (number(bytes, at + 10, 2)?, number(bytes, at + 20, 4)?, number(bytes, at + 24, 4)?);
++        let name_length = number(bytes, at + 28, 2)?;
++        let name = String::from_utf8_lossy(bytes.get(at + 46..at + 46 + name_length).ok_or("the zip file ends too soon")?).into_owned();
++        let local = number(bytes, at + 42, 4)?;
++        at += 46 + name_length + number(bytes, at + 30, 2)? + number(bytes, at + 32, 2)?;
++        // A name that climbs out of the folder is refused, so an entry can only land inside it.
++        let relative = Path::new(&name);
++        if !relative.components().all(|part| matches!(part, Component::Normal(_))) {
++            return Err(format!("it holds an unsafe name, {name}"));
++        }
++        let target = folder.join(relative);
++        if name.ends_with('/') {
++            std::fs::create_dir_all(&target).map_err(|error| format!("{}: {error}", target.display()))?;
++            continue;
++        }
++        // The data follows the local header, whose name and extra field can differ in length from the directory.
++        let start = local + 30 + number(bytes, local + 26, 2)? + number(bytes, local + 28, 2)?;
++        let data = bytes.get(start..start + packed).ok_or("the zip file ends too soon")?;
++        let content = match method {
++            0 => data.to_vec(),
++            8 => miniz_oxide::inflate::decompress_to_vec(data).map_err(|_| format!("{name} is damaged"))?,
++            _ => return Err(format!("{name} is packed in a way Zakuro does not read")),
++        };
++        if content.len() != size {
++            return Err(format!("{name} has the wrong size"));
++        }
++        if let Some(parent) = target.parent() {
++            std::fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
++        }
++        std::fs::write(&target, content).map_err(|error| format!("{}: {error}", target.display()))?;
++    }
++    Ok(())
 +}
 +
 +#[cfg(test)]
@@ -8122,6 +8175,53 @@ index 0000000..7d311ee
 +        let small = Download { folder: "a", sources: &SMALL, finish: None };
 +        let large = Download { folder: "b", sources: &LARGE, finish: None };
 +        assert_eq!((small.size_text(), large.size_text()), ("535 KB".to_owned(), "113 MB".to_owned()));
++    }
++
++    /// Builds a zip file whose entries are stored or deflated, without checksums, which unzip does not read.
++    fn zip_of(entries: &[(&str, &[u8], bool)]) -> Vec<u8> {
++        let (mut out, mut central) = (Vec::new(), Vec::new());
++        for &(name, data, deflated) in entries {
++            let packed = if deflated { miniz_oxide::deflate::compress_to_vec(data, 6) } else { data.to_vec() };
++            let (method, local) = (if deflated { 8u8 } else { 0 }, out.len() as u32);
++            let sizes = [(packed.len() as u32).to_le_bytes(), (data.len() as u32).to_le_bytes()].concat();
++            out.extend(0x0403_4B50u32.to_le_bytes());
++            out.extend([20, 0, 0, 0, method, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
++            out.extend(&sizes);
++            out.extend((name.len() as u16).to_le_bytes());
++            out.extend([0, 0]);
++            out.extend(name.as_bytes());
++            out.extend(&packed);
++            central.extend(0x0201_4B50u32.to_le_bytes());
++            central.extend([20, 0, 20, 0, 0, 0, method, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
++            central.extend(&sizes);
++            central.extend((name.len() as u16).to_le_bytes());
++            central.extend([0; 12]);
++            central.extend(local.to_le_bytes());
++            central.extend(name.as_bytes());
++        }
++        let (offset, count) = (out.len() as u32, entries.len() as u16);
++        out.extend(&central);
++        out.extend(0x0605_4B50u32.to_le_bytes());
++        out.extend([0, 0, 0, 0]);
++        out.extend([count.to_le_bytes(), count.to_le_bytes()].concat());
++        out.extend((central.len() as u32).to_le_bytes());
++        out.extend(offset.to_le_bytes());
++        out.extend([0, 0]);
++        out
++    }
++
++    /// A zip file unpacks its folders, stored files and deflated files, and a name that climbs out of the folder is refused.
++    #[test]
++    fn zip_files_unpack_safely() {
++        let folder = std::env::temp_dir().join(format!("zakuro-unzip-{}", std::process::id()));
++        let _ = std::fs::remove_dir_all(&folder);
++        std::fs::create_dir_all(&folder).unwrap();
++        let text = b"the same words again and again, the same words again and again";
++        unzip(&zip_of(&[("models/", b"", false), ("models/a.param", b"7767517", false), ("b.txt", text, true)]), &folder).unwrap();
++        assert_eq!(std::fs::read(folder.join("models").join("a.param")).unwrap(), b"7767517");
++        assert_eq!(std::fs::read(folder.join("b.txt")).unwrap(), text);
++        assert!(unzip(&zip_of(&[("../c.txt", b"x", false)]), &folder).is_err() && !folder.parent().unwrap().join("c.txt").exists());
++        let _ = std::fs::remove_dir_all(&folder);
 +    }
 +
 +    #[test]
@@ -8174,7 +8274,7 @@ index 908b5c9..0e1a338 100644
      pub fn apply(&self, mut state: InputState) -> InputState {
          let Some(gilrs) = &self.gilrs else { return state };
 diff --git a/crates/zakuro/src/gui.rs b/crates/zakuro/src/gui.rs
-index a5b4c18..b0d6540 100644
+index a5b4c18..e43c663 100644
 --- a/crates/zakuro/src/gui.rs
 +++ b/crates/zakuro/src/gui.rs
 @@ -15,8 +15,7 @@ pub struct Gui {
@@ -8214,7 +8314,7 @@ index a5b4c18..b0d6540 100644
  /// egui's own fonts, then extra ones to fall back on for what they lack.
  /// game names come in Japanese, Korean and Chinese, whose characters
  /// egui's fonts have none of and drew as boxes.
-@@ -186,6 +198,310 @@ fn font_candidates() -> Vec<(char, Vec<std::path::PathBuf>)> {
+@@ -186,6 +198,312 @@ fn font_candidates() -> Vec<(char, Vec<std::path::PathBuf>)> {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -8379,13 +8479,15 @@ index a5b4c18..b0d6540 100644
 +            });
 +            window.save(folder.join(name)).unwrap();
 +        }
-+        let ctx = crate::gui::context();
-+        let mut menus = crate::menus::Menus::default();
-+        menus.download_offer = Some(crate::menus::DownloadOffer { step: 1 });
-+        let offer = paint(&ctx, [1280, 960], None, |ui| {
-+            menus.download_offer(ui.ctx());
-+        });
-+        offer.save(folder.join("download-offer.png")).unwrap();
++        for (name, downloaded) in [("install-choice.png", false), ("install-choice-downloaded.png", true)] {
++            let ctx = crate::gui::context();
++            let mut menus = crate::menus::Menus::default();
++            menus.install_choice = Some(crate::menus::InstallChoice { step: 1, downloaded });
++            let choice = paint(&ctx, [1280, 960], None, |ui| {
++                menus.install_choice(ui.ctx());
++            });
++            choice.save(folder.join(name)).unwrap();
++        }
 +        let ctx = crate::gui::context();
 +        let bars = paint(&ctx, [660, 160], None, |ui| {
 +            for fraction in [0.02, 0.5, 1.0] {
@@ -8791,10 +8893,10 @@ index 0000000..32f8cbd
 +}
 diff --git a/crates/zakuro/src/hdtext/clean.rs b/crates/zakuro/src/hdtext/clean.rs
 new file mode 100644
-index 0000000..31f593c
+index 0000000..1d0a151
 --- /dev/null
 +++ b/crates/zakuro/src/hdtext/clean.rs
-@@ -0,0 +1,450 @@
+@@ -0,0 +1,485 @@
 +//! Cleans compression artifacts out of the pictures of the game.
 +//! It runs the realesrgan-ncnn-vulkan program with a 1x model over the pictures, keeps the result only where it stays faithful, and adds a light grain to the parchment panels.
 +
@@ -8809,12 +8911,26 @@ index 0000000..31f593c
 +use crate::zig::windowless;
 +
 +/// The Windows build of realesrgan-ncnn-vulkan, as its author publishes it on GitHub.
-+const RUNNER: Source = Source {
++const WINDOWS_RUNNER: Source = Source {
 +    url: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
 +    name: "realesrgan-ncnn-vulkan-20220424-windows.zip",
 +    size: 45_474_481,
 +    sha256: "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d",
 +};
++
++/// The Linux build of realesrgan-ncnn-vulkan, from the same release.
++const LINUX_RUNNER: Source = Source {
++    url: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip",
++    name: "realesrgan-ncnn-vulkan-20220424-ubuntu.zip",
++    size: 46_931_474,
++    sha256: "e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96",
++};
++
++/// The build of the runner for the system the launcher runs on.
++const RUNNER: Source = if cfg!(windows) { WINDOWS_RUNNER } else { LINUX_RUNNER };
++
++/// Whether the cleanup can run on this system, which needs a build of the runner for it.
++pub const AVAILABLE: bool = cfg!(any(windows, target_os = "linux"));
 +
 +/// The BCGone Smooth weights, from the link that OpenModelDB lists for the model.
 +const WEIGHTS: Source = Source {
@@ -8827,6 +8943,7 @@ index 0000000..31f593c
 +/// The download that the cleanup needs, with the reason that is shown to the player.
 +/// The weights are converted by `prepare` once they have arrived.
 +pub const NEED: Need = Need {
++    name: "AI cleanup",
 +    what: "an AI model, BCGone Smooth, and Real-ESRGAN's program that runs it",
 +    why: "The 3DS stores the game's pictures compressed, which leaves blocks and stripes in them. Before the words are drawn again, the model looks at each menu picture on your graphics card and smooths those blocks away, keeping the drawing as it is.",
 +    download: Download { folder: "ui-cleanup-1", sources: &[RUNNER, WEIGHTS], finish: Some(prepare) },
@@ -8849,6 +8966,13 @@ index 0000000..31f593c
 +    let (param, bin) = super::esrgan::one_x(&template, &weights)?;
 +    std::fs::write(models.join(format!("{MODEL}.param")), param).map_err(|error| format!("{}: {error}", models.display()))?;
 +    std::fs::write(models.join(format!("{MODEL}.bin")), bin).map_err(|error| format!("{}: {error}", models.display()))?;
++    // The zip file keeps no permissions, so on Linux the program is made executable here.
++    #[cfg(unix)]
++    {
++        use std::os::unix::fs::PermissionsExt;
++        let program = folder.join(PROGRAM);
++        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).map_err(|error| format!("{}: {error}", program.display()))?;
++    }
 +    // Remove what the cleanup does not use, to keep the folder small.
 +    let _ = std::fs::remove_file(folder.join(WEIGHTS.name));
 +    UNUSED.iter().for_each(|name| drop(std::fs::remove_file(folder.join(name))));
@@ -8867,7 +8991,7 @@ index 0000000..31f593c
 +/// The formats with fewer bits per colour, such as RGBA4, hold pixel art without blocks, which the model would only smear.
 +const BLOCK_COMPRESSED: [u32; 2] = [12, 13];
 +/// The file name of the program in the download.
-+const PROGRAM: &str = "realesrgan-ncnn-vulkan.exe";
++const PROGRAM: &str = if cfg!(windows) { "realesrgan-ncnn-vulkan.exe" } else { "realesrgan-ncnn-vulkan" };
 +/// The name of the converted model, without an extension.
 +const MODEL: &str = "1x-bcgone";
 +/// The number of passes that spread the colour into the clear pixels.
@@ -9243,6 +9367,19 @@ index 0000000..31f593c
 +    #[test]
 +    fn only_block_compressed_formats_are_cleaned() {
 +        assert!(block_compressed(12) && block_compressed(13) && !block_compressed(4) && !block_compressed(2) && !block_compressed(0) && !block_compressed(11));
++    }
++
++    /// Downloads the cleanup into a tools folder and cleans one picture with it, as an install does.
++    /// It is ignored by default, because it downloads about 113 MB and needs Vulkan.
++    #[test]
++    #[ignore = "ZAKURO_CLEAN_TOOLS, a tools folder to download the cleanup into"]
++    fn the_cleanup_downloads_and_runs() {
++        let tools = PathBuf::from(std::env::var("ZAKURO_CLEAN_TOOLS").unwrap());
++        let folder = NEED.download.ensure(&tools, &|_| {}, &AtomicBool::new(false)).unwrap();
++        let mut picture = Rgba::new(64, 64);
++        picture.v.iter_mut().enumerate().for_each(|(i, p)| *p = [0.8, 0.6 + (i % 8) as f32 * 0.01, 0.4, 1.0]);
++        let cleaned = Cleaner::in_folder(&folder).clean(&[("test".to_owned(), picture)], &|_| {}, &AtomicBool::new(false)).unwrap();
++        assert!(cleaned.contains_key("test"));
 +    }
 +}
 diff --git a/crates/zakuro/src/hdtext/data.rs b/crates/zakuro/src/hdtext/data.rs
@@ -11189,10 +11326,10 @@ index 0000000..2d8ea06
 +
 diff --git a/crates/zakuro/src/hdtext/mod.rs b/crates/zakuro/src/hdtext/mod.rs
 new file mode 100644
-index 0000000..b6fa892
+index 0000000..eb42170
 --- /dev/null
 +++ b/crates/zakuro/src/hdtext/mod.rs
-@@ -0,0 +1,536 @@
+@@ -0,0 +1,537 @@
 +//! The HD text mod.
 +//! It redraws the text in the pictures of the game in a new font at four times the resolution, using the copy of the game of the player.
 +//! The pictures can first be cleaned of compression artifacts by an AI model.
@@ -11230,7 +11367,7 @@ index 0000000..b6fa892
 +    about: "The game's fonts and the words painted in its pictures, drawn again at four times the resolution from your copy of the game.",
 +    folder: "hd",
 +    program_id: PROGRAM_ID,
-+    needs: if cfg!(windows) { &[clean::NEED] } else { &[] },
++    needs: if clean::AVAILABLE { &[clean::NEED] } else { &[] },
 +    quietly: &[FONTS],
 +    build,
 +};
@@ -11703,10 +11840,11 @@ index 0000000..b6fa892
 +
 +/// The entry point of the install step.
 +/// It downloads the fonts and, on Windows, the cleanup tool, then generates the HD text.
-+fn build(rom: &Path, data_dir: &Path, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
++fn build(rom: &Path, data_dir: &Path, cleanup: bool, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
 +    let tools = crate::zig::tools_dir(Some(data_dir)).ok_or("the HD text has no folder to download into")?;
 +    let font = Font::read(&FONTS.ensure(&tools, &|_| {}, cancel)?)?;
-+    let cleaner = if cfg!(windows) { Some(clean::Cleaner::in_folder(&clean::NEED.download.ensure(&tools, &|arrived| progress(DOWNLOADING, (arrived * 1000.0) as usize, 1000), cancel)?)) } else { None };
++    // The AI cleanup runs only when the player chose it, and only on a system that has a build of its program.
++    let cleaner = if cleanup && clean::AVAILABLE { Some(clean::Cleaner::in_folder(&clean::NEED.download.ensure(&tools, &|arrived| progress(DOWNLOADING, (arrived * 1000.0) as usize, 1000), cancel)?)) } else { None };
 +    generate(rom, &STEP.folder_in(data_dir), &font, cleaner.as_ref(), progress, cancel)
 +}
 +
@@ -14348,7 +14486,7 @@ index 0000000..1792e34
 +    out
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..5b06f5e 100644
+index 6cf00db..0c5cd33 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,22 +3,34 @@
@@ -15079,7 +15217,7 @@ index 6cf00db..5b06f5e 100644
              return;
          }
          let tools = zig::tools_dir(self.data_dir.as_deref());
-@@ -1003,24 +1424,92 @@ impl App {
+@@ -1003,24 +1424,96 @@ impl App {
                  },
              },
          };
@@ -15105,8 +15243,8 @@ index 6cf00db..5b06f5e 100644
 +    /// Starts the installation of the mod at the index as a job.
 +    ///
 +    /// The mod is built from the game that it belongs to.
-+    /// When downloads are needed and the user has not agreed yet, an offer is shown instead.
-+    fn install_mod(&mut self, index: usize, agreed: bool) {
++    /// A mod with an optional part asks first whether to include it, unless the choice is given.
++    fn install_mod(&mut self, index: usize, choice: Option<bool>) {
 +        let Some(step) = recompile::MOD_STEPS.get(index) else { return };
 +        let Some(data_dir) = self.data_dir.clone() else {
 +            self.menus.message = Some("The mods need Zakuro's data folder.".to_owned());
@@ -15120,11 +15258,15 @@ index 6cf00db..5b06f5e 100644
 +        if self.jobs.iter().any(|job| job.program_id == step.program_id) {
 +            return;
 +        }
-+        if !agreed && step.lacks_downloads(&data_dir) {
-+            self.menus.download_offer = Some(menus::DownloadOffer { step: index });
-+            return;
-+        }
-+        self.jobs.push(Job::install(&path, &name, &data_dir, step));
++        let optional = match choice {
++            Some(optional) => optional,
++            None if !step.needs.is_empty() => {
++                self.menus.install_choice = Some(menus::InstallChoice { step: index, downloaded: !step.lacks_downloads(&data_dir) });
++                return;
++            }
++            None => false,
++        };
++        self.jobs.push(Job::install(&path, &name, &data_dir, step, optional));
 +    }
 +
 +    /// Collects the results of the check for an update and of the installation, and sets the state of the update button.
@@ -15176,7 +15318,7 @@ index 6cf00db..5b06f5e 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1033,9 +1522,7 @@ impl App {
+@@ -1033,9 +1526,7 @@ impl App {
                          }
                      }
                  }
@@ -15187,7 +15329,7 @@ index 6cf00db..5b06f5e 100644
                  _ => {}
              }
          }
-@@ -1049,6 +1536,21 @@ impl App {
+@@ -1049,6 +1540,21 @@ impl App {
                  }
              }
              Action::Recompile(index) => self.recompile(index, false),
@@ -15209,7 +15351,7 @@ index 6cf00db..5b06f5e 100644
              Action::DownloadCompiler(index) => self.recompile(index, true),
              Action::Mods(program_id) => {
                  if let Some(data_dir) = &self.data_dir {
-@@ -1065,13 +1567,22 @@ impl App {
+@@ -1065,13 +1571,22 @@ impl App {
                      job.cancel();
                  }
              }
@@ -15237,7 +15379,7 @@ index 6cf00db..5b06f5e 100644
              Action::SaveState => self.save_state(),
              Action::LoadState => self.load_state(),
              Action::HostRoom => self.host_room(),
-@@ -1087,32 +1598,6 @@ impl App {
+@@ -1087,32 +1602,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -15270,7 +15412,7 @@ index 6cf00db..5b06f5e 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1635,15 @@ impl App {
+@@ -1150,6 +1639,15 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -15286,7 +15428,7 @@ index 6cf00db..5b06f5e 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1202,7 +1696,35 @@ impl App {
+@@ -1202,7 +1700,35 @@ impl App {
          }
          self.library.poll();
          self.poll_jobs();
@@ -15322,7 +15464,7 @@ index 6cf00db..5b06f5e 100644
          // a room that went away takes the game's local wireless with it
          if self.room.as_ref().is_some_and(|room| !room.open()) {
              self.leave_room();
-@@ -1304,10 +1826,57 @@ impl App {
+@@ -1304,10 +1830,57 @@ impl App {
      /// runs one frame of the game.
      fn emulate(&mut self) {
          let Some(game) = &mut self.game else { return };
@@ -15381,7 +15523,7 @@ index 6cf00db..5b06f5e 100644
          game.frame += 1;
          if let Some(recorder) = &mut game.recorder {
              recorder.record(input);
-@@ -1539,16 +2108,37 @@ impl App {
+@@ -1539,16 +2112,37 @@ impl App {
      /// the menus, and the actions they asked for, done.
      fn interface(&mut self, event_loop: &ActiveEventLoop) -> Overlay {
          // when the slot chosen was saved to, while the menu shows it
@@ -15427,7 +15569,7 @@ index 6cf00db..5b06f5e 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,18 +2151,45 @@ impl App {
+@@ -1561,18 +2155,45 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -15475,7 +15617,7 @@ index 6cf00db..5b06f5e 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,13 +2198,17 @@ impl App {
+@@ -1581,13 +2202,17 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -15486,7 +15628,7 @@ index 6cf00db..5b06f5e 100644
                  actions.extend(menus.keyboard(ui.ctx(), request));
              }
              actions.extend(menus.compiler_offer(ui.ctx()));
-+            actions.extend(menus.download_offer(ui.ctx()));
++            actions.extend(menus.install_choice(ui.ctx()));
              menus.message(ui.ctx());
 +            if cursor_idle {
 +                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
@@ -15494,7 +15636,7 @@ index 6cf00db..5b06f5e 100644
          });
          self.library.changed = false;
          for action in actions {
-@@ -1596,7 +2217,85 @@ impl App {
+@@ -1596,7 +2221,85 @@ impl App {
          overlay
      }
  
@@ -15580,7 +15722,7 @@ index 6cf00db..5b06f5e 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
-@@ -1697,6 +2396,12 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
+@@ -1697,6 +2400,12 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
  /// keeps the renderer kind referenced even when a backend feature is off.
  const _: RendererKind = RendererKind::Software;
  
@@ -16130,7 +16272,7 @@ index 8a5163d..e961e29 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..a6701af 100644
+index 9372f02..061ae5b 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -4,14 +4,18 @@ use std::collections::HashMap;
@@ -16155,12 +16297,14 @@ index 9372f02..a6701af 100644
  
  /// what the user asked for.
  #[derive(Debug, Clone, PartialEq)]
-@@ -19,16 +23,26 @@ pub enum Action {
+@@ -19,16 +23,28 @@ pub enum Action {
      Play(PathBuf),
      /// recompile the library's game at this index.
      Recompile(usize),
-+    /// Install the mod at this index. The flag tells whether the downloads it needs are already agreed to.
-+    InstallMod(usize, bool),
++    /// Install the mod at this index.
++    /// The choice tells whether the optional part of the mod, such as the AI cleanup, is wanted.
++    /// No choice means the player has not been asked yet.
++    InstallMod(usize, Option<bool>),
 +    /// Remove the files of the mod at this index.
 +    UninstallMod(usize),
 +    /// Turn the mod at this index on or off.
@@ -16186,7 +16330,7 @@ index 9372f02..a6701af 100644
      /// save the game's state to the slot chosen, or load it from there.
      SaveState,
      LoadState,
-@@ -40,7 +54,6 @@ pub enum Action {
+@@ -40,7 +56,6 @@ pub enum Action {
      /// leave the one taken part in.
      DlpJoin(usize),
      DlpLeave,
@@ -16194,7 +16338,7 @@ index 9372f02..a6701af 100644
      Resume,
      Reset,
      Library,
-@@ -54,6 +67,8 @@ pub enum Action {
+@@ -54,6 +69,8 @@ pub enum Action {
      Keyboard(String, usize),
      /// turn the running game's cheat at this index on or off.
      Cheat(usize, bool),
@@ -16203,20 +16347,23 @@ index 9372f02..a6701af 100644
      /// add a cheat, its name and its code, to the running game.
      AddCheat(String, String),
      /// read the running game's cheats from their file again.
-@@ -62,6 +77,12 @@ pub enum Action {
+@@ -62,6 +79,15 @@ pub enum Action {
      CheatsFolder,
  }
  
-+/// The question of whether to download the files a mod needs.
-+pub struct DownloadOffer {
-+    /// The index of the mod step that needs the downloads.
++/// The question of whether to install a mod with its optional part, which needs downloads.
++#[derive(Clone, Copy)]
++pub struct InstallChoice {
++    /// The index of the mod step.
 +    pub step: usize,
++    /// Whether the downloads of the optional part are already on the computer.
++    pub downloaded: bool,
 +}
 +
  #[derive(Default)]
  pub struct Menus {
      /// the menu over a running game.
-@@ -71,6 +92,8 @@ pub struct Menus {
+@@ -71,6 +97,8 @@ pub struct Menus {
      cheat_name: String,
      cheat_code: String,
      pub settings_open: bool,
@@ -16225,12 +16372,12 @@ index 9372f02..a6701af 100644
      /// the binding waiting for a key, by its place in Keys::all_mut.
      pub rebinding: Option<usize>,
      /// the controller binding waiting for a button, by its place in
-@@ -96,10 +119,66 @@ pub struct Menus {
+@@ -96,10 +124,66 @@ pub struct Menus {
      /// the library's game to recompile once the player agrees to download a
      /// compiler for it.
      pub compiler_offer: Option<usize>,
-+    /// The download question to show, when a mod needs files.
-+    pub download_offer: Option<DownloadOffer>,
++    /// The question to show before installing a mod that has an optional part.
++    pub install_choice: Option<InstallChoice>,
 +    /// The state of the update button in the library, or none when it is hidden.
 +    pub update: Option<UpdateButton>,
 +    /// The mods of the game and their states, for the Mods tab.
@@ -16292,7 +16439,7 @@ index 9372f02..a6701af 100644
  /// the room the player is in, as the multiplayer window shows it.
  pub struct RoomView {
      pub name: String,
-@@ -206,31 +285,33 @@ impl Menus {
+@@ -206,31 +290,33 @@ impl Menus {
          if library.changed {
              self.icons.clear();
          }
@@ -16348,7 +16495,7 @@ index 9372f02..a6701af 100644
          });
          let background = match self.background.get(ui.ctx(), settings.background.as_deref()) {
              Ok(texture) => texture.map(|texture| (texture.id(), texture.size())),
-@@ -239,119 +320,179 @@ impl Menus {
+@@ -239,119 +325,179 @@ impl Menus {
                  None
              }
          };
@@ -16609,7 +16756,7 @@ index 9372f02..a6701af 100644
      }
  
      /// what goes over a running game, the menu when it is open and the
-@@ -361,11 +502,10 @@ impl Menus {
+@@ -361,11 +507,10 @@ impl Menus {
          &mut self,
          ui: &mut egui::Ui,
          name: &str,
@@ -16623,7 +16770,7 @@ index 9372f02..a6701af 100644
      ) -> Vec<Action> {
          let mut actions = Vec::new();
          let ctx = ui.ctx().clone();
-@@ -398,134 +538,175 @@ impl Menus {
+@@ -398,134 +543,175 @@ impl Menus {
              // clicks go through to the screen under it
              egui::Area::new(egui::Id::new("fps")).fixed_pos(egui::pos2(8.0, 8.0)).interactable(false).show(&ctx, |ui| {
                  egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -16908,7 +17055,7 @@ index 9372f02..a6701af 100644
          self.cheats_open = open;
          actions
      }
-@@ -653,197 +834,123 @@ impl Menus {
+@@ -653,197 +839,123 @@ impl Menus {
          // taller than a screen has room for, so it scrolls, and it can be
          // dragged to any size that fits
          let room = ctx.content_rect().height() - 16.0;
@@ -17206,44 +17353,49 @@ index 9372f02..a6701af 100644
      }
  
      /// a message box, when there is something to tell.
-@@ -917,29 +1024,372 @@ impl Menus {
+@@ -917,27 +1029,375 @@ impl Menus {
          action
      }
  
-+    /// Asks whether to download the files a mod needs, before it is installed.
-+    /// Returns the install action when the player agrees, and closes the offer in every case.
-+    pub fn download_offer(&mut self, ctx: &egui::Context) -> Option<Action> {
-+        let index = self.download_offer.as_ref()?.step;
++    /// Asks whether to install a mod with its optional part, which needs downloads, or without it.
++    /// Returns the install action with the choice, and closes the question in every case.
++    pub fn install_choice(&mut self, ctx: &egui::Context) -> Option<Action> {
++        let InstallChoice { step: index, downloaded } = *self.install_choice.as_ref()?;
 +        let step = crate::recompile::MOD_STEPS.get(index)?;
-+        let size = step.needs.iter().map(|need| need.download.size_text()).collect::<Vec<_>>().join(" and ");
-+        let modal = egui::Modal::new(egui::Id::new("downloads")).frame(theme::frame()).show(ctx, |ui| {
++        let need = step.needs.first()?;
++        let size = need.download.size_text();
++        let modal = egui::Modal::new(egui::Id::new("install choice")).frame(theme::frame()).show(ctx, |ui| {
 +            ui.set_width(420.0);
-+            theme::header(ui, &format!("Download for the {} mod?", step.label), None);
++            theme::header(ui, &format!("Install the {} mod", step.label), None);
 +            theme::menu_body(ui, |ui| {
-+                for need in step.needs {
-+                    ui.label(RichText::new(need.why).size(15.0));
-+                    ui.add_space(4.0);
-+                    theme::hint(ui, &format!("The {} mod needs {}: {}, downloaded once from the pages of their authors.", step.label, need.what, need.download.size_text()));
-+                    ui.add_space(8.0);
-+                }
-+                theme::hint(ui, &format!("Without it, the {} mod isn't installed.", step.label));
++                ui.label(RichText::new(need.why).size(15.0));
++                ui.add_space(4.0);
++                let source = if downloaded { format!("The {} uses {}, already downloaded.", need.name, need.what) } else { format!("The {} needs {}: {size}, downloaded once from the pages of their authors.", need.name, need.what) };
++                theme::hint(ui, &source);
++                theme::hint(ui, &format!("Without the {}, the {} mod draws over the pictures as the game stores them.", need.name, step.label));
 +                ui.add_space(6.0);
 +                theme::commands(ui, |ui| {
-+                    let refuse = theme::command(ui, "\u{2716}", "Don't install", true);
-+                    let download = theme::command(ui, "\u{2193}", &format!("Download, {size}"), true);
-+                    // Focus starts on the download so that Enter accepts the offer.
-+                    if !refuse.has_focus() && !download.has_focus() {
-+                        download.request_focus();
++                    let cancel = theme::command(ui, "\u{2716}", "Cancel", true);
++                    let without = theme::command(ui, "\u{2192}", &format!("Without the {}", need.name), true);
++                    let with_label = if downloaded { format!("With the {}", need.name) } else { format!("With the {}, {size}", need.name) };
++                    let with = theme::command(ui, "\u{2193}", &with_label, true);
++                    // Focus starts on the install with the optional part, so that Enter takes it.
++                    if !cancel.has_focus() && !without.has_focus() && !with.has_focus() {
++                        with.request_focus();
 +                    }
-+                    (refuse.clicked(), download.clicked())
++                    (cancel.clicked(), without.clicked(), with.clicked())
 +                })
 +            })
 +        });
-+        let (refuse, download) = modal.inner;
-+        if download || refuse || modal.should_close() {
-+            self.download_offer = None;
++        let (cancel, without, with) = modal.inner;
++        if cancel || without || with || modal.should_close() {
++            self.install_choice = None;
 +        }
-+        download.then_some(Action::InstallMod(index, true))
++        match (without, with) {
++            (true, _) => Some(Action::InstallMod(index, Some(false))),
++            (_, true) => Some(Action::InstallMod(index, Some(true))),
++            _ => None,
++        }
 +    }
 +
 +    /// Shows the message to the user in a modal, with a button to copy the report that goes with it.
@@ -17544,7 +17696,7 @@ index 9372f02..a6701af 100644
 +                            actions.push(Action::ModEnabled(index, on));
 +                        }
 +                        if ui.button("Rebuild mod").on_hover_text(format!("Build the {} mod again from your copy of the game.", switch.label)).clicked() {
-+                            actions.push(Action::InstallMod(index, false));
++                            actions.push(Action::InstallMod(index, None));
 +                        }
 +                        if ui.button("Uninstall").on_hover_text(format!("Remove the {} mod's files. Install it again any time.", switch.label)).clicked() {
 +                            actions.push(Action::UninstallMod(index));
@@ -17555,13 +17707,13 @@ index 9372f02..a6701af 100644
 +            (None, false) => {
 +                theme::commands(ui, |ui| {
 +                    if theme::command(ui, "\u{2193}", &format!("Install the {} mod", switch.label), true).on_hover_text(switch.about).clicked() {
-+                        actions.push(Action::InstallMod(index, false));
++                        actions.push(Action::InstallMod(index, None));
 +                    }
 +                });
 +            }
 +        }
 +        ui.add_space(6.0);
-+    }
+     }
 +    // Every mod belongs to the same game, so the first one gives the program id of the folder.
 +    if let Some(switch) = mods.first() {
 +        ui.add_space(6.0);
@@ -17573,9 +17725,9 @@ index 9372f02..a6701af 100644
 +                actions.push(Action::Mods(switch.program_id));
 +            }
 +        });
-     }
- }
- 
++    }
++}
++
 +/// The Sound tab of the settings: volume and mute.
 +fn sound_tab(ui: &mut egui::Ui, settings: &mut Settings) {
 +    theme::commands(ui, |ui| {
@@ -17586,12 +17738,10 @@ index 9372f02..a6701af 100644
 +            ui.checkbox(&mut settings.mute, "Mute");
 +        });
 +    });
-+}
-+
+ }
+ 
  /// a line a GameOverlay keeps over the game, in the bottom right corner.
- pub fn corner(ctx: &egui::Context, text: &str) {
-     egui::Area::new(egui::Id::new("overlay corner"))
-@@ -952,20 +1402,78 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+@@ -952,20 +1412,78 @@ pub fn corner(ctx: &egui::Context, text: &str) {
          });
  }
  
@@ -17679,7 +17829,7 @@ index 9372f02..a6701af 100644
  }
  
  /// a key as a person would call it.
-@@ -1011,7 +1519,7 @@ mod tests {
+@@ -1011,7 +1529,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -17688,7 +17838,7 @@ index 9372f02..a6701af 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1534,13 @@ mod tests {
+@@ -1026,6 +1544,13 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  
@@ -18460,15 +18610,15 @@ index 0000000..b061386
 +    }
 +}
 diff --git a/crates/zakuro/src/recompile.rs b/crates/zakuro/src/recompile.rs
-index 1640c7a..43c8a82 100644
+index 1640c7a..59a8805 100644
 --- a/crates/zakuro/src/recompile.rs
 +++ b/crates/zakuro/src/recompile.rs
 @@ -17,8 +17,82 @@ pub enum Toolchain {
      Download(PathBuf),
  }
  
-+/// A function that builds the files of a mod step. It receives the game file, the data folder, a progress callback and a cancel flag. The progress callback receives what is being done, the parts done and the parts in total. It returns a short report of what was built.
-+pub type ModBuilder = fn(rom: &Path, data_dir: &Path, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String>;
++/// A function that builds the files of a mod step. It receives the game file, the data folder, whether the optional part of the mod is wanted, a progress callback and a cancel flag. The progress callback receives what is being done, the parts done and the parts in total. It returns a short report of what was built.
++pub type ModBuilder = fn(rom: &Path, data_dir: &Path, optional: bool, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String>;
 +
 +/// One installable part of the mods of a game, such as the HD text.
 +pub struct ModStep {
@@ -18611,8 +18761,8 @@ index 1640c7a..43c8a82 100644
 +        Job { program_id, name: name.to_owned(), announced: false, installing: None, started: Instant::now(), state, cancel }
 +    }
 +
-+    /// Starts building a mod step for the game at the path of the rom on a thread.
-+    pub fn install(rom: &Path, name: &str, data_dir: &Path, step: &'static ModStep) -> Job {
++    /// Starts building a mod step for the game at the path of the rom on a thread, with or without the optional part of the mod.
++    pub fn install(rom: &Path, name: &str, data_dir: &Path, step: &'static ModStep, optional: bool) -> Job {
 +        let state = Arc::new(Mutex::new(State { stage: Stage::Mods { doing: "", done: 0, total: 0 }, finished_at: None }));
 +        let cancel = Arc::new(AtomicBool::new(false));
 +        let (progress, stop, rom, data_dir) = (state.clone(), cancel.clone(), rom.to_owned(), data_dir.to_owned());
@@ -18625,7 +18775,7 @@ index 1640c7a..43c8a82 100644
 +                }
 +            };
 +            let told = |doing: &'static str, done: usize, total: usize| set(Stage::Mods { doing, done, total });
-+            let outcome = match (step.build)(&rom, &data_dir, &told, &stop) {
++            let outcome = match (step.build)(&rom, &data_dir, optional, &told, &stop) {
 +                Ok(made) => {
 +                    log::info!("built {}: {made}", step.name);
 +                    Stage::Done
@@ -19852,11 +20002,11 @@ index 0000000..af1abea
 +
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..e9bc2d4
+index 0000000..5d921c2
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
-@@ -0,0 +1,192 @@
-+//! Self-update of the launcher. This module asks GitHub for the latest release, downloads the zip of the release and replaces the files of the launcher.
+@@ -0,0 +1,219 @@
++//! Self-update of the launcher. This module asks GitHub for the latest release, downloads the asset of the release for this system and replaces the launcher with it.
 +
 +use std::path::{Path, PathBuf};
 +use std::process::{Command, Stdio};
@@ -19867,11 +20017,11 @@ index 0000000..e9bc2d4
 +use crate::zig::{fetch, windowless, Fetcher};
 +
 +/// The tag of the release this build belongs to.
-+pub const RELEASE: &str = "v1.0.12";
++pub const RELEASE: &str = "v1.0.13";
 +/// The GitHub API address that describes the latest release.
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
-+/// The end of the file name of the release asset that holds the launcher for Windows.
-+const ASSET_SUFFIX: &str = "-windows-x64.zip";
++/// The end of the file name of the release asset that holds the launcher for this system: a zip on Windows, an AppImage on Linux.
++const ASSET_SUFFIX: &str = if cfg!(windows) { "-windows-x64.zip" } else { "-x86_64.AppImage" };
 +/// The folder next to the launcher where an update is downloaded and unpacked.
 +const STAGING: &str = "update";
 +/// A file that ships in the folder of a release, used to recognise an installed launcher.
@@ -19900,9 +20050,14 @@ index 0000000..e9bc2d4
 +    pub done: Receiver<Result<PathBuf, String>>,
 +}
 +
-+/// Returns true when the launcher runs from a folder of a release, so it can replace itself.
++/// Returns true when the launcher can replace itself: on Windows when it runs from the folder of a release, elsewhere when it runs as an AppImage.
 +pub fn installable() -> bool {
-+    launcher_folder().is_some_and(|folder| folder.join(LICENSES).is_file())
++    if cfg!(windows) { launcher_folder().is_some_and(|folder| folder.join(LICENSES).is_file()) } else { running_appimage().is_some() }
++}
++
++/// Returns the path of the AppImage the launcher runs from, which the AppImage runtime gives in an environment variable.
++fn running_appimage() -> Option<PathBuf> {
++    std::env::var_os("APPIMAGE").map(PathBuf::from).filter(|path| path.is_file())
 +}
 +
 +/// Removes the leftovers of an earlier update: the old launcher and the staging folder.
@@ -19979,8 +20134,29 @@ index 0000000..e9bc2d4
 +    matches!((version(tag), version(current)), (Some(latest), Some(current)) if latest > current)
 +}
 +
-+/// Downloads and unpacks a release, then replaces the files of the launcher. Returns the path of the new launcher.
++/// Downloads the AppImage of a release next to the running one and puts it in its place. Returns the path of the AppImage.
++fn install_appimage(release: &Release, progress: &dyn Fn(f32)) -> Result<PathBuf, String> {
++    let current = running_appimage().ok_or("the launcher updates itself only when it runs as an AppImage")?;
++    let fetcher = Fetcher::find().ok_or("Zakuro downloads with curl or wget, and this computer has neither")?;
++    let part = current.with_extension("AppImage.part");
++    fetch(fetcher, &release.url, &part, release.size, progress, &AtomicBool::new(false))?;
++    #[cfg(unix)]
++    {
++        use std::os::unix::fs::PermissionsExt;
++        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755)).map_err(|error| format!("{}: {error}", part.display()))?;
++    }
++    // Linux lets a file be renamed over a running program, which keeps running from the old file until it ends.
++    std::fs::rename(&part, &current).map_err(|error| format!("{}: {error}", current.display()))?;
++    Ok(current)
++}
++
++/// Downloads and installs a release. Returns the path of the new launcher.
++/// On Windows the zip is unpacked and the files of the launcher are replaced.
++/// Elsewhere the AppImage is replaced.
 +fn install(release: &Release, progress: &dyn Fn(f32)) -> Result<PathBuf, String> {
++    if !cfg!(windows) {
++        return install_appimage(release, progress);
++    }
 +    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
 +    let folder = exe.parent().ok_or("Zakuro can't tell which folder it runs from")?.to_owned();
 +    let staging = folder.join(STAGING);
@@ -20039,11 +20215,12 @@ index 0000000..e9bc2d4
 +    }
 +
 +    #[test]
-+    fn the_latest_release_names_its_zip() {
-+        let json = br#"{"tag_name":"v0.2.7","assets":[{"name":"notes.txt","browser_download_url":"https://x/notes.txt","size":3},{"name":"fe-awakening-launcher-v0.2.7-windows-x64.zip","browser_download_url":"https://x/z.zip","size":9000000}]}"#;
++    fn the_latest_release_names_the_asset_of_this_system() {
++        let json = br#"{"tag_name":"v0.2.7","assets":[{"name":"notes.txt","browser_download_url":"https://x/notes.txt","size":3},{"name":"fe-awakening-launcher-v0.2.7-windows-x64.zip","browser_download_url":"https://x/z.zip","size":9000000},{"name":"fe-awakening-launcher-v0.2.7-x86_64.AppImage","browser_download_url":"https://x/a.AppImage","size":40000000}]}"#;
 +        let release = parse(json).unwrap();
 +        assert_eq!(release.tag, "v0.2.7");
-+        assert_eq!((release.url.as_str(), release.size), ("https://x/z.zip", 9_000_000));
++        let expected = if cfg!(windows) { ("https://x/z.zip", 9_000_000) } else { ("https://x/a.AppImage", 40_000_000) };
++        assert_eq!((release.url.as_str(), release.size), expected);
 +        assert_eq!(release.name.trim_end_matches(ASSET_SUFFIX), "fe-awakening-launcher-v0.2.7");
 +        assert!(parse(br#"{"tag_name":"v0.2.7","assets":[]}"#).is_none());
 +    }

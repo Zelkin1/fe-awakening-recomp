@@ -359,13 +359,15 @@ mod tests {
             });
             window.save(folder.join(name)).unwrap();
         }
-        let ctx = crate::gui::context();
-        let mut menus = crate::menus::Menus::default();
-        menus.download_offer = Some(crate::menus::DownloadOffer { step: 1 });
-        let offer = paint(&ctx, [1280, 960], None, |ui| {
-            menus.download_offer(ui.ctx());
-        });
-        offer.save(folder.join("download-offer.png")).unwrap();
+        for (name, downloaded) in [("install-choice.png", false), ("install-choice-downloaded.png", true)] {
+            let ctx = crate::gui::context();
+            let mut menus = crate::menus::Menus::default();
+            menus.install_choice = Some(crate::menus::InstallChoice { step: 1, downloaded });
+            let choice = paint(&ctx, [1280, 960], None, |ui| {
+                menus.install_choice(ui.ctx());
+            });
+            choice.save(folder.join(name)).unwrap();
+        }
         let ctx = crate::gui::context();
         let bars = paint(&ctx, [660, 160], None, |ui| {
             for fraction in [0.02, 0.5, 1.0] {

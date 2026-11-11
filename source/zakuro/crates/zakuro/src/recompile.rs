@@ -17,8 +17,8 @@ pub enum Toolchain {
     Download(PathBuf),
 }
 
-/// A function that builds the files of a mod step. It receives the game file, the data folder, a progress callback and a cancel flag. The progress callback receives what is being done, the parts done and the parts in total. It returns a short report of what was built.
-pub type ModBuilder = fn(rom: &Path, data_dir: &Path, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String>;
+/// A function that builds the files of a mod step. It receives the game file, the data folder, whether the optional part of the mod is wanted, a progress callback and a cancel flag. The progress callback receives what is being done, the parts done and the parts in total. It returns a short report of what was built.
+pub type ModBuilder = fn(rom: &Path, data_dir: &Path, optional: bool, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String>;
 
 /// One installable part of the mods of a game, such as the HD text.
 pub struct ModStep {
@@ -212,8 +212,8 @@ impl Job {
         Job { program_id, name: name.to_owned(), announced: false, installing: None, started: Instant::now(), state, cancel }
     }
 
-    /// Starts building a mod step for the game at the path of the rom on a thread.
-    pub fn install(rom: &Path, name: &str, data_dir: &Path, step: &'static ModStep) -> Job {
+    /// Starts building a mod step for the game at the path of the rom on a thread, with or without the optional part of the mod.
+    pub fn install(rom: &Path, name: &str, data_dir: &Path, step: &'static ModStep, optional: bool) -> Job {
         let state = Arc::new(Mutex::new(State { stage: Stage::Mods { doing: "", done: 0, total: 0 }, finished_at: None }));
         let cancel = Arc::new(AtomicBool::new(false));
         let (progress, stop, rom, data_dir) = (state.clone(), cancel.clone(), rom.to_owned(), data_dir.to_owned());
@@ -226,7 +226,7 @@ impl Job {
                 }
             };
             let told = |doing: &'static str, done: usize, total: usize| set(Stage::Mods { doing, done, total });
-            let outcome = match (step.build)(&rom, &data_dir, &told, &stop) {
+            let outcome = match (step.build)(&rom, &data_dir, optional, &told, &stop) {
                 Ok(made) => {
                     log::info!("built {}: {made}", step.name);
                     Stage::Done

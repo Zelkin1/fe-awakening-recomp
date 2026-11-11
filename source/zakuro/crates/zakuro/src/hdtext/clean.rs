@@ -12,12 +12,26 @@ use crate::downloads::{Download, Need, Source};
 use crate::zig::windowless;
 
 /// The Windows build of realesrgan-ncnn-vulkan, as its author publishes it on GitHub.
-const RUNNER: Source = Source {
+const WINDOWS_RUNNER: Source = Source {
     url: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
     name: "realesrgan-ncnn-vulkan-20220424-windows.zip",
     size: 45_474_481,
     sha256: "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d",
 };
+
+/// The Linux build of realesrgan-ncnn-vulkan, from the same release.
+const LINUX_RUNNER: Source = Source {
+    url: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip",
+    name: "realesrgan-ncnn-vulkan-20220424-ubuntu.zip",
+    size: 46_931_474,
+    sha256: "e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96",
+};
+
+/// The build of the runner for the system the launcher runs on.
+const RUNNER: Source = if cfg!(windows) { WINDOWS_RUNNER } else { LINUX_RUNNER };
+
+/// Whether the cleanup can run on this system, which needs a build of the runner for it.
+pub const AVAILABLE: bool = cfg!(any(windows, target_os = "linux"));
 
 /// The BCGone Smooth weights, from the link that OpenModelDB lists for the model.
 const WEIGHTS: Source = Source {
@@ -30,6 +44,7 @@ const WEIGHTS: Source = Source {
 /// The download that the cleanup needs, with the reason that is shown to the player.
 /// The weights are converted by `prepare` once they have arrived.
 pub const NEED: Need = Need {
+    name: "AI cleanup",
     what: "an AI model, BCGone Smooth, and Real-ESRGAN's program that runs it",
     why: "The 3DS stores the game's pictures compressed, which leaves blocks and stripes in them. Before the words are drawn again, the model looks at each menu picture on your graphics card and smooths those blocks away, keeping the drawing as it is.",
     download: Download { folder: "ui-cleanup-1", sources: &[RUNNER, WEIGHTS], finish: Some(prepare) },
@@ -52,6 +67,13 @@ fn prepare(folder: &Path) -> Result<(), String> {
     let (param, bin) = super::esrgan::one_x(&template, &weights)?;
     std::fs::write(models.join(format!("{MODEL}.param")), param).map_err(|error| format!("{}: {error}", models.display()))?;
     std::fs::write(models.join(format!("{MODEL}.bin")), bin).map_err(|error| format!("{}: {error}", models.display()))?;
+    // The zip file keeps no permissions, so on Linux the program is made executable here.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let program = folder.join(PROGRAM);
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).map_err(|error| format!("{}: {error}", program.display()))?;
+    }
     // Remove what the cleanup does not use, to keep the folder small.
     let _ = std::fs::remove_file(folder.join(WEIGHTS.name));
     UNUSED.iter().for_each(|name| drop(std::fs::remove_file(folder.join(name))));
@@ -70,7 +92,7 @@ pub const FOLDERS: [&str; 14] = ["ui", "ui/resident", "gmap", "systems", "room",
 /// The formats with fewer bits per colour, such as RGBA4, hold pixel art without blocks, which the model would only smear.
 const BLOCK_COMPRESSED: [u32; 2] = [12, 13];
 /// The file name of the program in the download.
-const PROGRAM: &str = "realesrgan-ncnn-vulkan.exe";
+const PROGRAM: &str = if cfg!(windows) { "realesrgan-ncnn-vulkan.exe" } else { "realesrgan-ncnn-vulkan" };
 /// The name of the converted model, without an extension.
 const MODEL: &str = "1x-bcgone";
 /// The number of passes that spread the colour into the clear pixels.
@@ -446,5 +468,18 @@ mod tests {
     #[test]
     fn only_block_compressed_formats_are_cleaned() {
         assert!(block_compressed(12) && block_compressed(13) && !block_compressed(4) && !block_compressed(2) && !block_compressed(0) && !block_compressed(11));
+    }
+
+    /// Downloads the cleanup into a tools folder and cleans one picture with it, as an install does.
+    /// It is ignored by default, because it downloads about 113 MB and needs Vulkan.
+    #[test]
+    #[ignore = "ZAKURO_CLEAN_TOOLS, a tools folder to download the cleanup into"]
+    fn the_cleanup_downloads_and_runs() {
+        let tools = PathBuf::from(std::env::var("ZAKURO_CLEAN_TOOLS").unwrap());
+        let folder = NEED.download.ensure(&tools, &|_| {}, &AtomicBool::new(false)).unwrap();
+        let mut picture = Rgba::new(64, 64);
+        picture.v.iter_mut().enumerate().for_each(|(i, p)| *p = [0.8, 0.6 + (i % 8) as f32 * 0.01, 0.4, 1.0]);
+        let cleaned = Cleaner::in_folder(&folder).clean(&[("test".to_owned(), picture)], &|_| {}, &AtomicBool::new(false)).unwrap();
+        assert!(cleaned.contains_key("test"));
     }
 }
