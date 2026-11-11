@@ -34,6 +34,19 @@ The feet and the HD text are installed from Settings, Mods.
 The keyboard, the mouse (as the touch screen) and most controllers work.
 Esc opens the menu, with the settings, the cheats and save states.
 
+## Features
+
+- The 3D is drawn at up to 8 times the console's resolution, and frame
+  interpolation can show battles at 60 frames per second.
+- You can play on the top screen alone. The bottom screen can be displayed as an overlay with the press of a button
+  (the right trigger, or E on the keyboard).
+- Battles UI has 3 styles: vanilla style, FE3H style, or no UI.
+- HD fonts in all languages (still WIP)
+- A mod that adds feet to every characters in the game is implemented.
+- Cheat codes and built-in tweaks such as top screen 16:9 aspect ratio and faster
+  battles.
+- Original mode plays the game as the console does.
+
 ## Recommended texture pack
 
 For HD art across the whole game, install
@@ -50,19 +63,6 @@ texture pack that redraws the portraits, cutscenes, battle maps and menus at
 
 The pack was made for the North American release, so a few textures with
 regional differences stay as they are on the European one.
-
-## Features
-
-- The 3D is drawn at up to 8 times the console's resolution, and frame
-  interpolation can show battles at 60 frames per second.
-- You can play on the top screen alone. The bottom screen can be displayed as an overlay with the press of a button
-  (the right trigger, or E on the keyboard).
-- Battles UI has 3 styles: vanilla style, FE3H style, or no UI.
-- HD fonts in all languages (still WIP)
-- A mod that adds feet to every characters in the game is implemented.
-- Cheat codes and built-in tweaks such as top screen 16:9 aspect ratio and faster
-  battles.
-- Original mode plays the game as the console does.
 
 ## Building
 
