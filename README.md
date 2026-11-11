@@ -18,13 +18,18 @@ copy of the game, on your computer.
 ## Playing
 
 1. Download the launcher from the
-   [releases page](https://github.com/Zelkin1/fe-awakening-recomp/releases),
-   unzip it and run `zakuro.exe`. You can also build it yourself (see below).
+   [releases page](https://github.com/Zelkin1/fe-awakening-recomp/releases).
+   On Windows, unzip it and run `zakuro.exe`. On Linux, make the AppImage
+   executable and run it; it needs the ALSA sound library (`libasound2` on
+   Debian and Ubuntu, `alsa-lib` on Arch). The Linux version is new and still
+   needs testing. You can also build it yourself (see below).
 2. Click Select game files and choose the game's `.3ds` or `.cci` file. If
    you have the DLC, choose its `.cia` file under DLC in Settings, System.
-3. Click Recompile. The launcher converts the game's code in 10 to 20 minutes. If your computer has no C
+3. Click Recompile. The launcher converts the game's code in a few minutes to 20 minutes. If your computer has no C
    compiler, the launcher offers to download one.
 4. Click Play.
+
+The feet and the HD text are installed from Settings, Mods.
 
 The keyboard, the mouse (as the touch screen) and most controllers work.
 Esc opens the menu, with the settings, the cheats and save states.
@@ -44,7 +49,10 @@ Esc opens the menu, with the settings, the cheats and save states.
 
 ## Building
 
-You need Git, Rust and MinGW-w64 gcc. In Git Bash:
+On Windows you need Git, Rust and MinGW-w64 gcc, and the commands run in Git
+Bash. On Linux you need Git, Rust, gcc or clang, `pkg-config` and the ALSA and
+udev headers (`libasound2-dev` and `libudev-dev` on Debian and Ubuntu). The
+commands are the same:
 
 ```bash
 git clone https://github.com/Zelkin1/fe-awakening-recomp
@@ -60,9 +68,10 @@ git -C zakuro apply ../mods/feet/zakuro-feet.patch
 (cd zakuro && cargo build --release -p zakuro)
 ```
 
-The launcher is then `zakuro/target/release/zakuro.exe`. `tools/env.sh`
-puts a Rust toolchain kept in `tools/rust` on PATH, and your MinGW gcc too
-when `MINGW` names its folder.
+The launcher is then `zakuro/target/release/zakuro.exe` on Windows and
+`zakuro/target/release/zakuro` on Linux. On Windows, `tools/env.sh` puts a
+Rust toolchain kept in `tools/rust` on PATH, and your MinGW gcc too when
+`MINGW` names its folder.
 
 The files the patches add or change are also in `source/`, in their final
 form and at the same paths as in Zakuro and 3dsrecomp, for reading the
@@ -71,7 +80,8 @@ lists the files the project adds and, for each Zakuro and 3dsrecomp file it
 changes, the functions and types it adds, changes or removes.
 
 A copy of the launcher given to others must include the licenses of the
-code it is built from. `tools/licenses.py` collects them:
+code it is built from. `tools/licenses.py` collects them (on Linux, the
+platform is `x86_64-unknown-linux-gnu`):
 
 ```bash
 (cd zakuro && cargo metadata --format-version 1 --filter-platform x86_64-pc-windows-gnu > ../metadata.json)
@@ -87,8 +97,9 @@ The repository and the launcher contain no code, data or assets from the
 game. What they hold about it, such as addresses in its code and the names
 of its files, is listed in [`LEGAL.md`](LEGAL.md). What the launcher builds
 is made from your copy and stays on your computer: the converted code in
-`%APPDATA%\3dsrecomp` and the models with added feet in `%APPDATA%\zakuro\mods`. Don't share
-either.
+`%APPDATA%\3dsrecomp` and the mods in `%APPDATA%\zakuro\mods` on Windows, or
+`~/.local/share/3dsrecomp` and `~/.local/share/zakuro/mods` on Linux. Don't
+share either.
 
 The project's own files are under the MIT license ([`LICENSE`](LICENSE)).
 Zakuro and 3dsrecomp keep their own licenses
