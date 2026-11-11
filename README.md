@@ -34,6 +34,23 @@ The feet and the HD text are installed from Settings, Mods.
 The keyboard, the mouse (as the touch screen) and most controllers work.
 Esc opens the menu, with the settings, the cheats and save states.
 
+## Recommended texture pack
+
+For HD art across the whole game, install
+[Amateur Awakening HD](https://gamebanana.com/mods/400809) by L498, a
+texture pack that redraws the portraits, cutscenes, battle maps and menus at
+4 times the resolution.
+
+1. Download its three main parts, P1, P2 and P3, from the links under
+   Alternate Sources on its page.
+2. Unzip all three into a folder of its own in the game's mods folder:
+   `%APPDATA%\zakuro\mods\000400000009F100\aahd\textures` on Windows, or
+   `~/.local/share/zakuro/mods/000400000009F100/aahd/textures` on Linux.
+3. Keep Texture packs on in Settings, Graphics, and play at 4x or above.
+
+The pack was made for the North American release, so a few textures with
+regional differences stay as they are on the European one.
+
 ## Features
 
 - The 3D is drawn at up to 8 times the console's resolution, and frame
