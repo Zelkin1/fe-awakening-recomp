@@ -216,6 +216,14 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
             Err(error) => log::warn!("{error}, drawing in software"),
         }
     }
+    if on_gpu && !system.config.bloom {
+        system.gpu.set_bloom(false);
+        log::info!("bloom off");
+    }
+    if on_gpu && system.config.anisotropy > 1 {
+        let samples = system.gpu.set_anisotropy(system.config.anisotropy);
+        log::info!("anisotropic filtering at {samples}x");
+    }
     // A game with a description of its screens has its markers handed to the GPU, which looks for them in the draws.
     system.game_ui = crate::game_ui::for_game(title.program_id());
     if let Some(game_ui) = system.game_ui {

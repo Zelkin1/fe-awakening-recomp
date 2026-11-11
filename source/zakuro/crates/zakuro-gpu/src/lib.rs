@@ -720,6 +720,47 @@ impl Gpu {
         drawn
     }
 
+    /// Draws the bloom that games make from smaller levels of a texture drawn by the GPU, or leaves it out.
+    /// Without it those levels are transparent black, and the picture keeps its sharp first level.
+    /// Only the host's GPU draws such bloom apart, so this does nothing in software.
+    pub fn set_bloom(&mut self, on: bool) {
+        #[cfg(feature = "vulkan")]
+        if let Some(hardware) = self.resources.hardware.as_mut() {
+            hardware.set_bloom(on);
+        }
+        #[cfg(not(feature = "vulkan"))]
+        let _ = on;
+    }
+
+    /// Whether the bloom is drawn, see set_bloom.
+    pub fn blooms(&self) -> bool {
+        #[cfg(feature = "vulkan")]
+        if let Some(hardware) = self.resources.hardware.as_ref() {
+            return hardware.blooms();
+        }
+        true
+    }
+
+    /// Filters textures seen at an angle with up to this many samples, 1 for none, and says how many the host's GPU takes.
+    /// Only the host's GPU filters anisotropically, so this does nothing in software.
+    pub fn set_anisotropy(&mut self, samples: u32) -> u32 {
+        #[cfg(feature = "vulkan")]
+        if let Some(hardware) = self.resources.hardware.as_mut() {
+            return hardware.set_anisotropy(samples);
+        }
+        let _ = samples;
+        1
+    }
+
+    /// How many samples anisotropic filtering takes, 1 when it is off, see set_anisotropy.
+    pub fn anisotropy(&self) -> u32 {
+        #[cfg(feature = "vulkan")]
+        if let Some(hardware) = self.resources.hardware.as_ref() {
+            return hardware.anisotropy();
+        }
+        1
+    }
+
     /// whether the 3D is drawn on the host's GPU, enable_hardware_renderer
     /// having worked, rather than in software.
     pub fn draws_on_gpu(&self) -> bool {

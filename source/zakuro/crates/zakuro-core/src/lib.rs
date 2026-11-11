@@ -85,6 +85,10 @@ pub struct Config {
     /// other refresh, see System::pace, when the host's GPU draws the 3D
     /// and shows the screens straight from its device.
     pub interpolate: bool,
+    /// Draw the bloom that games make from smaller levels of a texture drawn on the host's GPU.
+    pub bloom: bool,
+    /// How many samples anisotropic filtering takes on the host's GPU, 1 for none.
+    pub anisotropy: u32,
     /// the console owner's name, up to ten characters, which titles show
     /// and local wireless tells others.
     pub username: String,
@@ -125,6 +129,8 @@ impl Default for Config {
             device: None,
             clock: None,
             interpolate: false,
+            bloom: true,
+            anisotropy: 1,
             username: "Zakuro".into(),
             console_id: 0x5A4B_0000_0000_0001,
             dlp_child: None,

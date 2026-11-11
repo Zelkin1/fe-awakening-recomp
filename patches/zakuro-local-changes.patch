@@ -144,10 +144,21 @@ index 4446175..d74671f 100644
  pub mod result;
  
 diff --git a/crates/zakuro-core/examples/boot.rs b/crates/zakuro-core/examples/boot.rs
-index 3c63b6c..bd288b9 100644
+index 3c63b6c..35a24c5 100644
 --- a/crates/zakuro-core/examples/boot.rs
 +++ b/crates/zakuro-core/examples/boot.rs
-@@ -213,8 +213,45 @@ fn main() {
+@@ -53,6 +53,10 @@ fn main() {
+         // ZAKURO_INTERPOLATE=1 draws the pictures in between, which takes
+         // ZAKURO_PRESENT=direct, and saves them with the screens
+         interpolate: std::env::var("ZAKURO_INTERPOLATE").is_ok_and(|v| v == "1"),
++        // ZAKURO_BLOOM=0 leaves out the bloom games draw from smaller levels of a texture
++        bloom: std::env::var("ZAKURO_BLOOM").map_or(true, |v| v != "0"),
++        // ZAKURO_ANISOTROPY=16 filters textures seen at an angle with up to 16 samples
++        anisotropy: std::env::var("ZAKURO_ANISOTROPY").ok().and_then(|v| v.parse().ok()).unwrap_or(1),
+         skip_idle_loops: std::env::var("ZAKURO_IDLE").map_or(true, |v| v != "0"),
+         // ZAKURO_3D=0.5 is where the 3D slider is, the right eye's picture
+         // saved with the screens when the game draws one
+@@ -213,8 +217,45 @@ fn main() {
          let (at, file) = spec.split_once(':')?;
          Some((at.parse().ok()?, file.to_owned()))
      });
@@ -193,7 +204,7 @@ index 3c63b6c..bd288b9 100644
          if enhance_off_at == Some(frame) {
              for cheat in system.cheats.iter_mut().filter(|cheat| cheat.builtin && cheat.enabled) {
                  cheat.enabled = false;
-@@ -334,7 +371,12 @@ fn main() {
+@@ -334,7 +375,12 @@ fn main() {
          if wav.is_some() {
              audio.extend(system.take_audio());
          }
@@ -206,7 +217,7 @@ index 3c63b6c..bd288b9 100644
              if let Some(right) = system.read_right_eye_scaled() {
                  save_picture(&right, &temp(&format!("zakuro-top-right-{executed}.ppm")));
              }
-@@ -353,6 +395,7 @@ fn main() {
+@@ -353,6 +399,7 @@ fn main() {
              if let Some(matches) = system.interpolation_matches() {
                  println!("frame {executed}: {matches:?}, in between {}", system.shows_between());
              }
@@ -214,7 +225,7 @@ index 3c63b6c..bd288b9 100644
              // ZAKURO_DUMP_MEM_AT=1 saves the ZAKURO_DUMP_MEM ranges with the
              // screens too, to watch memory change from frame to frame
              if std::env::var("ZAKURO_DUMP_MEM_AT").is_ok() {
-@@ -411,6 +454,8 @@ fn main() {
+@@ -411,6 +458,8 @@ fn main() {
      if system.gpu.interpolates() {
          println!("in between:    {betweens} of {executed} refreshes");
      }
@@ -223,7 +234,7 @@ index 3c63b6c..bd288b9 100644
      println!("instructions:  {}", system.cpu.cycles);
      if system.idle.skipped > 0 {
          println!("idle skipped:  {} cycles of loops that changed nothing", system.idle.skipped);
-@@ -594,6 +639,55 @@ const SCREENS: [(zakuro_common::Screen, &str); 2] = [
+@@ -594,6 +643,55 @@ const SCREENS: [(zakuro_common::Screen, &str); 2] = [
      (zakuro_common::Screen::Bottom, "bottom"),
  ];
  
@@ -887,7 +898,7 @@ index 0000000..def6d35
 +    labels: [[146, 92, 28, 14], [146, 108, 28, 14], [146, 124, 28, 14]],
 +};
 diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
-index a9d239c..e283cb0 100644
+index a9d239c..37d6696 100644
 --- a/crates/zakuro-core/src/lib.rs
 +++ b/crates/zakuro-core/src/lib.rs
 @@ -4,6 +4,7 @@
@@ -933,7 +944,18 @@ index a9d239c..e283cb0 100644
      /// how many times the console's resolution the host's GPU draws at.
      pub resolution: u32,
      /// the Vulkan presenter's device, to draw on and show the screens
-@@ -107,9 +115,11 @@ impl Default for Config {
+@@ -76,6 +84,10 @@ pub struct Config {
+     /// other refresh, see System::pace, when the host's GPU draws the 3D
+     /// and shows the screens straight from its device.
+     pub interpolate: bool,
++    /// Draw the bloom that games make from smaller levels of a texture drawn on the host's GPU.
++    pub bloom: bool,
++    /// How many samples anisotropic filtering takes on the host's GPU, 1 for none.
++    pub anisotropy: u32,
+     /// the console owner's name, up to ten characters, which titles show
+     /// and local wireless tells others.
+     pub username: String,
+@@ -107,13 +119,17 @@ impl Default for Config {
              data_dir: None,
              hardware_renderer: false,
              texture_packs: true,
@@ -945,7 +967,13 @@ index a9d239c..e283cb0 100644
              resolution: 1,
              device: None,
              clock: None,
-@@ -123,6 +133,24 @@ impl Default for Config {
+             interpolate: false,
++            bloom: true,
++            anisotropy: 1,
+             username: "Zakuro".into(),
+             console_id: 0x5A4B_0000_0000_0001,
+             dlp_child: None,
+@@ -123,6 +139,24 @@ impl Default for Config {
      }
  }
  
@@ -970,7 +998,7 @@ index a9d239c..e283cb0 100644
  /// how a frame of emulation ended.
  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
  pub enum FrameOutcome {
-@@ -152,6 +180,19 @@ struct Pacing {
+@@ -152,6 +186,19 @@ struct Pacing {
      between: bool,
      /// the refreshes that showed pictures in between so far.
      shown: u64,
@@ -990,7 +1018,7 @@ index a9d239c..e283cb0 100644
  }
  
  pub struct System {
-@@ -180,6 +221,12 @@ pub struct System {
+@@ -180,6 +227,12 @@ pub struct System {
      showing: [Option<zakuro_gpu::ScreenRef>; 3],
      /// frame interpolation's count of the refreshes.
      pacing: Pacing,
@@ -1003,7 +1031,7 @@ index a9d239c..e283cb0 100644
      /// the dynamic module loader's state.
      pub cro: cro::CroManager,
      /// what the cameras see, from the frontend.
-@@ -279,6 +326,9 @@ impl System {
+@@ -279,6 +332,9 @@ impl System {
              lcd_force_black: false,
              showing: [None, None, None],
              pacing: Pacing::default(),
@@ -1013,7 +1041,7 @@ index a9d239c..e283cb0 100644
              cro: cro::CroManager::default(),
              camera: None,
              room: None,
-@@ -464,8 +514,10 @@ impl System {
+@@ -464,8 +520,10 @@ impl System {
  
          let exit = match self.run_recompiled(deadline) {
              Some(exit) => {
@@ -1026,7 +1054,7 @@ index a9d239c..e283cb0 100644
                  if let Some(hints) = &mut self.hints {
                      hints.library_ran();
                  }
-@@ -610,6 +662,11 @@ impl System {
+@@ -610,6 +668,11 @@ impl System {
          out
      }
  
@@ -1038,7 +1066,7 @@ index a9d239c..e283cb0 100644
      /// starts collecting PC samples.
      pub fn enable_profiler(&mut self) {
          self.profile = Some(BTreeMap::new());
-@@ -716,6 +773,11 @@ impl System {
+@@ -716,6 +779,11 @@ impl System {
          }
  
          self.renderer.end_frame();
@@ -1050,7 +1078,7 @@ index a9d239c..e283cb0 100644
  
          // pick up any buffer swap the game queued directly in GSP shared
          // memory before the LCDs latch whatever is currently configured.
-@@ -747,6 +809,7 @@ impl System {
+@@ -747,6 +815,7 @@ impl System {
              if pacing.refreshes - pacing.new_at > 2 {
                  // the title slowed down or stopped, the pictures in between
                  // of its next frame would be shown too late
@@ -1058,7 +1086,7 @@ index a9d239c..e283cb0 100644
                  self.gpu.set_twins(false);
              }
              return;
-@@ -757,11 +820,16 @@ impl System {
+@@ -757,11 +826,16 @@ impl System {
          let matches = self.gpu.frame_done();
          let pacing = &mut self.pacing;
          pacing.matches = matches;
@@ -1077,7 +1105,7 @@ index a9d239c..e283cb0 100644
      }
  
      /// draws a picture in between each two of the title's own from now on,
-@@ -783,6 +851,87 @@ impl System {
+@@ -783,6 +857,87 @@ impl System {
          self.pacing.between
      }
  
@@ -1165,7 +1193,7 @@ index a9d239c..e283cb0 100644
      /// the DSP finishing an audio frame, it plays its voices one frame on and
      /// interrupts the title, whose sound library does one update per interrupt.
      fn audio_frame(&mut self) {
-@@ -843,6 +992,10 @@ impl System {
+@@ -843,6 +998,10 @@ impl System {
          stride: u32,
          format: u32,
      ) {
@@ -1176,7 +1204,7 @@ index a9d239c..e283cb0 100644
          self.gpu
              .set_framebuffer(screen, active, left, right, stride, format);
      }
-@@ -995,6 +1148,14 @@ impl System {
+@@ -995,6 +1154,14 @@ impl System {
          memory::config::set_slider_3d(self.memory.phys.shared_page_mut(), value);
      }
  
@@ -1191,7 +1219,7 @@ index a9d239c..e283cb0 100644
      /// where a screen's picture is on the host's GPU, for a presenter sharing
      /// its device to draw straight from, none when the GPU does not show the
      /// screens itself or did not draw what the screen shows, read_screen_scaled
-@@ -1088,6 +1249,16 @@ impl System {
+@@ -1088,6 +1255,16 @@ impl System {
          self.gpu.scaled_screen(base, (height, width), stride / bpp, format, &bytes)
      }
  
@@ -1209,7 +1237,7 @@ index a9d239c..e283cb0 100644
      pub fn read_screen(&mut self, screen: zakuro_common::Screen) -> Vec<u8> {
          self.read_screen_at(screen, false)
 diff --git a/crates/zakuro-core/src/loader.rs b/crates/zakuro-core/src/loader.rs
-index 937bcbb..bd7a846 100644
+index 937bcbb..e6c2057 100644
 --- a/crates/zakuro-core/src/loader.rs
 +++ b/crates/zakuro-core/src/loader.rs
 @@ -66,7 +66,7 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
@@ -1234,10 +1262,18 @@ index 937bcbb..bd7a846 100644
      if !enhancements.is_empty() {
          let on: Vec<&str> = enhancements.iter().filter(|cheat| cheat.enabled).map(|cheat| cheat.name.as_str()).collect();
          log::info!("{} enhancements for this build, {build}, on: {}", enhancements.len(), if on.is_empty() { "none".to_owned() } else { on.join(", ") });
-@@ -209,19 +211,25 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
+@@ -209,19 +211,33 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
              Err(error) => log::warn!("{error}, drawing in software"),
          }
      }
++    if on_gpu && !system.config.bloom {
++        system.gpu.set_bloom(false);
++        log::info!("bloom off");
++    }
++    if on_gpu && system.config.anisotropy > 1 {
++        let samples = system.gpu.set_anisotropy(system.config.anisotropy);
++        log::info!("anisotropic filtering at {samples}x");
++    }
 +    // A game with a description of its screens has its markers handed to the GPU, which looks for them in the draws.
 +    system.game_ui = crate::game_ui::for_game(title.program_id());
 +    if let Some(game_ui) = system.game_ui {
@@ -1264,7 +1300,7 @@ index 937bcbb..bd7a846 100644
              system.gpu.set_texture_pack(Some(std::sync::Arc::new(pack)));
          }
      }
-@@ -249,7 +257,7 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
+@@ -249,7 +265,7 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
      system.recompiled = None;
      let mut library = crate::recompiled::Library::open(path).map_err(|error| format!("could not load {}, {error}", path.display()))?;
      if !library.checks_itself() {
@@ -1273,7 +1309,7 @@ index 937bcbb..bd7a846 100644
          if modded || title.update().is_some() {
              let what = if modded { "a mod" } else { "the update" };
              return Err(format!("{what} changed the game's code and {} can't tell where", path.display()));
-@@ -349,7 +357,7 @@ fn map_special_pages(system: &mut System, app_bytes: u32) {
+@@ -349,7 +365,7 @@ fn map_special_pages(system: &mut System, app_bytes: u32) {
  
  /// maps the code segments, saying whether a mod changed them.
  fn map_code(system: &mut System, title: &Title) -> Result<bool, LoadError> {
@@ -1282,7 +1318,7 @@ index 937bcbb..bd7a846 100644
      let exheader = &title.exheader;
  
      let segments = [
-@@ -568,6 +576,13 @@ mod tests {
+@@ -568,6 +584,13 @@ mod tests {
  
          let system = load(&game, Config::default()).unwrap();
          assert!(!system.cheats.iter().find(|cheat| cheat.builtin).unwrap().enabled);
@@ -4785,6 +4821,19 @@ index 212c3f7..d0d683b 100644
                          &[],
                      );
                      device.cmd_draw_indexed(command_buffer, count, 1, first_index, first_vertex, 0);
+diff --git a/crates/zakuro-gpu/src/device.rs b/crates/zakuro-gpu/src/device.rs
+index 3a90135..177aabe 100644
+--- a/crates/zakuro-gpu/src/device.rs
++++ b/crates/zakuro-gpu/src/device.rs
+@@ -17,6 +17,8 @@ pub struct SharedDevice {
+     /// whether the device does logic ops, and counts pipeline statistics.
+     pub(crate) logic_ops: bool,
+     pub(crate) statistics: bool,
++    /// Whether the device filters textures anisotropically.
++    pub(crate) anisotropy: bool,
+     /// the blend state draws set as they go.
+     pub(crate) dynamic: crate::raster::hardware::Dynamic,
+ }
 diff --git a/crates/zakuro-gpu/src/interpolation.rs b/crates/zakuro-gpu/src/interpolation.rs
 index af12308..fee2e23 100644
 --- a/crates/zakuro-gpu/src/interpolation.rs
@@ -4944,7 +4993,7 @@ index af12308..fee2e23 100644
  
      /// a draw through a geometry shader is drawn as it is, and never
 diff --git a/crates/zakuro-gpu/src/lib.rs b/crates/zakuro-gpu/src/lib.rs
-index f294442..c862360 100644
+index f294442..e6ade9d 100644
 --- a/crates/zakuro-gpu/src/lib.rs
 +++ b/crates/zakuro-gpu/src/lib.rs
 @@ -22,7 +22,8 @@ pub mod texture;
@@ -4997,7 +5046,55 @@ index f294442..c862360 100644
          self.sync_memory(memory, output, span(output_width, output_skip));
  
          log::debug!(
-@@ -742,6 +768,26 @@ impl Gpu {
+@@ -694,6 +720,47 @@ impl Gpu {
+         drawn
+     }
+ 
++    /// Draws the bloom that games make from smaller levels of a texture drawn by the GPU, or leaves it out.
++    /// Without it those levels are transparent black, and the picture keeps its sharp first level.
++    /// Only the host's GPU draws such bloom apart, so this does nothing in software.
++    pub fn set_bloom(&mut self, on: bool) {
++        #[cfg(feature = "vulkan")]
++        if let Some(hardware) = self.resources.hardware.as_mut() {
++            hardware.set_bloom(on);
++        }
++        #[cfg(not(feature = "vulkan"))]
++        let _ = on;
++    }
++
++    /// Whether the bloom is drawn, see set_bloom.
++    pub fn blooms(&self) -> bool {
++        #[cfg(feature = "vulkan")]
++        if let Some(hardware) = self.resources.hardware.as_ref() {
++            return hardware.blooms();
++        }
++        true
++    }
++
++    /// Filters textures seen at an angle with up to this many samples, 1 for none, and says how many the host's GPU takes.
++    /// Only the host's GPU filters anisotropically, so this does nothing in software.
++    pub fn set_anisotropy(&mut self, samples: u32) -> u32 {
++        #[cfg(feature = "vulkan")]
++        if let Some(hardware) = self.resources.hardware.as_mut() {
++            return hardware.set_anisotropy(samples);
++        }
++        let _ = samples;
++        1
++    }
++
++    /// How many samples anisotropic filtering takes, 1 when it is off, see set_anisotropy.
++    pub fn anisotropy(&self) -> u32 {
++        #[cfg(feature = "vulkan")]
++        if let Some(hardware) = self.resources.hardware.as_ref() {
++            return hardware.anisotropy();
++        }
++        1
++    }
++
+     /// whether the 3D is drawn on the host's GPU, enable_hardware_renderer
+     /// having worked, rather than in software.
+     pub fn draws_on_gpu(&self) -> bool {
+@@ -742,6 +809,26 @@ impl Gpu {
          on
      }
  
@@ -5024,7 +5121,7 @@ index f294442..c862360 100644
      /// whether frame interpolation is on.
      pub fn interpolates(&self) -> bool {
          self.interpolation.is_some()
-@@ -802,6 +848,23 @@ impl Gpu {
+@@ -802,6 +889,23 @@ impl Gpu {
          1
      }
  
@@ -5048,7 +5145,7 @@ index f294442..c862360 100644
      /// the newest picture the host's GPU drew for a screen's buffer, at the
      /// scale it draws at, while guest memory still holds the same picture.
      /// size is the pixels of a row the screen shows and its rows, stride the
-@@ -816,6 +879,17 @@ impl Gpu {
+@@ -816,6 +920,17 @@ impl Gpu {
          None
      }
  
@@ -5066,7 +5163,7 @@ index f294442..c862360 100644
      /// a screen's picture upright, RGBA the way the screen shows it, and the
      /// scale it is at, once the GPU finished it.
      pub fn scaled_picture(&mut self, screen: ScreenRef) -> Option<Picture> {
-@@ -1130,6 +1204,8 @@ impl Gpu {
+@@ -1130,6 +1245,8 @@ impl Gpu {
              return;
          }
          self.draw_calls += 1;
@@ -5075,7 +5172,7 @@ index f294442..c862360 100644
          renderer.draw(DrawCall {
              indexed,
              registers: &self.internal,
-@@ -1475,6 +1551,25 @@ fn external_index(gsp_offset: u32) -> Option<usize> {
+@@ -1475,6 +1592,25 @@ fn external_index(gsp_offset: u32) -> Option<usize> {
      Some(byte_offset as usize / 4)
  }
  
@@ -5194,7 +5291,7 @@ index b87b030..5864d8f 100644
              }
          }
 diff --git a/crates/zakuro-gpu/src/raster.rs b/crates/zakuro-gpu/src/raster.rs
-index 2e71e86..b8ce10c 100644
+index 2e71e86..7814c33 100644
 --- a/crates/zakuro-gpu/src/raster.rs
 +++ b/crates/zakuro-gpu/src/raster.rs
 @@ -1110,6 +1110,24 @@ pub(super) fn upside_down(registers: &[u32]) -> bool {
@@ -5532,7 +5629,31 @@ index 2e71e86..b8ce10c 100644
          (_, Some(found)) => found,
          (_, None) => match cache.unchanged(key, size as u32, memory) {
              Some(found) => found,
-@@ -2887,7 +3138,13 @@ pub fn draw<M: GpuMemory>(
+@@ -2081,9 +2332,9 @@ fn drawn_texture<M: GpuMemory>(registers: &[u32], memory: &M, unit: usize) -> Op
+     (width != 0 && height != 0 && address != 0).then(|| DrawnTexture { addr: memory.translate(address), width, height, format })
+ }
+ 
+-/// the guest memory a texture unit reads, when it is on.
++/// the guest memory a texture unit reads, when it is on, with the number of its levels.
+ #[cfg(feature = "vulkan")]
+-fn texture_range<M: GpuMemory>(registers: &[u32], memory: &M, unit: usize) -> Option<(u32, u32)> {
++fn texture_range<M: GpuMemory>(registers: &[u32], memory: &M, unit: usize) -> Option<(u32, u32, u32)> {
+     if registers[REG_TEXTURE_CONFIG] & (1 << unit) == 0 {
+         return None;
+     }
+@@ -2096,8 +2347,9 @@ fn texture_range<M: GpuMemory>(registers: &[u32], memory: &M, unit: usize) -> Op
+     if width == 0 || height == 0 || address == 0 {
+         return None;
+     }
+-    let size = texture_bytes(format, width, height, level_count(registers, base, width, height));
+-    Some((memory.translate(address), size as u32))
++    let levels = level_count(registers, base, width, height);
++    let size = texture_bytes(format, width, height, levels);
++    Some((memory.translate(address), size as u32, levels))
+ }
+ 
+ /// where and how depth testing reads/writes, or None when disabled.
+@@ -2887,7 +3139,13 @@ pub fn draw<M: GpuMemory>(
      // the GPU decodes the arrays itself when it shades the draw, from the
      // first vertex the draw uses to the last
      #[cfg(feature = "vulkan")]
@@ -5547,7 +5668,7 @@ index 2e71e86..b8ce10c 100644
          let index_short = registers[REG_INDEX_ARRAY] & 0x8000_0000 != 0;
          let first_vertex = registers[REG_VERTEX_OFFSET];
          let (first, span) = if indexed {
-@@ -3109,6 +3366,18 @@ fn assemble(topology: u32, count: usize) -> Vec<(usize, usize, usize)> {
+@@ -3109,6 +3367,18 @@ fn assemble(topology: u32, count: usize) -> Vec<(usize, usize, usize)> {
      }
  }
  
@@ -5566,7 +5687,7 @@ index 2e71e86..b8ce10c 100644
  /// assembles shaded vertices into triangles the way the primitive configuration
  /// says, and fills them with the current back-end state.
  /// the triangles drawn, none for arrays the GPU could not decode, which the
-@@ -3129,9 +3398,15 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3129,9 +3399,15 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
      let viewport_top = (viewport_y + viewport_height).round() as i32;
      let (buffer_width, buffer_height) = buffer_size(registers, viewport);
      let (target_width, target_height) = (buffer_width, buffer_height);
@@ -5585,7 +5706,7 @@ index 2e71e86..b8ce10c 100644
      let (bottom, top) = match upside_down(registers) {
          true => (buffer_height as i32 - top, buffer_height as i32 - bottom),
          false => (bottom, top),
-@@ -3145,11 +3420,16 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3145,11 +3421,16 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
              "draw: {vertex_count} vertices, topology reg 0x{:X}, viewport \
               {viewport_width}x{viewport_height} @({viewport_x},{viewport_y}), color buffer raw \
               0x{color_buffer_raw:08X} -> 0x{target_addr:08X} {target_format:?}, \
@@ -5603,20 +5724,32 @@ index 2e71e86..b8ce10c 100644
          );
      }
  
-@@ -3167,11 +3447,8 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3167,33 +3448,64 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
      #[cfg(feature = "vulkan")]
      if let Some(hardware) = resources.hardware.as_mut() {
          for (unit, drawn) in drawn.iter_mut().enumerate() {
 -            // one memory holds as drawn is still the GPU's to copy, unless
 -            // the unit reads smaller sizes after it, which memory has
 -            let one_size = |texture: &DrawnTexture| level_count(registers, TEXTURE_UNIT_BASES[unit], texture.width, texture.height) == 1;
++            let range = texture_range(registers, memory, unit);
++            // A texture with smaller levels has them written back first when they come from memory, so none is copied on the GPU.
++            if let Some((addr, len, _)) = range.filter(|&(_, _, levels)| levels > 1 && hardware.levels_from_memory()) {
++                if let Err(error) = hardware.prepare_read(memory, addr, len) {
++                    log::error!("the GPU could not write back a buffer, {error}");
++                }
++            }
              *drawn = drawn_texture(registers, memory, unit)
 -                .filter(|texture| hardware.holds(texture) || (one_size(texture) && hardware.holds_unchanged(memory, texture)));
 +                .filter(|texture| hardware.holds(texture) || hardware.holds_unchanged(memory, texture));
              if let Some(texture) = drawn {
                  past[unit] = !hardware.covers(texture);
                  continue;
-@@ -3183,17 +3460,44 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+             }
+-            if let Some((addr, len)) = texture_range(registers, memory, unit) {
++            if let Some((addr, len, _)) = range {
+                 if let Err(error) = hardware.prepare_read(memory, addr, len) {
+                     log::error!("the GPU could not write back a buffer, {error}");
+                 }
              }
          }
      }
@@ -5664,7 +5797,7 @@ index 2e71e86..b8ce10c 100644
              top,
              buffer_width,
              buffer_height,
-@@ -3357,6 +3661,12 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3357,6 +3669,12 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
  
      if log::log_enabled!(log::Level::Trace) {
          let first_screen = shaded.first().and_then(|v| to_screen(v, viewport));
@@ -5677,7 +5810,7 @@ index 2e71e86..b8ce10c 100644
          log::trace!(
              "draw result: {vertex_count} verts, {triangle_count} tris ({clipped_away} clipped \
               away, {culled} culled), {} pixels written ({} failed depth, {} failed stencil, {} failed alpha), \
-@@ -3408,6 +3718,68 @@ mod tests {
+@@ -3408,6 +3726,68 @@ mod tests {
          [&vertex.clip[..], &vertex.color, texcoords, &vertex.quaternion, &vertex.view, &[vertex.texcoord0_w]].concat().iter().map(|v| v.to_bits()).collect()
      }
  
@@ -5746,7 +5879,7 @@ index 2e71e86..b8ce10c 100644
      /// placing a vertex's fields gives the bits reading each component
      /// does, for every type and count.
      #[test]
-@@ -3656,6 +4028,29 @@ mod tests {
+@@ -3656,6 +4036,29 @@ mod tests {
      const GREEN: Vec4 = [0.0, 1.0, 0.0, 1.0];
      const BLUE: Vec4 = [0.0, 0.0, 1.0, 1.0];
  
@@ -5776,7 +5909,7 @@ index 2e71e86..b8ce10c 100644
      /// titles map depth with a scale of -1, so near is 1, and keep the
      /// nearer surface with a GREATER test against a buffer cleared to 0.
      #[test]
-@@ -4580,10 +4975,6 @@ mod tests {
+@@ -4580,10 +4983,6 @@ mod tests {
          assert!(!hardware.holds_unchanged(&mut memory, &texture), "the CPU wrote over it");
      }
  
@@ -5787,7 +5920,7 @@ index 2e71e86..b8ce10c 100644
      #[cfg(feature = "vulkan")]
      #[test]
      fn a_buffer_written_back_read_with_smaller_sizes_comes_from_memory() {
-@@ -4627,6 +5018,101 @@ mod tests {
+@@ -4627,6 +5026,101 @@ mod tests {
          assert!(pixels(&mut memory).iter().all(|&p| p == [0, 255, 0, 255]), "{:?}", pixels(&mut memory)[0]);
      }
  
@@ -5889,8 +6022,20 @@ index 2e71e86..b8ce10c 100644
      /// a narrower buffer drawn over rows a fill left of a wider one does not
      /// cost the wider one the rows it drew elsewhere, which memory lacks,
      /// when it is used again.
+@@ -5761,6 +6255,11 @@ mod tests {
+             ]
+         });
+         let inputs = random_inputs(&mut random);
++        // A draw is skipped while its generic pipeline compiles, so one draw that is not translated has it compiled first.
++        translators.hardware.as_mut().unwrap().set_translates(false, false);
++        draw_on_gpu(&registers, &mut translators, &unit, &inputs);
++        translators.hardware.as_mut().unwrap().settle();
++        translators.hardware.as_mut().unwrap().set_translates(true, false);
+         let started = std::time::Instant::now();
+         let mut draws = 0;
+         loop {
 diff --git a/crates/zakuro-gpu/src/raster/hardware.rs b/crates/zakuro-gpu/src/raster/hardware.rs
-index b3cd447..2f644a7 100644
+index b3cd447..5e948f2 100644
 --- a/crates/zakuro-gpu/src/raster/hardware.rs
 +++ b/crates/zakuro-gpu/src/raster/hardware.rs
 @@ -14,7 +14,6 @@
@@ -6151,7 +6296,20 @@ index b3cd447..2f644a7 100644
      /// whether the presenter shares the device, and shows screens straight
      /// from the images the GPU turns them upright into.
      direct: bool,
-@@ -1468,8 +1565,10 @@ pub struct Hardware {
+@@ -1454,6 +1551,12 @@ pub struct Hardware {
+     /// whether draws always go through the generic fragment shader, to
+     /// compare the two.
+     generic: bool,
++    /// Whether the smaller levels of a texture stay as the GPU drew them.
++    /// Games draw bloom from such levels, and without bloom they are transparent black.
++    bloom: bool,
++    /// Whether the smaller levels of a texture come from memory, written back first, set by ZAKURO_LEVELS_FROM_MEMORY.
++    /// They are otherwise copied on the GPU from the buffers they were drawn into.
++    levels_from_memory: bool,
+     compiler: Compiler,
+     /// whether the device does logic ops.
+     logic_ops: bool,
+@@ -1468,8 +1571,10 @@ pub struct Hardware {
      uniforms: Block,
      shading: Block,
      pipelines: QuickMap<PipelineKey, vk::Pipeline>,
@@ -6163,7 +6321,21 @@ index b3cd447..2f644a7 100644
      last_pipeline: Option<(PipelineKey, vk::Pipeline)>,
      /// made the first time a display transfer runs here.
      transfer: Option<Compute>,
-@@ -1491,7 +1590,7 @@ pub struct Hardware {
+@@ -1481,7 +1586,12 @@ pub struct Hardware {
+     /// the same writing an image, made the first time it is needed.
+     upright_image: Option<Compute>,
+     samples: Option<Local>,
+-    samplers: QuickMap<Filtering, vk::Sampler>,
++    /// The samplers made, by their filtering and the anisotropy they filter with.
++    samplers: QuickMap<(Filtering, u32), vk::Sampler>,
++    /// How many samples anisotropic filtering takes along a texture seen at an angle, 1 when it is off.
++    anisotropy: u32,
++    /// The most samples the device takes, 1 when it does not filter anisotropically.
++    max_anisotropy: u32,
+     /// the furthest a sampler's bias reaches, past which a unit's is cut.
+     max_bias: f32,
+     ring: Buffer,
+@@ -1491,7 +1601,7 @@ pub struct Hardware {
      /// by the address of the decoded texels.
      textures: HashMap<usize, Texture>,
      /// textures copied from surfaces, by what they are.
@@ -6172,7 +6344,7 @@ index b3cd447..2f644a7 100644
      /// texture pack pictures, by the hash of the textures they replace.
      replaced: HashMap<u64, Replaced>,
      /// the bytes those take, and how many they may, half the GPU's memory.
-@@ -1532,7 +1631,7 @@ pub struct Hardware {
+@@ -1532,7 +1642,7 @@ pub struct Hardware {
      /// twins once rather than once a draw.
      twin_draws: Vec<Recorded>,
      /// textures copied from twins, as copies has those from surfaces.
@@ -6181,7 +6353,15 @@ index b3cd447..2f644a7 100644
      /// the batch the draw a draw in between follows staged its vertices
      /// and its indices in, and where, which the one in between reads too.
      twinned_inputs: Option<(u64, Staged, Staged)>,
-@@ -1685,8 +1784,9 @@ impl Hardware {
+@@ -1578,6 +1688,7 @@ impl Hardware {
+         let kept_pipelines: Option<Arc<std::path::Path>> = kept_pipelines.map(Into::into);
+         let (instance, device, physical, family) = (shared.instance.clone(), shared.device.clone(), shared.physical, shared.family);
+         let (logic_ops, statistics, dynamic) = (shared.logic_ops, shared.statistics, shared.dynamic);
++        let filters_anisotropically = shared.anisotropy;
+         // SAFETY: the physical device came from this instance
+         let properties = unsafe { instance.get_physical_device_properties(physical) };
+         let name = properties.device_name_as_c_str().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+@@ -1685,8 +1796,9 @@ impl Hardware {
                  ring: unmade(),
                  in_flight: VecDeque::with_capacity(IN_FLIGHT),
                  free: spares.into_iter().map(|(commands, fence)| Frame { commands, fence, ring: unmade(), pending: None }).collect(),
@@ -6192,7 +6372,16 @@ index b3cd447..2f644a7 100644
                  direct,
                  device,
                  push,
-@@ -1732,6 +1832,7 @@ impl Hardware {
+@@ -1723,6 +1835,8 @@ impl Hardware {
+                 // first on, as the tests do
+                 waits: cfg!(test) || std::env::var_os("ZAKURO_WAIT_FOR_SHADERS").is_some(),
+                 generic: std::env::var_os("ZAKURO_GENERIC_SHADERS").is_some(),
++                bloom: true,
++                levels_from_memory: std::env::var_os("ZAKURO_LEVELS_FROM_MEMORY").is_some(),
+                 compiler,
+                 logic_ops,
+                 dynamic,
+@@ -1732,6 +1846,7 @@ impl Hardware {
                  uniforms: Block::default(),
                  shading: Block::default(),
                  pipelines: QuickMap::default(),
@@ -6200,7 +6389,16 @@ index b3cd447..2f644a7 100644
                  last_pipeline: None,
                  transfer: None,
                  depth: None,
-@@ -1822,7 +1923,8 @@ impl Hardware {
+@@ -1739,6 +1854,8 @@ impl Hardware {
+                 upright_image: None,
+                 samples: None,
+                 samplers: QuickMap::default(),
++                anisotropy: 1,
++                max_anisotropy: if filters_anisotropically { properties.limits.max_sampler_anisotropy as u32 } else { 1 },
+                 max_bias: properties.limits.max_sampler_lod_bias,
+                 used: 0,
+                 readback: None,
+@@ -1822,7 +1939,8 @@ impl Hardware {
              if dynamic.blend && !hardware.waits {
                  for key in generic_keys(hardware.shades) {
                      let module = hardware.vertex_module(key.vertex);
@@ -6210,7 +6408,7 @@ index b3cd447..2f644a7 100644
                  }
              }
              Ok(hardware)
-@@ -1855,6 +1957,31 @@ impl Hardware {
+@@ -1855,6 +1973,31 @@ impl Hardware {
          self.scale
      }
  
@@ -6242,7 +6440,7 @@ index b3cd447..2f644a7 100644
      /// a host visible buffer, mapped for as long as it lives. one the host
      /// reads back from is cached, reading uncached memory is slow.
      fn buffer(&self, size: u64, usage: vk::BufferUsageFlags, readback: bool) -> Result<Buffer, String> {
-@@ -1922,6 +2049,40 @@ impl Hardware {
+@@ -1922,6 +2065,40 @@ impl Hardware {
          Ok((memory, types[index].property_flags))
      }
  
@@ -6283,7 +6481,7 @@ index b3cd447..2f644a7 100644
      /// an image in device memory, put in the general layout by the batch
      /// being recorded, which it never leaves.
      fn image(&self, width: u32, height: u32, format: vk::Format, usage: vk::ImageUsageFlags, aspect: vk::ImageAspectFlags) -> Result<Image, String> {
-@@ -1960,15 +2121,20 @@ impl Hardware {
+@@ -1960,15 +2137,20 @@ impl Hardware {
                  .map_err(vk_error("create an image"))?;
              let requirements = self.device.get_image_memory_requirements(image);
              // what was made goes again when a later step fails
@@ -6311,7 +6509,7 @@ index b3cd447..2f644a7 100644
                  self.device
                      .create_image_view(
                          &vk::ImageViewCreateInfo::default()
-@@ -1984,7 +2150,7 @@ impl Hardware {
+@@ -1984,7 +2166,7 @@ impl Hardware {
                  Ok(view) => view,
                  Err(error) => {
                      self.device.destroy_image(image, None);
@@ -6320,7 +6518,7 @@ index b3cd447..2f644a7 100644
                      return Err(error);
                  }
              };
-@@ -1997,7 +2163,36 @@ impl Hardware {
+@@ -1997,7 +2179,36 @@ impl Hardware {
                  .image(image)
                  .subresource_range(range)];
              self.device.cmd_pipeline_barrier2(self.commands, &vk::DependencyInfo::default().image_memory_barriers(&barrier));
@@ -6358,7 +6556,7 @@ index b3cd447..2f644a7 100644
          }
      }
  
-@@ -2006,7 +2201,9 @@ impl Hardware {
+@@ -2006,7 +2217,9 @@ impl Hardware {
          unsafe {
              self.device.destroy_image_view(image.view, None);
              self.device.destroy_image(image.image, None);
@@ -6369,7 +6567,7 @@ index b3cd447..2f644a7 100644
          }
      }
  
-@@ -2395,6 +2592,11 @@ impl Hardware {
+@@ -2395,6 +2608,11 @@ impl Hardware {
                      _ if matches!(kind, Kind::Depth(_)) && !self.depth_blits => None,
                      _ => {
                          let usage = vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST;
@@ -6381,7 +6579,7 @@ index b3cd447..2f644a7 100644
                          Some(self.image(width, height, format, usage, aspect)?)
                      }
                  };
-@@ -2512,7 +2714,7 @@ impl Hardware {
+@@ -2512,7 +2730,7 @@ impl Hardware {
  
      /// whether a texture is rows of a surface with a twin.
      fn reads_twin(&self, texture: &DrawnTexture) -> bool {
@@ -6390,7 +6588,7 @@ index b3cd447..2f644a7 100644
      }
  
      /// gives a surface a twin holding what the surface does, before a draw
-@@ -2680,8 +2882,17 @@ impl Hardware {
+@@ -2680,8 +2898,17 @@ impl Hardware {
      /// a surface with no such image, a depth buffer on a GPU that can't blit
      /// them, is scaled on the CPU instead, see scale_up and scale_down_depth.
      fn blit(&mut self, index: usize, up: bool) {
@@ -6408,7 +6606,7 @@ index b3cd447..2f644a7 100644
          let aspect = match s.kind {
              Kind::Color(_) => vk::ImageAspectFlags::COLOR,
              Kind::Depth(_) => vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
-@@ -2691,7 +2902,7 @@ impl Hardware {
+@@ -2691,7 +2918,7 @@ impl Hardware {
          let small = corner(s.width, s.height);
          let big = corner(s.width * self.scale, s.height * self.scale);
          let (from, to, from_corner, to_corner) =
@@ -6417,7 +6615,7 @@ index b3cd447..2f644a7 100644
          let region = [vk::ImageBlit::default()
              .src_subresource(layers)
              .src_offsets(from_corner)
-@@ -2708,7 +2919,7 @@ impl Hardware {
+@@ -2708,7 +2935,7 @@ impl Hardware {
                  to,
                  vk::ImageLayout::GENERAL,
                  &region,
@@ -6426,7 +6624,33 @@ index b3cd447..2f644a7 100644
              )
          };
      }
-@@ -2989,46 +3200,66 @@ impl Hardware {
+@@ -2884,7 +3111,9 @@ impl Hardware {
+ 
+     /// a sampler for a unit.
+     fn sampler(&mut self, filtering: Filtering) -> Result<vk::Sampler, String> {
+-        if let Some(&sampler) = self.samplers.get(&filtering) {
++        // Only a texture filtered linearly as it shrinks is filtered anisotropically too.
++        let anisotropy = if filtering.minify { self.anisotropy } else { 1 };
++        if let Some(&sampler) = self.samplers.get(&(filtering, anisotropy)) {
+             return Ok(sampler);
+         }
+         // the border is the shader's to draw, past the edge it clamps
+@@ -2904,10 +3133,12 @@ impl Hardware {
+             .address_mode_v(mode(filtering.t))
+             .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+             .min_lod(filtering.levels.0 as f32)
+-            .max_lod(filtering.levels.1 as f32);
++            .max_lod(filtering.levels.1 as f32)
++            .anisotropy_enable(anisotropy > 1)
++            .max_anisotropy(anisotropy as f32);
+         // SAFETY: plain object creation on our device
+         let sampler = unsafe { self.device.create_sampler(&info, None) }.map_err(vk_error("create a sampler"))?;
+-        self.samplers.insert(filtering, sampler);
++        self.samplers.insert((filtering, anisotropy), sampler);
+         Ok(sampler)
+     }
+ 
+@@ -2989,46 +3220,66 @@ impl Hardware {
      /// the pipeline a draw goes through. until the one made for its key is
      /// ready the compiler makes it, and the draw goes through one that
      /// draws the same, the interpreter's with the same fragment stages when
@@ -6507,7 +6731,58 @@ index b3cd447..2f644a7 100644
      }
  
      /// raster.frag leaving depth to the rasterizer, and working it out.
-@@ -3347,6 +3578,11 @@ impl Hardware {
+@@ -3172,6 +3423,33 @@ impl Hardware {
+ 
+     /// makes sure guest memory holds what the GPU drew over a range, before
+     /// something reads it.
++    /// Whether the smaller levels of textures come from memory, as ZAKURO_LEVELS_FROM_MEMORY asks.
++    pub(crate) fn levels_from_memory(&self) -> bool {
++        self.levels_from_memory
++    }
++
++    /// Draws the bloom that games make from smaller levels of a texture drawn by the GPU, or leaves it out.
++    pub(crate) fn set_bloom(&mut self, on: bool) {
++        self.bloom = on;
++    }
++
++    /// Whether the bloom is drawn, see set_bloom.
++    pub(crate) fn blooms(&self) -> bool {
++        self.bloom
++    }
++
++    /// Filters textures seen at an angle with up to this many samples, 1 for none, as far as the device goes, and says how many.
++    /// The samplers made before stay for the draws that already use them.
++    pub(crate) fn set_anisotropy(&mut self, samples: u32) -> u32 {
++        self.anisotropy = samples.clamp(1, self.max_anisotropy);
++        self.anisotropy
++    }
++
++    /// How many samples anisotropic filtering takes, 1 when it is off.
++    pub(crate) fn anisotropy(&self) -> u32 {
++        self.anisotropy
++    }
++
+     pub(crate) fn prepare_read<M: GpuMemory>(&mut self, memory: &mut M, addr: u32, len: u32) -> Result<(), String> {
+         if self.surfaces.iter().any(|s| s.dirty_overlaps(addr, len)) {
+             self.sync(memory, addr, len)?;
+@@ -3285,6 +3563,16 @@ impl Hardware {
+         self.translated.values().filter(|translation| matches!(translation, Translation::Done(_))).count()
+     }
+ 
++    /// Waits until the compiler has nothing left to do, and takes in what it made.
++    #[cfg(test)]
++    pub(super) fn settle(&mut self) {
++        let started = std::time::Instant::now();
++        while self.compiler.outstanding > 0 && started.elapsed().as_secs() < 60 {
++            self.collect();
++            thread::sleep(std::time::Duration::from_millis(5));
++        }
++    }
++
+     /// the pipelines made for translated programs so far.
+     #[cfg(test)]
+     pub(super) fn translated_pipelines(&self) -> usize {
+@@ -3347,6 +3635,11 @@ impl Hardware {
                  None => return,
              },
          };
@@ -6519,7 +6794,7 @@ index b3cd447..2f644a7 100644
          let made = work(job, &self.device, self.pipeline_cache, self.layout, self.fragment_modules(), self.dynamic, self.depth_format);
          self.take(made);
      }
-@@ -3391,15 +3627,33 @@ impl Hardware {
+@@ -3391,15 +3684,33 @@ impl Hardware {
              Made::Translated(key, Err(_)) => {
                  self.translated.insert(key, Translation::Failed);
              }
@@ -6561,7 +6836,7 @@ index b3cd447..2f644a7 100644
                  // a translated program the driver turns down goes back to
                  // the interpreter
                  VertexStage::Translated(failed) => {
-@@ -3627,6 +3881,8 @@ impl Hardware {
+@@ -3627,6 +3938,8 @@ impl Hardware {
          let real = pass != Pass::Twin;
          let twin = twinned && pass != Pass::Twinned;
  
@@ -6570,7 +6845,7 @@ index b3cd447..2f644a7 100644
          let mut views = [self.blank.view; 3];
          let mut twin_views = [self.blank.view; 3];
          let mut samplers = [vk::Sampler::null(); 3];
-@@ -3647,6 +3903,7 @@ impl Hardware {
+@@ -3647,6 +3960,7 @@ impl Hardware {
                          None => {
                              let (view, picture) = self.texture(bound)?;
                              (views[unit], twin_views[unit]) = (view, view);
@@ -6578,7 +6853,7 @@ index b3cd447..2f644a7 100644
                              match picture {
                                  Some(smallest) => Filtering::picture(bound, smallest),
                                  None => Filtering::of(bound),
-@@ -3688,8 +3945,8 @@ impl Hardware {
+@@ -3688,8 +4002,8 @@ impl Hardware {
          }
          let texture_config = (r[REG_TEXTURE_CONFIG] & !7) | enabled;
          words.extend([r[REG_UPDATE_BUFFER], r[REG_BUFFER_COLOR], r[REG_ALPHA_TEST], texture_config]);
@@ -6589,7 +6864,7 @@ index b3cd447..2f644a7 100644
          }
          let depth_flags = depth_map.w_buffer as u32 | (shaded.is_some() as u32) << 1;
          // the depth map goes through the viewport where it fits, and what
-@@ -3776,7 +4033,10 @@ impl Hardware {
+@@ -3776,7 +4090,10 @@ impl Hardware {
              vertex,
              fragment,
          };
@@ -6601,7 +6876,7 @@ index b3cd447..2f644a7 100644
  
          self.mark(Work::Draw, false);
          if self.uploads {
-@@ -4081,12 +4341,112 @@ impl Hardware {
+@@ -4081,12 +4398,112 @@ impl Hardware {
          Ok(())
      }
  
@@ -6714,7 +6989,7 @@ index b3cd447..2f644a7 100644
          let t = transfer;
          let input_kind = Kind::Color(t.input_format);
          let output_kind = Kind::Color(t.output_format);
-@@ -4111,14 +4471,29 @@ impl Hardware {
+@@ -4111,14 +4528,29 @@ impl Hardware {
              let offset = t.input.checked_sub(s.addr).filter(|offset| offset % step_bytes == 0)? / step_bytes * step;
              (offset + rows <= s.height).then_some(offset)
          };
@@ -6748,7 +7023,7 @@ index b3cd447..2f644a7 100644
              return Ok(false);
          };
          // rows read where the output goes, the CPU does in order. the rest
-@@ -4126,7 +4501,8 @@ impl Hardware {
+@@ -4126,7 +4558,8 @@ impl Hardware {
          // Ultimate puts the bottom screen right before the rows it reads, and
          // the output drawn over them is the overdrawn below
          let row_bytes = (input_size.0 * input_kind.bytes()) as u64;
@@ -6758,7 +7033,7 @@ index b3cd447..2f644a7 100644
          let read_end = read_start + rows as u64 * row_bytes;
          let output_end = t.output as u64 + (t.output_width * t.output_height * output_kind.bytes()) as u64;
          if read_start < output_end && (t.output as u64) < read_end {
-@@ -4134,34 +4510,55 @@ impl Hardware {
+@@ -4134,34 +4567,55 @@ impl Hardware {
          }
          self.begin()?;
          // a flush looking one of them up drops what the other had checked
@@ -6834,7 +7109,7 @@ index b3cd447..2f644a7 100644
          let twinned = twinned
              && match self.make_twin(target) {
                  Ok(()) => true,
-@@ -4171,11 +4568,21 @@ impl Hardware {
+@@ -4171,11 +4625,21 @@ impl Hardware {
                      false
                  }
              };
@@ -6860,7 +7135,7 @@ index b3cd447..2f644a7 100644
              self.surfaces[target].twin_changed();
          }
          self.surfaces[target].changed();
-@@ -4188,10 +4595,27 @@ impl Hardware {
+@@ -4188,10 +4652,27 @@ impl Hardware {
          if twinned && self.direct {
              self.upright_image(target, true)?;
          }
@@ -6889,7 +7164,7 @@ index b3cd447..2f644a7 100644
      /// records the transfer shader going over size pixels, from one image
      /// to another, as the constants say.
      fn dispatch_transfer(&mut self, (source, target): (vk::ImageView, vk::ImageView), constants: [i32; 11], size: (u32, u32)) -> Result<(), String> {
-@@ -4234,7 +4658,7 @@ impl Hardware {
+@@ -4234,7 +4715,7 @@ impl Hardware {
      /// texture's sides are powers of two and the buffer drawn into it need
      /// not be, Inazuma Eleven GO reads 800 rows drawn as 1024, one holding
      /// all of it goes first.
@@ -6898,7 +7173,7 @@ index b3cd447..2f644a7 100644
          let depth = match texture.format {
              ColorFormat::Rgba8 => Some(Kind::Depth(4)),
              ColorFormat::Rgb8 => Some(Kind::Depth(3)),
-@@ -4248,16 +4672,42 @@ impl Hardware {
+@@ -4248,16 +4729,42 @@ impl Hardware {
                  if !(kinds.contains(&Some(s.kind)) && s.tiled && s.width == texture.width) {
                      return None;
                  }
@@ -6946,7 +7221,7 @@ index b3cd447..2f644a7 100644
      }
  
      /// whether a texture is rows of a surface the GPU drew and guest memory
-@@ -4266,10 +4716,12 @@ impl Hardware {
+@@ -4266,10 +4773,12 @@ impl Hardware {
      /// changed there since, or another surface drew over them, the texture
      /// comes from memory once what was drawn is written back.
      pub(crate) fn holds(&self, texture: &DrawnTexture) -> bool {
@@ -6961,7 +7236,7 @@ index b3cd447..2f644a7 100644
              let at = surface.addr + from * surface.row_bytes();
              from < to
                  && (!surface.checked
-@@ -4277,7 +4729,7 @@ impl Hardware {
+@@ -4277,7 +4786,7 @@ impl Hardware {
          });
          // nor where a fill wrote over what it drew
          let row_bytes = surface.row_bytes();
@@ -6970,7 +7245,7 @@ index b3cd447..2f644a7 100644
          surface.dirty.is_some() && !changed && !stale
      }
  
-@@ -4289,13 +4741,13 @@ impl Hardware {
+@@ -4289,13 +4798,13 @@ impl Hardware {
      /// width, would otherwise have the console's resolution in memory take
      /// the place of the scaled frame.
      pub(crate) fn holds_unchanged<M: GpuMemory>(&self, memory: &mut M, texture: &DrawnTexture) -> bool {
@@ -6986,7 +7261,7 @@ index b3cd447..2f644a7 100644
          let (at, len) = (surface.addr + row * row_bytes, rows * row_bytes);
          // memory behind another surface drawn over it says nothing of this one
          if (0..self.surfaces.len()).any(|i| i != index && self.surfaces[i].dirty_overlaps(at, len)) {
-@@ -4316,54 +4768,109 @@ impl Hardware {
+@@ -4316,54 +4825,109 @@ impl Hardware {
      /// one is copied from the surface's twin, when it has one.
      fn copy_texture(&mut self, texture: &DrawnTexture, bound: &BoundTexture, twin: bool) -> Result<vk::ImageView, String> {
          self.mark(Work::Copy, false);
@@ -7111,7 +7386,7 @@ index b3cd447..2f644a7 100644
              // SAFETY: recording, outside rendering, between two color images
              // in the general layout made for transfers, both their size
              unsafe {
-@@ -4380,7 +4887,7 @@ impl Hardware {
+@@ -4380,7 +4944,7 @@ impl Hardware {
              };
          }
          if let Kind::Depth(bytes) = self.surfaces[source].kind {
@@ -7120,7 +7395,7 @@ index b3cd447..2f644a7 100644
          } else {
              // the texture's rows run top first, the surface's bottom first,
              // so the copy flips them, and its pixels round to the format as
-@@ -4389,22 +4896,68 @@ impl Hardware {
+@@ -4389,22 +4953,81 @@ impl Hardware {
              let n = self.scale;
              let (width, height) = ((texture.width * n) as i32, (rows * n) as i32);
              let (row, source_height) = ((row * n) as i32, (self.surfaces[source].height * n) as i32);
@@ -7135,6 +7410,9 @@ index b3cd447..2f644a7 100644
 +        for (level, drawn) in (1..levels).zip(&drawn_levels) {
 +            let Some(&(index, row, _)) = drawn.as_ref() else { continue };
 +            self.copy_level(&key, twin, level, (index, row))?;
++        }
++        if !self.bloom && drawn_levels.iter().any(Option::is_some) {
++            self.clear_smaller_levels(image, levels);
          }
          self.uploads = true;
 -        if let Some(copy) = self.copies(twin).get_mut(texture) {
@@ -7148,6 +7426,16 @@ index b3cd447..2f644a7 100644
          Ok(view)
      }
  
++    /// Clears the smaller levels of a copied texture to transparent black, which leaves out the bloom drawn from them.
++    fn clear_smaller_levels(&mut self, image: vk::Image, levels: u32) {
++        self.barrier();
++        let range = vk::ImageSubresourceRange::default().aspect_mask(vk::ImageAspectFlags::COLOR).base_mip_level(1).level_count(levels - 1).layer_count(1);
++        let clear = vk::ClearColorValue { float32: [0.0; 4] };
++        // SAFETY: recording, outside rendering, on a copy made for transfers in the general layout, with the levels it has
++        unsafe { self.device.cmd_clear_color_image(self.commands, image, vk::ImageLayout::GENERAL, &clear, &[range]) };
++        self.unfenced = true;
++    }
++
 +    /// Copies a smaller level of a texture out of the surface it was drawn in. The level goes through an image at the resolution of the console and is scaled up into its level of the copy.
 +    fn copy_level(&mut self, key: &(DrawnTexture, u32), twin: bool, level: u32, (index, row): (usize, u32)) -> Result<(), String> {
 +        let texture = key.0;
@@ -7193,7 +7481,7 @@ index b3cd447..2f644a7 100644
          match twin {
              true => &mut self.twin_copies,
              false => &mut self.copies,
-@@ -4809,13 +5362,38 @@ impl Hardware {
+@@ -4809,13 +5432,38 @@ impl Hardware {
              return Ok(crop(image));
          }
          // its batch finished before a screen showed the surface
@@ -7236,7 +7524,7 @@ index b3cd447..2f644a7 100644
          let buffer = &capture.buffer;
          if buffer.incoherent {
              let range = [vk::MappedMemoryRange::default().memory(buffer.memory).offset(0).size(vk::WHOLE_SIZE)];
-@@ -5014,10 +5592,10 @@ impl Hardware {
+@@ -5014,10 +5662,10 @@ impl Hardware {
              }
          }
          for twin in [false, true] {
@@ -7249,7 +7537,7 @@ index b3cd447..2f644a7 100644
                  }
              }
          }
-@@ -5136,11 +5714,13 @@ impl Hardware {
+@@ -5136,11 +5784,13 @@ impl Hardware {
              }
          }
          // pictures for screens are read out before a later batch can draw
@@ -7267,7 +7555,7 @@ index b3cd447..2f644a7 100644
              }
          }
          Ok(())
-@@ -5415,7 +5995,7 @@ impl Drop for Hardware {
+@@ -5415,7 +6065,7 @@ impl Drop for Hardware {
                  self.destroy_image(&texture.image);
              }
              for copy in self.copies.values().chain(self.twin_copies.values()) {
@@ -7276,7 +7564,7 @@ index b3cd447..2f644a7 100644
              }
              for replaced in self.replaced.values() {
                  self.destroy_image(&replaced.image);
-@@ -5431,6 +6011,12 @@ impl Drop for Hardware {
+@@ -5431,6 +6081,12 @@ impl Drop for Hardware {
                  }
              }
              self.destroy_image(&self.blank);
@@ -7289,7 +7577,7 @@ index b3cd447..2f644a7 100644
              let captures = self.surfaces.iter().flat_map(|s| [&s.capture, &s.screen]).filter_map(|c| c.as_ref().map(|c| &c.buffer));
              let rings = self.free.iter().chain(&self.in_flight).map(|frame| &frame.ring);
              let buffers = [Some(&self.ring), self.readback.as_ref()].into_iter().flatten().chain(rings);
-@@ -5448,7 +6034,7 @@ impl Drop for Hardware {
+@@ -5448,7 +6104,7 @@ impl Drop for Hardware {
                  self.device.destroy_buffer(samples.buffer, None);
                  self.device.free_memory(samples.memory, None);
              }
@@ -7298,7 +7586,32 @@ index b3cd447..2f644a7 100644
                  self.device.destroy_pipeline(pipeline, None);
              }
              for &sampler in self.samplers.values() {
-@@ -5798,7 +6384,7 @@ mod tests {
+@@ -5630,6 +6286,7 @@ pub(crate) fn render_device(
+     // SAFETY: the physical device came from this instance
+     let supported = unsafe { instance.get_physical_device_features(physical) };
+     let logic_ops = supported.logic_op == vk::TRUE;
++    let anisotropy = supported.sampler_anisotropy == vk::TRUE;
+     let dynamic = dynamic_state(instance, physical, logic_ops);
+     if dynamic.blend {
+         extensions.push(ash::ext::extended_dynamic_state3::NAME.as_ptr());
+@@ -5648,6 +6305,7 @@ pub(crate) fn render_device(
+     let features = vk::PhysicalDeviceFeatures::default()
+         .depth_clamp(true)
+         .logic_op(logic_ops)
++        .sampler_anisotropy(anisotropy)
+         .pipeline_statistics_query(statistics);
+     // the cache control, to make a pipeline only when the cache on disk
+     // has it, every Vulkan 1.3 device does
+@@ -5671,7 +6329,7 @@ pub(crate) fn render_device(
+     // SAFETY: a queue the device was made with
+     let queue = unsafe { device.get_device_queue(family, 0) };
+     let (_entry, instance) = (entry.clone(), instance.clone());
+-    Ok(SharedDevice { _entry, instance, physical, family, device, queue, logic_ops, statistics, dynamic })
++    Ok(SharedDevice { _entry, instance, physical, family, device, queue, logic_ops, statistics, anisotropy, dynamic })
+ }
+ 
+ /// which of the blend state the device lets draws set as they go, none
+@@ -5798,7 +6456,7 @@ mod tests {
          let kinds = [Kind::Color(ColorFormat::Rgba8), Kind::Color(ColorFormat::Rgb8), Kind::Color(ColorFormat::Rgb565), Kind::Depth(2), Kind::Depth(3), Kind::Depth(4)];
          for kind in kinds {
              let (width, height) = (16, 24);
@@ -9215,22 +9528,22 @@ index 0000000..32f8cbd
 +}
 diff --git a/crates/zakuro/src/hdtext/clean.rs b/crates/zakuro/src/hdtext/clean.rs
 new file mode 100644
-index 0000000..1d0a151
+index 0000000..02021ec
 --- /dev/null
 +++ b/crates/zakuro/src/hdtext/clean.rs
-@@ -0,0 +1,485 @@
+@@ -0,0 +1,511 @@
 +//! Cleans compression artifacts out of the pictures of the game.
 +//! It runs the realesrgan-ncnn-vulkan program with a 1x model over the pictures, keeps the result only where it stays faithful, and adds a light grain to the parchment panels.
 +
 +use std::collections::HashMap;
 +use std::path::{Path, PathBuf};
 +use std::process::{Command, Stdio};
-+use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 +use std::time::{Duration, Instant};
 +
 +use super::ops::{gaussian, label, Mask, Plane, Rgba};
 +use crate::downloads::{Download, Need, Source};
-+use crate::zig::windowless;
++use crate::zig::in_background;
 +
 +/// The Windows build of realesrgan-ncnn-vulkan, as its author publishes it on GitHub.
 +const WINDOWS_RUNNER: Source = Source {
@@ -9267,7 +9580,7 @@ index 0000000..1d0a151
 +pub const NEED: Need = Need {
 +    name: "AI cleanup",
 +    what: "an AI model, BCGone Smooth, and Real-ESRGAN's program that runs it",
-+    why: "The 3DS stores the game's pictures compressed, which leaves blocks and stripes in them. Before the words are drawn again, the model looks at each menu picture on your graphics card and smooths those blocks away, keeping the drawing as it is.",
++    why: "The 3DS stores the UI compressed, which leaves blocks and stripes in it. Before the words are drawn again, the model looks at each menu picture on your graphics card and smooths those blocks away, keeping the drawing as it is.",
 +    download: Download { folder: "ui-cleanup-1", sources: &[RUNNER, WEIGHTS], finish: Some(prepare) },
 +};
 +
@@ -9333,7 +9646,8 @@ index 0000000..1d0a151
 +/// The largest mean difference that a cleaned picture may have from the original.
 +const FIDELITY: f32 = 0.025;
 +/// The number of pictures that the program gets in one run.
-+const BATCH: usize = 64;
++/// Each run loads the model again, so fewer and larger runs are faster.
++const BATCH: usize = 256;
 +/// The extra options for the second try, which uses small tiles and a single thread per stage to save memory.
 +const RETRY: [&str; 4] = ["-t", "64", "-j", "1:1:1"];
 +/// The strength of the grain.
@@ -9373,10 +9687,10 @@ index 0000000..1d0a151
 +    pub fn clean(&self, pictures: &[(String, Rgba)], progress: &dyn Fn(usize), cancel: &AtomicBool) -> Result<HashMap<String, Rgba>, String> {
 +        let work = self.folder.join("work");
 +        let _ = std::fs::remove_dir_all(&work);
-+        // The program takes opaque pictures, so the colour is first spread into the clear pixels.
-+        let inputs: Vec<Rgba> = pictures.iter().map(|(_, picture)| bled(picture)).collect();
 +        // A picture smaller than a tiny icon is left as it is, which also spares the program the very small pictures it can hang on.
 +        let everything: Vec<usize> = (0..pictures.len()).filter(|&i| pictures[i].1.w.max(pictures[i].1.h) >= TINY_ICON).collect();
++        // The program takes opaque pictures, so the colour is first spread into the clear pixels.
++        let inputs: HashMap<usize, Rgba> = everything.iter().copied().zip(on_spare_cores(&everything, |&i| bled(&pictures[i].1))).collect();
 +        let mut outputs = HashMap::new();
 +        for (n, batch) in everything.chunks(BATCH).enumerate() {
 +            outputs.extend(self.run(&work.join(format!("first{n}")), &inputs, batch, &[], &|done| progress(n * BATCH + done), cancel)?);
@@ -9387,9 +9701,10 @@ index 0000000..1d0a151
 +            outputs.extend(self.run(&work.join(format!("again{n}")), &inputs, batch, &RETRY, &|_| {}, cancel)?);
 +        }
 +        let _ = std::fs::remove_dir_all(&work);
-+        let mut cleaned = HashMap::new();
-+        for (i, (name, picture)) in pictures.iter().enumerate() {
-+            let Some(doubled) = outputs.get(&i) else { continue };
++        let done: Vec<usize> = (0..pictures.len()).filter(|i| outputs.contains_key(i)).collect();
++        let cleaned = on_spare_cores(&done, |&i| {
++            let (name, picture) = &pictures[i];
++            let doubled = &outputs[&i];
 +            // The result is twice the size, so each pixel takes the colour at double its coordinates.
 +            // Only solid pixels are replaced, and the alpha is kept.
 +            // The tiny icons keep their own pixels, since the model only smears pixel art that small.
@@ -9404,22 +9719,20 @@ index 0000000..1d0a151
 +                }
 +            }
 +            grain(&mut out, name);
-+            cleaned.insert(name.clone(), out);
-+        }
-+        Ok(cleaned)
++            (name.clone(), out)
++        });
++        Ok(cleaned.into_iter().collect())
 +    }
 +
 +    /// Runs the program once over a selection of the pictures, in a work folder.
 +    /// Returns the results by index, at twice the size, for the pictures that came out faithful.
-+    fn run(&self, work: &Path, inputs: &[Rgba], which: &[usize], options: &[&str], progress: &dyn Fn(usize), cancel: &AtomicBool) -> Result<HashMap<usize, image::RgbaImage>, String> {
++    fn run(&self, work: &Path, inputs: &HashMap<usize, Rgba>, which: &[usize], options: &[&str], progress: &dyn Fn(usize), cancel: &AtomicBool) -> Result<HashMap<usize, image::RgbaImage>, String> {
 +        let (input, output) = (work.join("in"), work.join("out"));
 +        for folder in [&input, &output] {
 +            std::fs::create_dir_all(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
 +        }
-+        for &i in which {
-+            write_opaque(&input.join(format!("{i}.png")), &inputs[i])?;
-+        }
-+        let mut child = windowless(&mut Command::new(self.folder.join(PROGRAM)))
++        on_spare_cores(which, |&i| write_opaque(&input.join(format!("{i}.png")), &inputs[&i])).into_iter().collect::<Result<(), String>>()?;
++        let mut child = in_background(&mut Command::new(self.folder.join(PROGRAM)))
 +            .arg("-i")
 +            .arg(&input)
 +            .arg("-o")
@@ -9462,14 +9775,40 @@ index 0000000..1d0a151
 +        if status.is_some_and(|status| !status.success()) {
 +            return Err("the cleanup needs a graphics card with Vulkan".to_owned());
 +        }
-+        Ok(which
-+            .iter()
-+            .filter_map(|&i| {
-+                let doubled = image::open(output.join(format!("{i}.png"))).ok()?.to_rgba8();
-+                faithful(&doubled, &inputs[i]).then_some((i, doubled))
-+            })
-+            .collect())
++        let read = on_spare_cores(which, |&i| {
++            let doubled = image::open(output.join(format!("{i}.png"))).ok()?.to_rgba8();
++            faithful(&doubled, &inputs[&i]).then_some((i, doubled))
++        });
++        Ok(read.into_iter().flatten().collect())
 +    }
++}
++
++/// Runs a function over items on every core but one, which stays free for the window, and returns the results in order.
++/// Each item is worked on alone, so the results are the same as one after the other.
++fn on_spare_cores<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
++    let workers = std::thread::available_parallelism().map_or(1, |cores| cores.get().saturating_sub(1)).clamp(1, items.len().max(1));
++    let next = AtomicUsize::new(0);
++    let parts: Vec<Vec<(usize, R)>> = std::thread::scope(|scope| {
++        let handles: Vec<_> = (0..workers)
++            .map(|_| {
++                scope.spawn(|| {
++                    let mut done = Vec::new();
++                    loop {
++                        let index = next.fetch_add(1, Ordering::Relaxed);
++                        let Some(item) = items.get(index) else { break };
++                        done.push((index, work(item)));
++                    }
++                    done
++                })
++            })
++            .collect();
++        handles.into_iter().map(|handle| handle.join().expect("a cleanup worker failed")).collect()
++    });
++    let mut results: Vec<Option<R>> = (0..items.len()).map(|_| None).collect();
++    for (index, result) in parts.into_iter().flatten() {
++        results[index] = Some(result);
++    }
++    results.into_iter().map(|result| result.expect("every item is worked on")).collect()
 +}
 +
 +/// Marks the pixels of the tiny icons of a picture.
@@ -11648,10 +11987,10 @@ index 0000000..2d8ea06
 +
 diff --git a/crates/zakuro/src/hdtext/mod.rs b/crates/zakuro/src/hdtext/mod.rs
 new file mode 100644
-index 0000000..eb42170
+index 0000000..58f84f7
 --- /dev/null
 +++ b/crates/zakuro/src/hdtext/mod.rs
-@@ -0,0 +1,537 @@
+@@ -0,0 +1,546 @@
 +//! The HD text mod.
 +//! It redraws the text in the pictures of the game in a new font at four times the resolution, using the copy of the game of the player.
 +//! The pictures can first be cleaned of compression artifacts by an AI model.
@@ -11695,9 +12034,9 @@ index 0000000..eb42170
 +};
 +
 +/// The progress message while the cleanup model downloads.
-+const DOWNLOADING: &str = "Downloading the AI model that cleans the game's pictures.";
++const DOWNLOADING: &str = "Downloading the AI model that cleans the UI.";
 +/// The progress message while the cleanup runs.
-+pub const CLEANING: &str = "Real-ESRGAN is removing the compression artifacts from the game's pictures. It runs on your graphics card.";
++pub const CLEANING: &str = "Real-ESRGAN is removing the compression artifacts from the UI. It runs on your graphics card.";
 +/// The progress message while the text is redrawn.
 +const REDRAWING: &str = "Drawing the game's text again in the new font, and enlarging the pictures around it.";
 +
@@ -12185,7 +12524,16 @@ index 0000000..eb42170
 +        let font = Font::read(Path::new(&fonts)).unwrap();
 +        let started = std::time::Instant::now();
 +        let cleaner = std::env::var("ZAKURO_HD_CLEANER").ok().map(|folder| clean::Cleaner::in_folder(Path::new(&folder)));
-+        let said = generate(Path::new(&rom), Path::new(&out), &font, cleaner.as_ref(), &|_, _, _| {}, &AtomicBool::new(false)).unwrap();
++        // Each step is printed with the time it started, to see where the time goes.
++        let step = std::sync::Mutex::new(String::new());
++        let progress = |said: &str, _: usize, _: usize| {
++            let mut last = step.lock().unwrap();
++            if *last != said {
++                println!("{:.1} s: {said}", started.elapsed().as_secs_f64());
++                *last = said.to_owned();
++            }
++        };
++        let said = generate(Path::new(&rom), Path::new(&out), &font, cleaner.as_ref(), &progress, &AtomicBool::new(false)).unwrap();
 +        println!("{said} in {:.1} s", started.elapsed().as_secs_f64());
 +    }
 +}
@@ -14808,7 +15156,7 @@ index 0000000..1792e34
 +    out
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..0c5cd33 100644
+index 6cf00db..176304a 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,22 +3,34 @@
@@ -15099,12 +15447,16 @@ index 6cf00db..0c5cd33 100644
                  self.cursor = (position.x as f32, position.y as f32);
                  self.touch();
                  self.tilt();
-@@ -605,13 +733,16 @@ impl App {
+@@ -605,13 +733,20 @@ impl App {
              find_recompiled: !interpret,
              hardware_renderer: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
              texture_packs: self.settings.texture_packs,
 +            original: self.settings.original,
              interpolate: self.settings.frame_interpolation,
++            // Original mode keeps the bloom the game ships with.
++            bloom: self.settings.bloom || self.settings.original,
++            // Original mode filters textures as the console does, without anisotropy.
++            anisotropy: if self.settings.original { 1 } else { self.settings.anisotropy },
              enhancements: self
                  .settings
                  .enhancements
@@ -15116,7 +15468,7 @@ index 6cf00db..0c5cd33 100644
              resolution: self.settings.resolution,
              device: self.backend.as_ref().and_then(Backend::shared_device),
              username: self.nickname(),
-@@ -661,12 +792,10 @@ impl App {
+@@ -661,12 +796,10 @@ impl App {
              config.update = game.update.as_ref().map(|update| update.path.clone());
              config.dlc = game.dlc.iter().map(|dlc| dlc.path.clone()).collect();
              config.dlp_child = game.dlp_child.as_ref().map(|child| child.path.clone());
@@ -15131,7 +15483,7 @@ index 6cf00db..0c5cd33 100644
          }
          // a recording starts the clock at a known time, for playing it back
          let record = std::env::var_os("ZAKURO_RECORD").map(PathBuf::from);
-@@ -698,6 +827,7 @@ impl App {
+@@ -698,6 +831,7 @@ impl App {
              .or_else(|| Some(library::Smdh::parse(system.title.as_ref()?.exefs_file("icon")?)?.name).filter(|name| !name.is_empty()))
              .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
              .unwrap_or_default();
@@ -15139,7 +15491,7 @@ index 6cf00db..0c5cd33 100644
          let mut game = Running::new(system, path.to_owned(), name);
          game.replay = replay;
          if let Some(record) = record {
-@@ -727,6 +857,9 @@ impl App {
+@@ -727,6 +861,9 @@ impl App {
          self.keyboard.release();
          self.paused = false;
          self.next_frame = Instant::now();
@@ -15149,7 +15501,7 @@ index 6cf00db..0c5cd33 100644
          Ok(())
      }
  
-@@ -754,7 +887,9 @@ impl App {
+@@ -754,7 +891,9 @@ impl App {
          if let (true, Some(index)) = (pressed, self.menus.rebinding) {
              self.menus.rebinding = None;
              if code != KeyCode::Escape {
@@ -15160,7 +15512,7 @@ index 6cf00db..0c5cd33 100644
                      *key = code;
                  }
                  self.apply_settings();
-@@ -766,6 +901,7 @@ impl App {
+@@ -766,6 +905,7 @@ impl App {
              self.fast_forward_key = pressed && self.game.is_some();
          }
          if pressed && !event.repeat {
@@ -15168,7 +15520,7 @@ index 6cf00db..0c5cd33 100644
              match code {
                  KeyCode::Escape if self.game.is_some() => {
                      self.menus.menu_open = !self.menus.menu_open;
-@@ -789,6 +925,15 @@ impl App {
+@@ -789,6 +929,15 @@ impl App {
                  KeyCode::F11 => self.toggle_fullscreen(),
                  KeyCode::F5 if self.game.is_some() => self.save_state(),
                  KeyCode::F8 if self.game.is_some() => self.load_state(),
@@ -15184,7 +15536,7 @@ index 6cf00db..0c5cd33 100644
                  _ => {}
              }
          }
-@@ -807,14 +952,24 @@ impl App {
+@@ -807,14 +956,24 @@ impl App {
      /// it, and Home opens and closes the menu over the game.
      fn poll_gamepads(&mut self) {
          for button in self.gamepads.poll() {
@@ -15210,7 +15562,7 @@ index 6cf00db..0c5cd33 100644
              }
          }
      }
-@@ -828,7 +983,11 @@ impl App {
+@@ -828,7 +987,11 @@ impl App {
      fn touch(&mut self) {
          let Some(window) = &self.window else { return };
          let size = window.inner_size();
@@ -15223,7 +15575,7 @@ index 6cf00db..0c5cd33 100644
          // with the top screen alone there is nothing to touch
          let Some(bottom) = bottom else {
              self.keyboard.touch(None);
-@@ -842,6 +1001,35 @@ impl App {
+@@ -842,6 +1005,35 @@ impl App {
          }));
      }
  
@@ -15259,7 +15611,7 @@ index 6cf00db..0c5cd33 100644
      /// tilts the console while the right button is held, toward where the
      /// pointer went and by how far, as Citra's motion emulation does,
      /// which titles were tried with. letting go stands it upright again.
-@@ -887,11 +1075,20 @@ impl App {
+@@ -887,11 +1079,31 @@ impl App {
      /// saves the settings and puts to use what can change right away.
      fn apply_settings(&mut self) {
          self.settings.save();
@@ -15273,6 +15625,17 @@ index 6cf00db..0c5cd33 100644
                  let on = game.system.set_interpolation(self.settings.frame_interpolation);
                  log::info!("frame interpolation {}", if on { "on" } else { "off" });
              }
++            let bloom = self.settings.bloom || self.settings.original;
++            if game.system.gpu.blooms() != bloom {
++                game.system.gpu.set_bloom(bloom);
++                log::info!("bloom {}", if bloom { "on" } else { "off" });
++            }
++            let anisotropy = if self.settings.original { 1 } else { self.settings.anisotropy };
++            if game.system.gpu.draws_on_gpu() && game.system.config.anisotropy != anisotropy {
++                game.system.config.anisotropy = anisotropy;
++                let samples = game.system.gpu.set_anisotropy(anisotropy);
++                log::info!("anisotropic filtering at {samples}x");
++            }
 +            if game.system.gpu.draws_on_gpu() && game.system.config.resolution != self.settings.resolution {
 +                let scale = game.system.set_resolution(self.settings.resolution);
 +                log::info!("drawing at {scale}x");
@@ -15280,7 +15643,7 @@ index 6cf00db..0c5cd33 100644
              // games read the 3D slider every frame
              let slider = self.settings.slider_3d();
              if game.system.config.slider_3d != slider {
-@@ -938,13 +1135,20 @@ impl App {
+@@ -938,13 +1150,20 @@ impl App {
              backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
              backend.set_stereo(self.settings.stereo());
          }
@@ -15302,7 +15665,7 @@ index 6cf00db..0c5cd33 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1162,223 @@ impl App {
+@@ -958,6 +1177,223 @@ impl App {
          }
      }
  
@@ -15526,7 +15889,7 @@ index 6cf00db..0c5cd33 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -975,9 +1396,9 @@ impl App {
+@@ -975,9 +1411,9 @@ impl App {
      /// set, with Zig downloaded first. with none of those it asks whether
      /// to download it.
      fn recompile(&mut self, index: usize, download: bool) {
@@ -15539,7 +15902,7 @@ index 6cf00db..0c5cd33 100644
              return;
          }
          let tools = zig::tools_dir(self.data_dir.as_deref());
-@@ -1003,24 +1424,96 @@ impl App {
+@@ -1003,24 +1439,96 @@ impl App {
                  },
              },
          };
@@ -15640,7 +16003,7 @@ index 6cf00db..0c5cd33 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1033,9 +1526,7 @@ impl App {
+@@ -1033,9 +1541,7 @@ impl App {
                          }
                      }
                  }
@@ -15651,7 +16014,7 @@ index 6cf00db..0c5cd33 100644
                  _ => {}
              }
          }
-@@ -1049,6 +1540,21 @@ impl App {
+@@ -1049,6 +1555,21 @@ impl App {
                  }
              }
              Action::Recompile(index) => self.recompile(index, false),
@@ -15673,7 +16036,7 @@ index 6cf00db..0c5cd33 100644
              Action::DownloadCompiler(index) => self.recompile(index, true),
              Action::Mods(program_id) => {
                  if let Some(data_dir) = &self.data_dir {
-@@ -1065,13 +1571,22 @@ impl App {
+@@ -1065,13 +1586,22 @@ impl App {
                      job.cancel();
                  }
              }
@@ -15686,14 +16049,14 @@ index 6cf00db..0c5cd33 100644
 +                if let Some(file) = rfd::FileDialog::new().set_title("The game's file").add_filter("3DS games", &["3ds", "cci", "cxi", "cia"]).pick_file() {
 +                    self.settings.game_file = Some(file);
 +                    self.save_and_rescan();
-                 }
-             }
++                }
++            }
 +            Action::ChooseUpdate => {
 +                if let Some(file) = rfd::FileDialog::new().set_title("The game's DLC").add_filter("DLC", &["cia"]).pick_file() {
 +                    self.settings.update_file = Some(file);
 +                    self.save_and_rescan();
-+                }
-+            }
+                 }
+             }
 +            Action::ForgetUpdate => {
 +                self.settings.update_file = None;
 +                self.save_and_rescan();
@@ -15701,7 +16064,7 @@ index 6cf00db..0c5cd33 100644
              Action::SaveState => self.save_state(),
              Action::LoadState => self.load_state(),
              Action::HostRoom => self.host_room(),
-@@ -1087,32 +1602,6 @@ impl App {
+@@ -1087,32 +1617,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -15734,7 +16097,7 @@ index 6cf00db..0c5cd33 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1639,15 @@ impl App {
+@@ -1150,6 +1654,15 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -15750,7 +16113,7 @@ index 6cf00db..0c5cd33 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1202,7 +1700,35 @@ impl App {
+@@ -1202,7 +1715,35 @@ impl App {
          }
          self.library.poll();
          self.poll_jobs();
@@ -15786,7 +16149,7 @@ index 6cf00db..0c5cd33 100644
          // a room that went away takes the game's local wireless with it
          if self.room.as_ref().is_some_and(|room| !room.open()) {
              self.leave_room();
-@@ -1304,10 +1830,57 @@ impl App {
+@@ -1304,10 +1845,57 @@ impl App {
      /// runs one frame of the game.
      fn emulate(&mut self) {
          let Some(game) = &mut self.game else { return };
@@ -15845,7 +16208,7 @@ index 6cf00db..0c5cd33 100644
          game.frame += 1;
          if let Some(recorder) = &mut game.recorder {
              recorder.record(input);
-@@ -1539,16 +2112,37 @@ impl App {
+@@ -1539,16 +2127,37 @@ impl App {
      /// the menus, and the actions they asked for, done.
      fn interface(&mut self, event_loop: &ActiveEventLoop) -> Overlay {
          // when the slot chosen was saved to, while the menu shows it
@@ -15891,7 +16254,7 @@ index 6cf00db..0c5cd33 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,18 +2155,45 @@ impl App {
+@@ -1561,18 +2170,45 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -15939,7 +16302,7 @@ index 6cf00db..0c5cd33 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,13 +2202,17 @@ impl App {
+@@ -1581,13 +2217,17 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -15958,7 +16321,7 @@ index 6cf00db..0c5cd33 100644
          });
          self.library.changed = false;
          for action in actions {
-@@ -1596,7 +2221,85 @@ impl App {
+@@ -1596,7 +2236,85 @@ impl App {
          overlay
      }
  
@@ -16044,7 +16407,7 @@ index 6cf00db..0c5cd33 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
-@@ -1697,6 +2400,12 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
+@@ -1697,6 +2415,12 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
  /// keeps the renderer kind referenced even when a backend feature is off.
  const _: RendererKind = RendererKind::Software;
  
@@ -16594,7 +16957,7 @@ index 8a5163d..e961e29 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..d095c50 100644
+index 9372f02..7f22b18 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -4,14 +4,18 @@ use std::collections::HashMap;
@@ -17103,12 +17466,12 @@ index 9372f02..d095c50 100644
          }
          if !self.menu_open {
 +            self.confirm = None;
++            return actions;
++        }
++        if self.settings_open {
              return actions;
          }
 -        egui::Window::new("Paused")
-+        if self.settings_open {
-+            return actions;
-+        }
 +        theme::window("paused")
              .collapsible(false)
              .resizable(false)
@@ -17448,7 +17811,7 @@ index 9372f02..d095c50 100644
 -                    for layout in Screens::ALL {
 -                        ui.selectable_value(&mut settings.layout, layout, layout.name());
 -                    }
--                });
+                 });
 -                egui::ComboBox::from_label("Filter").selected_text(settings.filter.name()).show_ui(ui, |ui| {
 -                    for filter in Filter::ALL {
 -                        ui.selectable_value(&mut settings.filter, filter, filter.name());
@@ -17534,7 +17897,7 @@ index 9372f02..d095c50 100644
 -                    if settings.background.is_some() && ui.button("Remove").clicked() {
 -                        settings.background = None;
 -                    }
-                 });
+-                });
 -                ui.add_enabled(
 -                    settings.background.is_some(),
 -                    egui::Slider::new(&mut settings.background_opacity, 0.0..=1.0)
@@ -17675,7 +18038,7 @@ index 9372f02..d095c50 100644
      }
  
      /// a message box, when there is something to tell.
-@@ -917,27 +1029,375 @@ impl Menus {
+@@ -917,27 +1029,392 @@ impl Menus {
          action
      }
  
@@ -17694,7 +18057,7 @@ index 9372f02..d095c50 100644
 +                ui.add_space(4.0);
 +                let source = if downloaded { format!("The {} uses {}, already downloaded.", need.name, need.what) } else { format!("The {} needs {}: {size}, downloaded once from the pages of their authors.", need.name, need.what) };
 +                theme::hint(ui, &source);
-+                theme::hint(ui, &format!("Without the {}, the {} mod draws over the pictures as the game stores them.", need.name, step.label));
++                theme::hint(ui, &format!("Without the {}, the {} mod draws over the UI as the game stores it.", need.name, step.label));
 +                ui.add_space(6.0);
 +                theme::commands(ui, |ui| {
 +                    let cancel = theme::command(ui, "\u{2716}", "Cancel", true);
@@ -17902,6 +18265,23 @@ index 9372f02..d095c50 100644
 +                .on_hover_text("Uses a texture pack made for Fire Emblem Awakening on Citra or Azahar. Put the pack in the textures folder inside the game's mods folder.");
 +        });
 +        theme::row(ui, |ui| {
++            ui.add_enabled_ui(free, |ui| {
++                let name = |samples: u32| if samples > 1 { format!("{samples}x") } else { "Off".to_owned() };
++                egui::ComboBox::from_label("Anisotropic filtering").selected_text(name(settings.anisotropy)).show_ui(ui, |ui| {
++                    for samples in [1, 2, 4, 8, 16] {
++                        ui.selectable_value(&mut settings.anisotropy, samples, name(samples));
++                    }
++                })
++            })
++            .inner
++            .response
++            .on_hover_text("Keeps the textures of floors and walls seen at an angle sharp into the distance. Higher values look sharper and use a little more GPU power.");
++        });
++        theme::row(ui, |ui| {
++            ui.add_enabled(free, egui::Checkbox::new(&mut settings.bloom, "Bloom"))
++                .on_hover_text("Draws the soft glow the game adds around bright parts of the 3D scenes. Turning it off gives a slightly sharper and darker picture.");
++        });
++        theme::row(ui, |ui| {
 +            ui.add_enabled(free && interpolates, egui::Checkbox::new(&mut settings.frame_interpolation, "Frame interpolation"))
 +                .on_hover_text("Adds a generated frame between each pair of frames, so the battles and cutscenes, which run at 30 frames per second, are shown at 60. This adds one frame of delay. It requires the Vulkan presenter.");
 +        });
@@ -18063,7 +18443,7 @@ index 9372f02..d095c50 100644
  }
  
  /// a line a GameOverlay keeps over the game, in the bottom right corner.
-@@ -952,20 +1412,78 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+@@ -952,20 +1429,78 @@ pub fn corner(ctx: &egui::Context, text: &str) {
          });
  }
  
@@ -18151,7 +18531,7 @@ index 9372f02..d095c50 100644
  }
  
  /// a key as a person would call it.
-@@ -1011,7 +1529,7 @@ mod tests {
+@@ -1011,7 +1546,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -18160,7 +18540,7 @@ index 9372f02..d095c50 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1544,13 @@ mod tests {
+@@ -1026,6 +1561,13 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  
@@ -19165,7 +19545,7 @@ index 1640c7a..59a8805 100644
      fn modules_are_cro_files_and_static_crs() {
          assert!(is_module("cro/Battle.cro") && is_module("Battle.CRO") && is_module("static.crs"));
 diff --git a/crates/zakuro/src/settings.rs b/crates/zakuro/src/settings.rs
-index 1e9b15b..c6859b4 100644
+index 1e9b15b..30c9e82 100644
 --- a/crates/zakuro/src/settings.rs
 +++ b/crates/zakuro/src/settings.rs
 @@ -115,7 +115,7 @@ impl TopShape {
@@ -19254,7 +19634,18 @@ index 1e9b15b..c6859b4 100644
      /// the console's system language, which titles pick their localised
      /// text and files by.
      #[serde(deserialize_with = "or_default")]
-@@ -486,14 +467,21 @@ pub struct Settings {
+@@ -460,6 +441,10 @@ pub struct Settings {
+     pub texture_packs: bool,
+     /// draw a picture in between each two of a game at 30 frames a second.
+     pub frame_interpolation: bool,
++    /// Draw the bloom of the game, the glow it makes from blurred copies of the picture.
++    pub bloom: bool,
++    /// How many samples anisotropic filtering takes on textures seen at an angle, 1 for none.
++    pub anisotropy: u32,
+     /// run a game's recompiled code when it has some, rather than
+     /// interpreting everything.
+     pub recompiled: bool,
+@@ -486,14 +471,21 @@ pub struct Settings {
      pub volume: f32,
      pub mute: bool,
      pub show_fps: bool,
@@ -19277,7 +19668,7 @@ index 1e9b15b..c6859b4 100644
      /// what the console's cameras see, and the picture when it is one.
      #[serde(deserialize_with = "or_default")]
      pub camera: CameraSource,
-@@ -507,12 +495,119 @@ pub struct Settings {
+@@ -507,35 +499,150 @@ pub struct Settings {
      pub room_address: String,
      pub room_name: String,
      pub room_port: u16,
@@ -19397,7 +19788,13 @@ index 1e9b15b..c6859b4 100644
              language: Language::English,
              renderer: Renderer::Vulkan,
              hardware_rasterizer: true,
-@@ -524,18 +619,24 @@ impl Default for Settings {
+             resolution: 3,
+             texture_packs: true,
+             frame_interpolation: false,
++            bloom: true,
++            anisotropy: 1,
+             recompiled: true,
+             scale: 2,
              layout: Screens::Stacked,
              filter: Filter::Smooth,
              integer_scale: false,
@@ -19424,7 +19821,7 @@ index 1e9b15b..c6859b4 100644
              camera: CameraSource::Webcam,
              camera_picture: None,
              nickname: String::new(),
-@@ -543,6 +644,9 @@ impl Default for Settings {
+@@ -543,6 +650,9 @@ impl Default for Settings {
              room_address: String::new(),
              room_name: String::new(),
              room_port: zakuro_core::room::DEFAULT_PORT,
@@ -19434,7 +19831,7 @@ index 1e9b15b..c6859b4 100644
          }
      }
  }
-@@ -578,7 +682,7 @@ impl Settings {
+@@ -578,7 +688,7 @@ impl Settings {
      /// the saved settings, or the defaults when there are none.
      pub fn load() -> Settings {
          let Some(path) = path() else { return Settings::default() };
@@ -19443,7 +19840,7 @@ index 1e9b15b..c6859b4 100644
              Ok(text) => toml::from_str(&text).unwrap_or_else(|error| {
                  // kept aside, the next save would write over it
                  let aside = path.with_extension("toml.bad");
-@@ -587,7 +691,12 @@ impl Settings {
+@@ -587,7 +697,12 @@ impl Settings {
                  Settings::default()
              }),
              Err(_) => Settings::default(),
@@ -19457,7 +19854,7 @@ index 1e9b15b..c6859b4 100644
      }
  
      pub fn save(&self) {
-@@ -651,6 +760,24 @@ mod tests {
+@@ -651,6 +766,24 @@ mod tests {
          assert_eq!(settings.keys.b, Keys::default().b);
          assert_eq!(settings.scale, 2);
          assert_eq!(settings.layout, Screens::Stacked);
@@ -20347,7 +20744,7 @@ index 0000000..af1abea
 +
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..2a48721
+index 0000000..180d806
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,219 @@
@@ -20362,7 +20759,7 @@ index 0000000..2a48721
 +use crate::zig::{fetch, windowless, Fetcher};
 +
 +/// The tag of the release this build belongs to.
-+pub const RELEASE: &str = "v1.0.14";
++pub const RELEASE: &str = "v1.0.15";
 +/// The GitHub API address that describes the latest release.
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +/// The end of the file name of the release asset that holds the launcher for this system: a zip on Windows, an AppImage on Linux.
@@ -20571,7 +20968,7 @@ index 0000000..2a48721
 +    }
 +}
 diff --git a/crates/zakuro/src/zig.rs b/crates/zakuro/src/zig.rs
-index 685b580..1cab561 100644
+index 685b580..0e646fb 100644
 --- a/crates/zakuro/src/zig.rs
 +++ b/crates/zakuro/src/zig.rs
 @@ -70,15 +70,15 @@ pub fn installed(tools: &Path) -> Option<Compiler> {
@@ -20613,7 +21010,7 @@ index 685b580..1cab561 100644
      let _ = std::fs::remove_file(path);
      let mut child = fetcher
          .command(url, Some(path), 1800)
-@@ -232,6 +233,17 @@ fn verify(path: &Path, archive: &Archive) -> Result<(), String> {
+@@ -232,6 +233,31 @@ fn verify(path: &Path, archive: &Archive) -> Result<(), String> {
      Ok(())
  }
  
@@ -20628,10 +21025,24 @@ index 685b580..1cab561 100644
 +    command
 +}
 +
++/// Stops a child process from opening a console window, and starts it below the normal priority, on Windows.
++/// The computer then stays responsive while the process works, and the command is returned so calls can be chained.
++/// Does nothing on other systems.
++pub(crate) fn in_background(command: &mut Command) -> &mut Command {
++    #[cfg(windows)]
++    {
++        use std::os::windows::process::CommandExt;
++        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
++        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
++        command.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
++    }
++    command
++}
++
  /// unpacks the archive into its folder in tools with tar, which reads the
  /// zip on Windows too. the archive holds a single folder, renamed to
  /// zig-<version> once it is all there.
-@@ -240,7 +252,7 @@ fn unpack(archive: &Path, tools: &Path) -> Result<(), String> {
+@@ -240,7 +266,7 @@ fn unpack(archive: &Path, tools: &Path) -> Result<(), String> {
      let _ = std::fs::remove_dir_all(&staging);
      std::fs::create_dir_all(&staging).map_err(|error| error.to_string())?;
      let xz = archive.to_string_lossy().ends_with(".tar.xz.part");

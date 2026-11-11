@@ -1044,7 +1044,7 @@ impl Menus {
                 ui.add_space(4.0);
                 let source = if downloaded { format!("The {} uses {}, already downloaded.", need.name, need.what) } else { format!("The {} needs {}: {size}, downloaded once from the pages of their authors.", need.name, need.what) };
                 theme::hint(ui, &source);
-                theme::hint(ui, &format!("Without the {}, the {} mod draws over the pictures as the game stores them.", need.name, step.label));
+                theme::hint(ui, &format!("Without the {}, the {} mod draws over the UI as the game stores it.", need.name, step.label));
                 ui.add_space(6.0);
                 theme::commands(ui, |ui| {
                     let cancel = theme::command(ui, "\u{2716}", "Cancel", true);
@@ -1238,6 +1238,23 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         theme::row(ui, |ui| {
             ui.add_enabled(free, egui::Checkbox::new(&mut settings.texture_packs, "Texture packs"))
                 .on_hover_text("Uses a texture pack made for Fire Emblem Awakening on Citra or Azahar. Put the pack in the textures folder inside the game's mods folder.");
+        });
+        theme::row(ui, |ui| {
+            ui.add_enabled_ui(free, |ui| {
+                let name = |samples: u32| if samples > 1 { format!("{samples}x") } else { "Off".to_owned() };
+                egui::ComboBox::from_label("Anisotropic filtering").selected_text(name(settings.anisotropy)).show_ui(ui, |ui| {
+                    for samples in [1, 2, 4, 8, 16] {
+                        ui.selectable_value(&mut settings.anisotropy, samples, name(samples));
+                    }
+                })
+            })
+            .inner
+            .response
+            .on_hover_text("Keeps the textures of floors and walls seen at an angle sharp into the distance. Higher values look sharper and use a little more GPU power.");
+        });
+        theme::row(ui, |ui| {
+            ui.add_enabled(free, egui::Checkbox::new(&mut settings.bloom, "Bloom"))
+                .on_hover_text("Draws the soft glow the game adds around bright parts of the 3D scenes. Turning it off gives a slightly sharper and darker picture.");
         });
         theme::row(ui, |ui| {
             ui.add_enabled(free && interpolates, egui::Checkbox::new(&mut settings.frame_interpolation, "Frame interpolation"))

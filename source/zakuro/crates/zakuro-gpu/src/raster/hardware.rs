@@ -1551,6 +1551,12 @@ pub struct Hardware {
     /// whether draws always go through the generic fragment shader, to
     /// compare the two.
     generic: bool,
+    /// Whether the smaller levels of a texture stay as the GPU drew them.
+    /// Games draw bloom from such levels, and without bloom they are transparent black.
+    bloom: bool,
+    /// Whether the smaller levels of a texture come from memory, written back first, set by ZAKURO_LEVELS_FROM_MEMORY.
+    /// They are otherwise copied on the GPU from the buffers they were drawn into.
+    levels_from_memory: bool,
     compiler: Compiler,
     /// whether the device does logic ops.
     logic_ops: bool,
@@ -1580,7 +1586,12 @@ pub struct Hardware {
     /// the same writing an image, made the first time it is needed.
     upright_image: Option<Compute>,
     samples: Option<Local>,
-    samplers: QuickMap<Filtering, vk::Sampler>,
+    /// The samplers made, by their filtering and the anisotropy they filter with.
+    samplers: QuickMap<(Filtering, u32), vk::Sampler>,
+    /// How many samples anisotropic filtering takes along a texture seen at an angle, 1 when it is off.
+    anisotropy: u32,
+    /// The most samples the device takes, 1 when it does not filter anisotropically.
+    max_anisotropy: u32,
     /// the furthest a sampler's bias reaches, past which a unit's is cut.
     max_bias: f32,
     ring: Buffer,
@@ -1677,6 +1688,7 @@ impl Hardware {
         let kept_pipelines: Option<Arc<std::path::Path>> = kept_pipelines.map(Into::into);
         let (instance, device, physical, family) = (shared.instance.clone(), shared.device.clone(), shared.physical, shared.family);
         let (logic_ops, statistics, dynamic) = (shared.logic_ops, shared.statistics, shared.dynamic);
+        let filters_anisotropically = shared.anisotropy;
         // SAFETY: the physical device came from this instance
         let properties = unsafe { instance.get_physical_device_properties(physical) };
         let name = properties.device_name_as_c_str().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -1823,6 +1835,8 @@ impl Hardware {
                 // first on, as the tests do
                 waits: cfg!(test) || std::env::var_os("ZAKURO_WAIT_FOR_SHADERS").is_some(),
                 generic: std::env::var_os("ZAKURO_GENERIC_SHADERS").is_some(),
+                bloom: true,
+                levels_from_memory: std::env::var_os("ZAKURO_LEVELS_FROM_MEMORY").is_some(),
                 compiler,
                 logic_ops,
                 dynamic,
@@ -1840,6 +1854,8 @@ impl Hardware {
                 upright_image: None,
                 samples: None,
                 samplers: QuickMap::default(),
+                anisotropy: 1,
+                max_anisotropy: if filters_anisotropically { properties.limits.max_sampler_anisotropy as u32 } else { 1 },
                 max_bias: properties.limits.max_sampler_lod_bias,
                 used: 0,
                 readback: None,
@@ -3095,7 +3111,9 @@ impl Hardware {
 
     /// a sampler for a unit.
     fn sampler(&mut self, filtering: Filtering) -> Result<vk::Sampler, String> {
-        if let Some(&sampler) = self.samplers.get(&filtering) {
+        // Only a texture filtered linearly as it shrinks is filtered anisotropically too.
+        let anisotropy = if filtering.minify { self.anisotropy } else { 1 };
+        if let Some(&sampler) = self.samplers.get(&(filtering, anisotropy)) {
             return Ok(sampler);
         }
         // the border is the shader's to draw, past the edge it clamps
@@ -3115,10 +3133,12 @@ impl Hardware {
             .address_mode_v(mode(filtering.t))
             .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
             .min_lod(filtering.levels.0 as f32)
-            .max_lod(filtering.levels.1 as f32);
+            .max_lod(filtering.levels.1 as f32)
+            .anisotropy_enable(anisotropy > 1)
+            .max_anisotropy(anisotropy as f32);
         // SAFETY: plain object creation on our device
         let sampler = unsafe { self.device.create_sampler(&info, None) }.map_err(vk_error("create a sampler"))?;
-        self.samplers.insert(filtering, sampler);
+        self.samplers.insert((filtering, anisotropy), sampler);
         Ok(sampler)
     }
 
@@ -3403,6 +3423,33 @@ impl Hardware {
 
     /// makes sure guest memory holds what the GPU drew over a range, before
     /// something reads it.
+    /// Whether the smaller levels of textures come from memory, as ZAKURO_LEVELS_FROM_MEMORY asks.
+    pub(crate) fn levels_from_memory(&self) -> bool {
+        self.levels_from_memory
+    }
+
+    /// Draws the bloom that games make from smaller levels of a texture drawn by the GPU, or leaves it out.
+    pub(crate) fn set_bloom(&mut self, on: bool) {
+        self.bloom = on;
+    }
+
+    /// Whether the bloom is drawn, see set_bloom.
+    pub(crate) fn blooms(&self) -> bool {
+        self.bloom
+    }
+
+    /// Filters textures seen at an angle with up to this many samples, 1 for none, as far as the device goes, and says how many.
+    /// The samplers made before stay for the draws that already use them.
+    pub(crate) fn set_anisotropy(&mut self, samples: u32) -> u32 {
+        self.anisotropy = samples.clamp(1, self.max_anisotropy);
+        self.anisotropy
+    }
+
+    /// How many samples anisotropic filtering takes, 1 when it is off.
+    pub(crate) fn anisotropy(&self) -> u32 {
+        self.anisotropy
+    }
+
     pub(crate) fn prepare_read<M: GpuMemory>(&mut self, memory: &mut M, addr: u32, len: u32) -> Result<(), String> {
         if self.surfaces.iter().any(|s| s.dirty_overlaps(addr, len)) {
             self.sync(memory, addr, len)?;
@@ -3514,6 +3561,16 @@ impl Hardware {
     #[cfg(test)]
     pub(super) fn translations(&self) -> usize {
         self.translated.values().filter(|translation| matches!(translation, Translation::Done(_))).count()
+    }
+
+    /// Waits until the compiler has nothing left to do, and takes in what it made.
+    #[cfg(test)]
+    pub(super) fn settle(&mut self) {
+        let started = std::time::Instant::now();
+        while self.compiler.outstanding > 0 && started.elapsed().as_secs() < 60 {
+            self.collect();
+            thread::sleep(std::time::Duration::from_millis(5));
+        }
     }
 
     /// the pipelines made for translated programs so far.
@@ -4906,6 +4963,9 @@ impl Hardware {
             let Some(&(index, row, _)) = drawn.as_ref() else { continue };
             self.copy_level(&key, twin, level, (index, row))?;
         }
+        if !self.bloom && drawn_levels.iter().any(Option::is_some) {
+            self.clear_smaller_levels(image, levels);
+        }
         self.uploads = true;
         if let Some(copy) = self.copies(twin).get_mut(&key) {
             copy.surface = source;
@@ -4915,6 +4975,16 @@ impl Hardware {
             copy.used = batch;
         }
         Ok(view)
+    }
+
+    /// Clears the smaller levels of a copied texture to transparent black, which leaves out the bloom drawn from them.
+    fn clear_smaller_levels(&mut self, image: vk::Image, levels: u32) {
+        self.barrier();
+        let range = vk::ImageSubresourceRange::default().aspect_mask(vk::ImageAspectFlags::COLOR).base_mip_level(1).level_count(levels - 1).layer_count(1);
+        let clear = vk::ClearColorValue { float32: [0.0; 4] };
+        // SAFETY: recording, outside rendering, on a copy made for transfers in the general layout, with the levels it has
+        unsafe { self.device.cmd_clear_color_image(self.commands, image, vk::ImageLayout::GENERAL, &clear, &[range]) };
+        self.unfenced = true;
     }
 
     /// Copies a smaller level of a texture out of the surface it was drawn in. The level goes through an image at the resolution of the console and is scaled up into its level of the copy.
@@ -6216,6 +6286,7 @@ pub(crate) fn render_device(
     // SAFETY: the physical device came from this instance
     let supported = unsafe { instance.get_physical_device_features(physical) };
     let logic_ops = supported.logic_op == vk::TRUE;
+    let anisotropy = supported.sampler_anisotropy == vk::TRUE;
     let dynamic = dynamic_state(instance, physical, logic_ops);
     if dynamic.blend {
         extensions.push(ash::ext::extended_dynamic_state3::NAME.as_ptr());
@@ -6234,6 +6305,7 @@ pub(crate) fn render_device(
     let features = vk::PhysicalDeviceFeatures::default()
         .depth_clamp(true)
         .logic_op(logic_ops)
+        .sampler_anisotropy(anisotropy)
         .pipeline_statistics_query(statistics);
     // the cache control, to make a pipeline only when the cache on disk
     // has it, every Vulkan 1.3 device does
@@ -6257,7 +6329,7 @@ pub(crate) fn render_device(
     // SAFETY: a queue the device was made with
     let queue = unsafe { device.get_device_queue(family, 0) };
     let (_entry, instance) = (entry.clone(), instance.clone());
-    Ok(SharedDevice { _entry, instance, physical, family, device, queue, logic_ops, statistics, dynamic })
+    Ok(SharedDevice { _entry, instance, physical, family, device, queue, logic_ops, statistics, anisotropy, dynamic })
 }
 
 /// which of the blend state the device lets draws set as they go, none

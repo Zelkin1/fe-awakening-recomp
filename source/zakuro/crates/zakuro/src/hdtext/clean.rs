@@ -4,12 +4,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use super::ops::{gaussian, label, Mask, Plane, Rgba};
 use crate::downloads::{Download, Need, Source};
-use crate::zig::windowless;
+use crate::zig::in_background;
 
 /// The Windows build of realesrgan-ncnn-vulkan, as its author publishes it on GitHub.
 const WINDOWS_RUNNER: Source = Source {
@@ -46,7 +46,7 @@ const WEIGHTS: Source = Source {
 pub const NEED: Need = Need {
     name: "AI cleanup",
     what: "an AI model, BCGone Smooth, and Real-ESRGAN's program that runs it",
-    why: "The 3DS stores the game's pictures compressed, which leaves blocks and stripes in them. Before the words are drawn again, the model looks at each menu picture on your graphics card and smooths those blocks away, keeping the drawing as it is.",
+    why: "The 3DS stores the UI compressed, which leaves blocks and stripes in it. Before the words are drawn again, the model looks at each menu picture on your graphics card and smooths those blocks away, keeping the drawing as it is.",
     download: Download { folder: "ui-cleanup-1", sources: &[RUNNER, WEIGHTS], finish: Some(prepare) },
 };
 
@@ -112,7 +112,8 @@ const TINY_ICON: usize = 24;
 /// The largest mean difference that a cleaned picture may have from the original.
 const FIDELITY: f32 = 0.025;
 /// The number of pictures that the program gets in one run.
-const BATCH: usize = 64;
+/// Each run loads the model again, so fewer and larger runs are faster.
+const BATCH: usize = 256;
 /// The extra options for the second try, which uses small tiles and a single thread per stage to save memory.
 const RETRY: [&str; 4] = ["-t", "64", "-j", "1:1:1"];
 /// The strength of the grain.
@@ -152,10 +153,10 @@ impl Cleaner {
     pub fn clean(&self, pictures: &[(String, Rgba)], progress: &dyn Fn(usize), cancel: &AtomicBool) -> Result<HashMap<String, Rgba>, String> {
         let work = self.folder.join("work");
         let _ = std::fs::remove_dir_all(&work);
-        // The program takes opaque pictures, so the colour is first spread into the clear pixels.
-        let inputs: Vec<Rgba> = pictures.iter().map(|(_, picture)| bled(picture)).collect();
         // A picture smaller than a tiny icon is left as it is, which also spares the program the very small pictures it can hang on.
         let everything: Vec<usize> = (0..pictures.len()).filter(|&i| pictures[i].1.w.max(pictures[i].1.h) >= TINY_ICON).collect();
+        // The program takes opaque pictures, so the colour is first spread into the clear pixels.
+        let inputs: HashMap<usize, Rgba> = everything.iter().copied().zip(on_spare_cores(&everything, |&i| bled(&pictures[i].1))).collect();
         let mut outputs = HashMap::new();
         for (n, batch) in everything.chunks(BATCH).enumerate() {
             outputs.extend(self.run(&work.join(format!("first{n}")), &inputs, batch, &[], &|done| progress(n * BATCH + done), cancel)?);
@@ -166,9 +167,10 @@ impl Cleaner {
             outputs.extend(self.run(&work.join(format!("again{n}")), &inputs, batch, &RETRY, &|_| {}, cancel)?);
         }
         let _ = std::fs::remove_dir_all(&work);
-        let mut cleaned = HashMap::new();
-        for (i, (name, picture)) in pictures.iter().enumerate() {
-            let Some(doubled) = outputs.get(&i) else { continue };
+        let done: Vec<usize> = (0..pictures.len()).filter(|i| outputs.contains_key(i)).collect();
+        let cleaned = on_spare_cores(&done, |&i| {
+            let (name, picture) = &pictures[i];
+            let doubled = &outputs[&i];
             // The result is twice the size, so each pixel takes the colour at double its coordinates.
             // Only solid pixels are replaced, and the alpha is kept.
             // The tiny icons keep their own pixels, since the model only smears pixel art that small.
@@ -183,22 +185,20 @@ impl Cleaner {
                 }
             }
             grain(&mut out, name);
-            cleaned.insert(name.clone(), out);
-        }
-        Ok(cleaned)
+            (name.clone(), out)
+        });
+        Ok(cleaned.into_iter().collect())
     }
 
     /// Runs the program once over a selection of the pictures, in a work folder.
     /// Returns the results by index, at twice the size, for the pictures that came out faithful.
-    fn run(&self, work: &Path, inputs: &[Rgba], which: &[usize], options: &[&str], progress: &dyn Fn(usize), cancel: &AtomicBool) -> Result<HashMap<usize, image::RgbaImage>, String> {
+    fn run(&self, work: &Path, inputs: &HashMap<usize, Rgba>, which: &[usize], options: &[&str], progress: &dyn Fn(usize), cancel: &AtomicBool) -> Result<HashMap<usize, image::RgbaImage>, String> {
         let (input, output) = (work.join("in"), work.join("out"));
         for folder in [&input, &output] {
             std::fs::create_dir_all(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
         }
-        for &i in which {
-            write_opaque(&input.join(format!("{i}.png")), &inputs[i])?;
-        }
-        let mut child = windowless(&mut Command::new(self.folder.join(PROGRAM)))
+        on_spare_cores(which, |&i| write_opaque(&input.join(format!("{i}.png")), &inputs[&i])).into_iter().collect::<Result<(), String>>()?;
+        let mut child = in_background(&mut Command::new(self.folder.join(PROGRAM)))
             .arg("-i")
             .arg(&input)
             .arg("-o")
@@ -241,14 +241,40 @@ impl Cleaner {
         if status.is_some_and(|status| !status.success()) {
             return Err("the cleanup needs a graphics card with Vulkan".to_owned());
         }
-        Ok(which
-            .iter()
-            .filter_map(|&i| {
-                let doubled = image::open(output.join(format!("{i}.png"))).ok()?.to_rgba8();
-                faithful(&doubled, &inputs[i]).then_some((i, doubled))
-            })
-            .collect())
+        let read = on_spare_cores(which, |&i| {
+            let doubled = image::open(output.join(format!("{i}.png"))).ok()?.to_rgba8();
+            faithful(&doubled, &inputs[&i]).then_some((i, doubled))
+        });
+        Ok(read.into_iter().flatten().collect())
     }
+}
+
+/// Runs a function over items on every core but one, which stays free for the window, and returns the results in order.
+/// Each item is worked on alone, so the results are the same as one after the other.
+fn on_spare_cores<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let workers = std::thread::available_parallelism().map_or(1, |cores| cores.get().saturating_sub(1)).clamp(1, items.len().max(1));
+    let next = AtomicUsize::new(0);
+    let parts: Vec<Vec<(usize, R)>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut done = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(item) = items.get(index) else { break };
+                        done.push((index, work(item)));
+                    }
+                    done
+                })
+            })
+            .collect();
+        handles.into_iter().map(|handle| handle.join().expect("a cleanup worker failed")).collect()
+    });
+    let mut results: Vec<Option<R>> = (0..items.len()).map(|_| None).collect();
+    for (index, result) in parts.into_iter().flatten() {
+        results[index] = Some(result);
+    }
+    results.into_iter().map(|result| result.expect("every item is worked on")).collect()
 }
 
 /// Marks the pixels of the tiny icons of a picture.

@@ -267,7 +267,7 @@ index 0000000..2a51b02
 +    }
 +}
 diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
-index e283cb0..4becace 100644
+index 37d6696..8e5477c 100644
 --- a/crates/zakuro-core/src/lib.rs
 +++ b/crates/zakuro-core/src/lib.rs
 @@ -4,6 +4,7 @@
@@ -279,7 +279,7 @@ index e283cb0..4becace 100644
  pub mod cro;
  pub mod download_play;
 diff --git a/crates/zakuro-core/src/loader.rs b/crates/zakuro-core/src/loader.rs
-index bd7a846..a3c9193 100644
+index e6c2057..ed51e4c 100644
 --- a/crates/zakuro-core/src/loader.rs
 +++ b/crates/zakuro-core/src/loader.rs
 @@ -201,6 +201,11 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
@@ -294,7 +294,7 @@ index bd7a846..a3c9193 100644
      let mut on_gpu = false;
      if system.config.hardware_renderer {
          match system.gpu.enable_hardware_renderer(system.config.resolution, system.config.device.clone(), Some(title.program_id())) {
-@@ -272,10 +277,19 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
+@@ -280,10 +285,19 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
          library.place(&module.name, module.base, &mut system.memory);
      }
      system.hints = Some(crate::hints::Hints::new(path, text));
@@ -2412,7 +2412,7 @@ index 0000000..01e52e9
 +    Ok(out)
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 0c5cd33..ea25a5f 100644
+index 176304a..9c59ff5 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -8,6 +8,7 @@ mod camera;

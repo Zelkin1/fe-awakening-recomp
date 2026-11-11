@@ -2332,9 +2332,9 @@ fn drawn_texture<M: GpuMemory>(registers: &[u32], memory: &M, unit: usize) -> Op
     (width != 0 && height != 0 && address != 0).then(|| DrawnTexture { addr: memory.translate(address), width, height, format })
 }
 
-/// the guest memory a texture unit reads, when it is on.
+/// the guest memory a texture unit reads, when it is on, with the number of its levels.
 #[cfg(feature = "vulkan")]
-fn texture_range<M: GpuMemory>(registers: &[u32], memory: &M, unit: usize) -> Option<(u32, u32)> {
+fn texture_range<M: GpuMemory>(registers: &[u32], memory: &M, unit: usize) -> Option<(u32, u32, u32)> {
     if registers[REG_TEXTURE_CONFIG] & (1 << unit) == 0 {
         return None;
     }
@@ -2347,8 +2347,9 @@ fn texture_range<M: GpuMemory>(registers: &[u32], memory: &M, unit: usize) -> Op
     if width == 0 || height == 0 || address == 0 {
         return None;
     }
-    let size = texture_bytes(format, width, height, level_count(registers, base, width, height));
-    Some((memory.translate(address), size as u32))
+    let levels = level_count(registers, base, width, height);
+    let size = texture_bytes(format, width, height, levels);
+    Some((memory.translate(address), size as u32, levels))
 }
 
 /// where and how depth testing reads/writes, or None when disabled.
@@ -3447,13 +3448,20 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
     #[cfg(feature = "vulkan")]
     if let Some(hardware) = resources.hardware.as_mut() {
         for (unit, drawn) in drawn.iter_mut().enumerate() {
+            let range = texture_range(registers, memory, unit);
+            // A texture with smaller levels has them written back first when they come from memory, so none is copied on the GPU.
+            if let Some((addr, len, _)) = range.filter(|&(_, _, levels)| levels > 1 && hardware.levels_from_memory()) {
+                if let Err(error) = hardware.prepare_read(memory, addr, len) {
+                    log::error!("the GPU could not write back a buffer, {error}");
+                }
+            }
             *drawn = drawn_texture(registers, memory, unit)
                 .filter(|texture| hardware.holds(texture) || hardware.holds_unchanged(memory, texture));
             if let Some(texture) = drawn {
                 past[unit] = !hardware.covers(texture);
                 continue;
             }
-            if let Some((addr, len)) = texture_range(registers, memory, unit) {
+            if let Some((addr, len, _)) = range {
                 if let Err(error) = hardware.prepare_read(memory, addr, len) {
                     log::error!("the GPU could not write back a buffer, {error}");
                 }
@@ -6247,6 +6255,11 @@ mod tests {
             ]
         });
         let inputs = random_inputs(&mut random);
+        // A draw is skipped while its generic pipeline compiles, so one draw that is not translated has it compiled first.
+        translators.hardware.as_mut().unwrap().set_translates(false, false);
+        draw_on_gpu(&registers, &mut translators, &unit, &inputs);
+        translators.hardware.as_mut().unwrap().settle();
+        translators.hardware.as_mut().unwrap().set_translates(true, false);
         let started = std::time::Instant::now();
         let mut draws = 0;
         loop {

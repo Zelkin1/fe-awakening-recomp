@@ -53,6 +53,10 @@ fn main() {
         // ZAKURO_INTERPOLATE=1 draws the pictures in between, which takes
         // ZAKURO_PRESENT=direct, and saves them with the screens
         interpolate: std::env::var("ZAKURO_INTERPOLATE").is_ok_and(|v| v == "1"),
+        // ZAKURO_BLOOM=0 leaves out the bloom games draw from smaller levels of a texture
+        bloom: std::env::var("ZAKURO_BLOOM").map_or(true, |v| v != "0"),
+        // ZAKURO_ANISOTROPY=16 filters textures seen at an angle with up to 16 samples
+        anisotropy: std::env::var("ZAKURO_ANISOTROPY").ok().and_then(|v| v.parse().ok()).unwrap_or(1),
         skip_idle_loops: std::env::var("ZAKURO_IDLE").map_or(true, |v| v != "0"),
         // ZAKURO_3D=0.5 is where the 3D slider is, the right eye's picture
         // saved with the screens when the game draws one

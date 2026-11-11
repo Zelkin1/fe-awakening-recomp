@@ -441,6 +441,10 @@ pub struct Settings {
     pub texture_packs: bool,
     /// draw a picture in between each two of a game at 30 frames a second.
     pub frame_interpolation: bool,
+    /// Draw the bloom of the game, the glow it makes from blurred copies of the picture.
+    pub bloom: bool,
+    /// How many samples anisotropic filtering takes on textures seen at an angle, 1 for none.
+    pub anisotropy: u32,
     /// run a game's recompiled code when it has some, rather than
     /// interpreting everything.
     pub recompiled: bool,
@@ -614,6 +618,8 @@ impl Default for Settings {
             resolution: 3,
             texture_packs: true,
             frame_interpolation: false,
+            bloom: true,
+            anisotropy: 1,
             recompiled: true,
             scale: 2,
             layout: Screens::Stacked,

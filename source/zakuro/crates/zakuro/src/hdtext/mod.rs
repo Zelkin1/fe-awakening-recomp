@@ -41,9 +41,9 @@ pub const STEP: ModStep = ModStep {
 };
 
 /// The progress message while the cleanup model downloads.
-const DOWNLOADING: &str = "Downloading the AI model that cleans the game's pictures.";
+const DOWNLOADING: &str = "Downloading the AI model that cleans the UI.";
 /// The progress message while the cleanup runs.
-pub const CLEANING: &str = "Real-ESRGAN is removing the compression artifacts from the game's pictures. It runs on your graphics card.";
+pub const CLEANING: &str = "Real-ESRGAN is removing the compression artifacts from the UI. It runs on your graphics card.";
 /// The progress message while the text is redrawn.
 const REDRAWING: &str = "Drawing the game's text again in the new font, and enlarging the pictures around it.";
 
@@ -531,7 +531,16 @@ mod tests {
         let font = Font::read(Path::new(&fonts)).unwrap();
         let started = std::time::Instant::now();
         let cleaner = std::env::var("ZAKURO_HD_CLEANER").ok().map(|folder| clean::Cleaner::in_folder(Path::new(&folder)));
-        let said = generate(Path::new(&rom), Path::new(&out), &font, cleaner.as_ref(), &|_, _, _| {}, &AtomicBool::new(false)).unwrap();
+        // Each step is printed with the time it started, to see where the time goes.
+        let step = std::sync::Mutex::new(String::new());
+        let progress = |said: &str, _: usize, _: usize| {
+            let mut last = step.lock().unwrap();
+            if *last != said {
+                println!("{:.1} s: {said}", started.elapsed().as_secs_f64());
+                *last = said.to_owned();
+            }
+        };
+        let said = generate(Path::new(&rom), Path::new(&out), &font, cleaner.as_ref(), &progress, &AtomicBool::new(false)).unwrap();
         println!("{said} in {:.1} s", started.elapsed().as_secs_f64());
     }
 }

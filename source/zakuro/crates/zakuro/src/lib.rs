@@ -736,6 +736,10 @@ impl App {
             texture_packs: self.settings.texture_packs,
             original: self.settings.original,
             interpolate: self.settings.frame_interpolation,
+            // Original mode keeps the bloom the game ships with.
+            bloom: self.settings.bloom || self.settings.original,
+            // Original mode filters textures as the console does, without anisotropy.
+            anisotropy: if self.settings.original { 1 } else { self.settings.anisotropy },
             enhancements: self
                 .settings
                 .enhancements
@@ -1085,6 +1089,17 @@ impl App {
             if game.system.gpu.interpolates() != self.settings.frame_interpolation {
                 let on = game.system.set_interpolation(self.settings.frame_interpolation);
                 log::info!("frame interpolation {}", if on { "on" } else { "off" });
+            }
+            let bloom = self.settings.bloom || self.settings.original;
+            if game.system.gpu.blooms() != bloom {
+                game.system.gpu.set_bloom(bloom);
+                log::info!("bloom {}", if bloom { "on" } else { "off" });
+            }
+            let anisotropy = if self.settings.original { 1 } else { self.settings.anisotropy };
+            if game.system.gpu.draws_on_gpu() && game.system.config.anisotropy != anisotropy {
+                game.system.config.anisotropy = anisotropy;
+                let samples = game.system.gpu.set_anisotropy(anisotropy);
+                log::info!("anisotropic filtering at {samples}x");
             }
             if game.system.gpu.draws_on_gpu() && game.system.config.resolution != self.settings.resolution {
                 let scale = game.system.set_resolution(self.settings.resolution);

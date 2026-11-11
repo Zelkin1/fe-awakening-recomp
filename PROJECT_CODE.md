@@ -12,11 +12,11 @@ This list separates the project's code from Zakuro's and 3dsrecomp's. Paths star
 | `zakuro/crates/zakuro/src/console.rs` | 96 | The optional console window with Zakuro's log (Settings, System). |
 | `zakuro/crates/zakuro/src/downloads.rs` | 259 |  |
 | `zakuro/crates/zakuro/src/hdtext/banners.rs` | 258 | The phase, mission and result banners: lettering fitted with its spacing, glow, outline or stone fill drawn again. |
-| `zakuro/crates/zakuro/src/hdtext/clean.rs` | 485 |  |
+| `zakuro/crates/zakuro/src/hdtext/clean.rs` | 511 |  |
 | `zakuro/crates/zakuro/src/hdtext/data.rs` | 435 | The words the redrawn pictures spell, in each language: banners, inventory labels, title screen and main menu. |
 | `zakuro/crates/zakuro/src/hdtext/esrgan.rs` | 406 |  |
 | `zakuro/crates/zakuro/src/hdtext/labels.rs` | 1083 | The inventory's labels: letters taken off their plates, plates and cells evened with their grain given back, words drawn again with shadow, shine or engraving. |
-| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 537 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
+| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 546 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
 | `zakuro/crates/zakuro/src/hdtext/ops.rs` | 771 | Image operations for the redraws: planes, masks, blurs, resizing, labelling and distance transforms. |
 | `zakuro/crates/zakuro/src/hdtext/rom.rs` | 161 | Finds textures in the game's files and reads its message files. |
 | `zakuro/crates/zakuro/src/hdtext/sheets.rs` | 386 | Reads and writes the game's font files: each letter drawn at its natural width from an open font, packed into new sheets, with the 4x pictures. |
@@ -341,6 +341,12 @@ Changed:
 
 Its imports change too.
 
+### `zakuro/crates/zakuro-gpu/src/device.rs`
+
+Changed:
+
+- `struct SharedDevice`
+
 ### `zakuro/crates/zakuro-gpu/src/interpolation.rs`
 
 Added:
@@ -368,6 +374,10 @@ Removed:
 
 Added:
 
+- `fn Gpu::set_bloom`
+- `fn Gpu::blooms`
+- `fn Gpu::set_anisotropy`
+- `fn Gpu::anisotropy`
 - `fn Gpu::set_markers`
 - `fn Gpu::follows_markers`
 - `fn Gpu::take_marked`
@@ -447,9 +457,11 @@ Changed:
 - `struct Resources`
 - `fn TextureCache::decoded`
 - `fn bind_texture`
+- `fn texture_range`
 - `fn draw`
 - `fn rasterize`
 - `mod tests`
+- `fn tests::programs_translate_while_drawing_goes_on`
 
 ### `zakuro/crates/zakuro-gpu/src/raster/hardware.rs`
 
@@ -473,11 +485,18 @@ Added:
 - `fn Hardware::level_view`
 - `fn Hardware::blit_with`
 - `fn Hardware::generic_pipeline`
+- `fn Hardware::levels_from_memory`
+- `fn Hardware::set_bloom`
+- `fn Hardware::blooms`
+- `fn Hardware::set_anisotropy`
+- `fn Hardware::anisotropy`
+- `fn Hardware::settle`
 - `fn Hardware::texture_copy`
 - `fn Hardware::texture_copy_columns`
 - `fn Hardware::transfer`
 - `fn Hardware::native_transfer`
 - `fn Hardware::level_source`
+- `fn Hardware::clear_smaller_levels`
 - `fn Hardware::copy_level`
 - `fn Hardware::native_picture`
 
@@ -503,6 +522,7 @@ Changed:
 - `fn Hardware::surface_rows`
 - `fn Hardware::reads_twin`
 - `fn Hardware::blit`
+- `fn Hardware::sampler`
 - `fn Hardware::pipeline_for`
 - `fn Hardware::hand`
 - `fn Hardware::take`
@@ -519,6 +539,7 @@ Changed:
 - `fn Hardware::submit`
 - `fn Hardware::retire_oldest`
 - `fn <Hardware as Drop>::drop`
+- `fn render_device`
 - `fn tests::a_pixel_standing_in_for_the_shadow_keeps_what_the_bytes_would`
 
 Removed:
@@ -852,6 +873,7 @@ Removed:
 Added:
 
 - `fn windowless`
+- `fn in_background`
 
 Changed:
 

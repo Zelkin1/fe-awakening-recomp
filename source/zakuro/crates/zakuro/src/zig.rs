@@ -244,6 +244,20 @@ pub(crate) fn windowless(command: &mut Command) -> &mut Command {
     command
 }
 
+/// Stops a child process from opening a console window, and starts it below the normal priority, on Windows.
+/// The computer then stays responsive while the process works, and the command is returned so calls can be chained.
+/// Does nothing on other systems.
+pub(crate) fn in_background(command: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+        command.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
+    }
+    command
+}
+
 /// unpacks the archive into its folder in tools with tar, which reads the
 /// zip on Windows too. the archive holds a single folder, renamed to
 /// zig-<version> once it is all there.
