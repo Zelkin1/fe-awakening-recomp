@@ -22,17 +22,22 @@ const CODE: [&str; 3] = ["code.bin", "code.ips", "code.bps"];
 /// which a mod that makes the code longer needs.
 const EXHEADER: &str = "exheader.bin";
 
+/// The names of the folders that hold the parts of a mod, which are not mods of their own.
 const MOD_PARTS: [&str; 4] = ["romfs", "romfs_ext", "exefs", "textures"];
 
+/// The name of the empty file that marks a mod folder as turned off.
 const DISABLED: &str = "disabled";
 
+/// Whether the mod folder is turned on, which it is unless it holds the `disabled` marker.
 pub fn enabled(folder: &Path) -> bool {
     !folder.join(DISABLED).exists()
 }
 
+/// Turns the mod folder on or off by removing or creating the `disabled` marker.
 pub fn set_enabled(folder: &Path, on: bool) -> std::io::Result<()> {
     let marker = folder.join(DISABLED);
     if on {
+        // A marker that is already gone is not an error.
         return match std::fs::remove_file(&marker) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
             _ => Ok(()),
@@ -42,13 +47,17 @@ pub fn set_enabled(folder: &Path, on: bool) -> std::io::Result<()> {
     std::fs::write(marker, b"")
 }
 
+/// The folders that hold the mods of the title, in the order they are laid.
+/// The folder of the title comes first, followed by the enabled mod folders inside it in name order.
 pub fn folders(data_dir: &Path, program_id: u64) -> Vec<PathBuf> {
     let title_folder = dir(data_dir, program_id);
     let mut mod_folders: Vec<PathBuf> = std::fs::read_dir(&title_folder).into_iter().flatten().flatten().map(|entry| entry.path()).filter(|path| is_mod_folder(path)).collect();
+    // Sorting makes the order of the layers the same on every run.
     mod_folders.sort();
     std::iter::once(title_folder).chain(mod_folders).collect()
 }
 
+/// Whether the path is an enabled folder of a mod, and not one of the part folders of a mod.
 fn is_mod_folder(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
         return false;
@@ -64,6 +73,8 @@ pub fn present(data_dir: &Path, program_id: u64) -> bool {
     })
 }
 
+/// The `exheader.bin` of the mods of the title when it looks like the one of the title, with its parsed form.
+/// The last mod folder that has one wins.
 pub fn exheader(title: &Title, data_dir: &Path) -> Option<(Vec<u8>, ExHeader)> {
     let path = folders(data_dir, title.program_id()).into_iter().rev().map(|dir| dir.join(EXHEADER)).find(|path| path.is_file())?;
     let mut bytes = std::fs::read(&path).ok()?;
@@ -96,6 +107,8 @@ fn find(dir: &Path, name: &str) -> Option<PathBuf> {
 /// a patch format, applying a patch to data.
 type Patch = fn(&[u8], &[u8]) -> Result<Vec<u8>, FsError>;
 
+/// The code of the title with the changes of its mods, and whether there were any.
+/// The last `code.bin` wins, and the `code.ips` and `code.bps` patches of every folder are applied over it in order.
 pub fn code(title: &Title, data_dir: Option<&Path>) -> Result<(Vec<u8>, bool), FsError> {
     let original = title.code()?;
     let Some(data_dir) = data_dir else {
@@ -103,6 +116,7 @@ pub fn code(title: &Title, data_dir: Option<&Path>) -> Result<(Vec<u8>, bool), F
     };
     let mut code = original.clone();
     let folders = folders(data_dir, title.program_id());
+    // The reverse order makes the folder laid last the one that is found first.
     if let Some(path) = folders.iter().rev().find_map(|dir| find(dir, "code.bin")) {
         match std::fs::read(&path) {
             Ok(bytes) => {
@@ -140,6 +154,7 @@ fn decompressed(bytes: Vec<u8>, title: &Title) -> Vec<u8> {
     lz77::decompress(&bytes).unwrap_or(bytes)
 }
 
+/// Lays the mods of the title over it, saying in the log what they changed.
 pub fn lay(title: &mut Title, data_dir: Option<&Path>) {
     let Some(data_dir) = data_dir else {
         return;
@@ -182,6 +197,7 @@ pub fn lay(title: &mut Title, data_dir: Option<&Path>) {
     }
 }
 
+/// Names the folders in one phrase for the log, the folder of the title followed by the names of its mod folders.
 fn describe(folders: &[PathBuf]) -> String {
     let [title_folder, mod_folders @ ..] = folders else {
         return String::new();
@@ -197,6 +213,7 @@ fn describe(folders: &[PathBuf]) -> String {
 mod tests {
     use super::*;
 
+    /// Mod folders inside the folder of a title are found in name order, and a disabled one is skipped.
     #[test]
     fn mods_in_folders_of_their_own_follow_the_titles() {
         let data_dir = std::env::temp_dir().join(format!("zakuro-mod-folders-{}", std::process::id()));

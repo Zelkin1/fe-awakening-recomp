@@ -572,6 +572,7 @@ impl Gpu {
     ) {
         let input_width = (input_gap & 0xFFFF) * 16;
         let input_skip = (input_gap >> 16) * 16;
+        // The gaps are counted in units of 16 bytes, the width in the low half and the skip in the high half, like those of the input.
         let output_width = (output_gap & 0xFFFF) * 16;
         let output_skip = (output_gap >> 16) * 16;
         // every line and the gaps between them
@@ -580,6 +581,7 @@ impl Gpu {
 
         #[cfg(feature = "vulkan")]
         if let Some(hardware) = self.resources.hardware.as_mut() {
+            // A copy that stays on the GPU is tried first. A side without gaps is unbroken, and only an unbroken output is supported, with an input that is either unbroken or has columns.
             let unbroken = |width: u32, skip: u32| width == 0 || skip == 0;
             let copied = match (unbroken(input_width, input_skip), unbroken(output_width, output_skip)) {
                 (true, true) => Some(hardware.texture_copy(memory, input, output, size)),
@@ -593,6 +595,7 @@ impl Gpu {
                         self.transfers += 1;
                         return;
                     }
+                    // Nothing on the GPU matches, so the copy goes through the memory of the guest below.
                     Ok(false) => {}
                     Err(error) => log::error!("the GPU could not copy a buffer, {error}"),
                 }
@@ -765,18 +768,22 @@ impl Gpu {
         on
     }
 
+    /// Sets the markers to look for in the draws of the game.
     pub fn set_markers(&mut self, markers: Vec<Marker>) {
         self.resources.marker_watch.markers = markers;
     }
 
+    /// Whether any markers are set.
     pub fn follows_markers(&self) -> bool {
         !self.resources.marker_watch.markers.is_empty()
     }
 
+    /// The ids of the markers drawn since the last call.
     pub fn take_marked(&mut self) -> Vec<u32> {
         std::mem::take(&mut self.resources.marker_watch.drawn)
     }
 
+    /// The ids and areas of the markers recorded since the last call.
     pub fn take_spans(&mut self) -> Vec<(u32, [f32; 4])> {
         std::mem::take(&mut self.resources.marker_watch.spans)
     }
@@ -841,6 +848,7 @@ impl Gpu {
         1
     }
 
+    /// Changes the multiple of the resolution of the console the GPU draws at, once the game runs, and gives the multiple it took. Without a GPU that scales, it stays 1.
     pub fn set_resolution<M: GpuMemory>(&mut self, memory: &mut M, scale: u32) -> u32 {
         #[cfg(feature = "vulkan")]
         if let Some(hardware) = self.resources.hardware.as_mut() {
@@ -871,6 +879,7 @@ impl Gpu {
         None
     }
 
+    /// The picture of a screen at the resolution of the console, upright and RGBA, when the GPU drew it.
     pub fn native_picture(&mut self, screen: ScreenRef) -> Option<Vec<u8>> {
         #[cfg(feature = "vulkan")]
         if let Some(hardware) = self.resources.hardware.as_mut() {
@@ -1195,6 +1204,7 @@ impl Gpu {
             return;
         }
         self.draw_calls += 1;
+        // Does nothing unless the variable of the environment is set.
         dump_uniforms(self.internal[REG_VERTEX_COUNT], self.draw_calls, &self.vertex_shader.float_uniforms[..]);
         renderer.draw(DrawCall {
             indexed,
@@ -1541,6 +1551,7 @@ fn external_index(gsp_offset: u32) -> Option<usize> {
     Some(byte_offset as usize / 4)
 }
 
+/// Appends the float uniforms of a draw to a file, for debugging. ZAKURO_DUMP_UNIFORMS holds a vertex count, a colon and a path, and only the draws with that many vertices are written.
 fn dump_uniforms(vertex_count: u32, draw: u64, uniforms: &[shader::Vec4]) {
     static WANTED: std::sync::OnceLock<Option<(u32, std::path::PathBuf)>> = std::sync::OnceLock::new();
     let wanted = WANTED.get_or_init(|| {

@@ -1,15 +1,26 @@
+//! Redraws words in the pictures of the menus, the buttons and the title screen.
+//! A word is found in a box of a picture, its letters are erased, and the same text is drawn again in the new font at four times the size.
+//! The tables hold the boxes of the words in the pictures of the game, in pixels of the original pictures.
+
 use super::banners;
 use super::ops::{dilate, gaussian, resize, Filter, Mask, Plane, Rgba};
 use super::text::Face;
 use super::titles::{place, search, SCALE, SS, TITLE};
 
+/// A box in a picture, as left, top, right and bottom in pixels.
 pub type Box4 = [usize; 4];
 
+/// The box of the text of the "press any button" picture.
 pub const PRESS_ANY_BUTTON_BOX: Box4 = [44, 0, 212, 32];
+/// The boxes of the "press any button" picture whose strokes are kept as they are, which are the two ornaments at the ends.
 pub const PRESS_ANY_BUTTON_KEEP: [Box4; 2] = [[0, 0, 47, 32], [211, 0, 256, 32]];
+/// The boxes of the eight texts of the main menu.
 pub const MENU_BOXES: [Box4; 8] = [[0, 0, 170, 24], [0, 24, 170, 50], [0, 50, 170, 73], [0, 73, 170, 97], [0, 97, 170, 126], [170, 26, 256, 40], [170, 67, 256, 84], [170, 88, 256, 124]];
+/// The boxes of the main menu picture whose strokes are kept as they are.
 pub const MENU_KEEP: [Box4; 2] = [[170, 0, 256, 26], [170, 40, 256, 67]];
+/// The box of the copyright line.
 pub const COPYRIGHT_BOX: Box4 = [0, 0, 512, 32];
+/// The buttons of the world map that hold words, as a box, an index into the words of the map and the ink.
 pub const GMAP_BUTTONS: [(Box4, usize, Ink); 8] = [
     ([147, 11, 181, 30], 0, Ink::Dark),
     ([186, 21, 221, 34], 1, Ink::Light),
@@ -20,6 +31,7 @@ pub const GMAP_BUTTONS: [(Box4, usize, Ink); 8] = [
     ([146, 100, 181, 116], 2, Ink::Light),
     ([187, 91, 221, 110], 0, Ink::Dark),
 ];
+/// The words of the chapter overview, as a box, an index into the overview words and the ink.
 pub const OVERVIEW: [(Box4, usize, Ink); 9] = [
     ([192, 23, 270, 39], 0, Ink::Light),
     ([191, 81, 238, 98], 1, Ink::Dark),
@@ -31,9 +43,13 @@ pub const OVERVIEW: [(Box4, usize, Ink); 9] = [
     ([318, 222, 406, 239], 7, Ink::Opaque),
     ([318, 239, 406, 256], 8, Ink::Opaque),
 ];
+/// The box of the halt pill of the world map.
 pub const HALT_BOX: Box4 = [168, 406, 210, 427];
+/// The box of the small "TM" mark of the logo.
 pub const TM_BOX: Box4 = [450, 63, 462, 70];
+/// The box of the letter in the round A button symbol of the world map.
 pub const BUBBLE_A: Box4 = [139, 490, 151, 500];
+/// The words of the tutorial buttons, as a box, an index into the tutorial words and the ink.
 pub const TUTORIAL: [(Box4, usize, Ink); 11] = [
     ([394, 8, 428, 28], 0, Ink::Light),
     ([394, 49, 430, 69], 0, Ink::Dark),
@@ -47,6 +63,7 @@ pub const TUTORIAL: [(Box4, usize, Ink); 11] = [
     ([312, 174, 340, 189], 2, Ink::Dark),
     ([352, 174, 380, 189], 3, Ink::Dark),
 ];
+/// The button symbols of the system picture, as a box and the letter in the symbol.
 pub const SYSTEM_ICONS: [(Box4, &str); 7] = [
     ([139, 2, 149, 14], "A"),
     ([155, 2, 165, 14], "B"),
@@ -56,6 +73,7 @@ pub const SYSTEM_ICONS: [(Box4, &str); 7] = [
     ([107, 378, 118, 391], "R"),
     ([125, 378, 146, 391], "START"),
 ];
+/// The words of the battle forecast, as a box, an index into the forecast words, the ink and the look.
 pub const FORECAST: [(Box4, usize, Ink, Look); 23] = [
     ([66, 58, 119, 72], 0, Ink::Light, Look::Flat),
     ([193, 114, 245, 128], 0, Ink::Light, Look::Flat),
@@ -73,26 +91,37 @@ pub const FORECAST: [(Box4, usize, Ink, Look); 23] = [
     ([219, 330, 246, 345], 3, Ink::Light, Look::Flat),
     ([219, 346, 246, 361], 4, Ink::Light, Look::Flat),
     ([63, 495, 92, 511], 5, Ink::Light, Look::Flat),
-    ([24, 458, 56, 470], 6, Ink::Opaque, Look::Outline),
-    ([22, 473, 56, 486], 7, Ink::Opaque, Look::Outline),
-    ([0, 491, 40, 503], 8, Ink::Opaque, Look::Outline),
-    ([41, 297, 72, 312], 9, Ink::Opaque, Look::Outline),
-    ([39, 489, 57, 503], 10, Ink::Opaque, Look::Outline),
+    ([24, 458, 56, 470], 6, Ink::Opaque, Look::GradedOutline),
+    ([22, 473, 56, 486], 7, Ink::Opaque, Look::GradedOutline),
+    ([0, 491, 40, 503], 8, Ink::Opaque, Look::GradedOutline),
+    ([41, 297, 72, 312], 9, Ink::Opaque, Look::GradedOutline),
+    ([39, 489, 57, 503], 10, Ink::Opaque, Look::GradedOutline),
     ([52, 278, 71, 289], 11, Ink::Light, Look::Flat),
     ([92, 278, 111, 289], 12, Ink::Light, Look::Flat),
 ];
+/// The words of the unit screen, as a box, an index into the unit words, the ink, the look, the alignment and the slant.
 pub const UNIT: [(Box4, usize, Ink, Look, Align, f32); 10] = [
     ([0, 192, 63, 208], 0, Ink::Opaque, Look::Flat, Align::Centre, 0.0),
     ([0, 208, 63, 224], 1, Ink::Opaque, Look::Flat, Align::Centre, 0.0),
     ([0, 224, 63, 240], 2, Ink::Opaque, Look::Flat, Align::Centre, 0.0),
     ([0, 240, 63, 256], 3, Ink::Opaque, Look::Flat, Align::Centre, 0.0),
     ([63, 192, 129, 208], 4, Ink::Opaque, Look::Flat, Align::Centre, 0.0),
-    ([129, 193, 158, 208], 5, Ink::Opaque, Look::Shadow, Align::Left, 0.0),
+    ([129, 193, 158, 208], 5, Ink::Opaque, Look::GradedShadow, Align::Left, 0.0),
     ([176, 194, 210, 206], 6, Ink::Light, Look::Flat, Align::Centre, 0.0),
     ([96, 209, 121, 220], 7, Ink::Opaque, Look::Flat, Align::Left, 0.0),
     ([96, 220, 121, 231], 8, Ink::Opaque, Look::Flat, Align::Left, 0.0),
-    ([150, 233, 222, 255], 9, Ink::Light, Look::Gradient, Align::Centre, 0.2),
+    ([150, 233, 222, 255], 9, Ink::Light, Look::Graded, Align::Centre, 0.2),
 ];
+/// The stat names around the radar chart, as a box, an index into the radar words and the alignment.
+pub const RADAR: [(Box4, usize, Align); 6] = [
+    ([394, 40, 436, 56], 0, Align::Centre),
+    ([330, 70, 368, 89], 1, Align::Right),
+    ([463, 70, 500, 88], 2, Align::Left),
+    ([330, 133, 369, 151], 3, Align::Right),
+    ([462, 133, 500, 151], 4, Align::Left),
+    ([394, 169, 436, 188], 5, Align::Centre),
+];
+/// The words on the cards of the file menu, as a box, an index into the card words and the alignment.
 pub const CARDS: [(Box4, usize, Align); 14] = [
     ([9, 104, 98, 121], 0, Align::Left),
     ([9, 136, 98, 153], 1, Align::Left),
@@ -109,31 +138,58 @@ pub const CARDS: [(Box4, usize, Align); 14] = [
     ([9, 73, 33, 87], 4, Align::Centre),
     ([49, 73, 74, 87], 5, Align::Centre),
 ];
+/// The tone of the soft text of the plain words, as the share and the grey level that the banners module takes.
 pub const SOFT: banners::Tone = banners::Tone { share: 1.0, grey: 0.92 };
+/// The smallest difference between the lowest and the highest value around a pixel that counts as an edge when art is sharpened.
 const EDGE_CONTRAST: f32 = 0.12;
+/// The margin in enlarged pixels that is kept free on each side of a word in its box.
 const FIT_MARGIN: f32 = 4.0;
+/// The smallest difference of luminance between the letters and the rest of a box for the letters to be found.
 const SPLIT_CONTRAST: f32 = 0.15;
+/// The fraction of the pixels of a box, as one in this number, whose colours are taken as the colour of the letters.
 const LETTER_SHARE: usize = 10;
+/// The fraction of a row or column that must be covered by letters for it to count as a line of the frame.
 const LINE_SHARE: f32 = 0.8;
+/// The blur of the logo before its edges are sharpened, in pixels of the original picture.
 const LOGO_SMOOTH: f32 = 0.4;
+/// The levels of the blurred logo that map to black and to white.
 const LOGO_EDGE: (f32, f32) = (0.22, 0.62);
+/// The first and the last row of the "TM" mark in the logo.
 const TM_ROWS: (usize, usize) = (64, 69);
+/// The narrowest that a word may be squeezed horizontally, as a fraction of its natural width.
 const CONDENSED: f32 = 0.7;
+/// The number of passes of the smoothing of the calm filter.
 const CALM_PASSES: usize = 2;
+/// The reach of the calm filter in pixels.
 const CALM_REACH: usize = 2;
+/// The spatial spread of the calm filter in pixels.
 const CALM_SPACE: f32 = 1.5;
+/// The colour spread of the calm filter, which keeps real edges from being blurred.
 const CALM_RANGE: f32 = 0.1;
+/// The spread in pixels of the weights that fill an erased word from its surroundings.
 const FILL_SIGMA: f32 = 3.0;
-const SHADOW: (f32, f32, f32) = (0.6, 0.3, 0.8);
+/// The shadow of a word: the offset, the blur and the opacity, with the offset and the blur in pixels of the original picture.
+const SHADOW: (f32, f32, f32) = (0.5, 0.15, 0.85);
+/// The weakest letter coverage that counts as a trace of a letter when a word is erased.
+const FAINT: f32 = 0.05;
+/// The width of the outline of a word in pixels of the original picture.
 const OUTLINE: f32 = 0.75;
+/// The fraction of the pixels near a word, as one in this number, that gives the dark colour of its shadow or outline.
 const DARK_SHARE: usize = 6;
+/// The number of samples per side of an enlarged pixel in the faithful enlargement.
 const FAITHFUL_SAMPLES: usize = 2;
+/// The largest difference per colour channel for two pixels to count as the same colour.
 const ALIKE: f32 = 0.1;
+/// The alpha below which a pixel counts as clear.
 const CLEAR: f32 = 0.02;
+/// The reach in pixels of the original picture that is used to find the peak around a stroke.
 const STROKE_REACH: f32 = 1.0;
+/// The lowest peak value that is used when a stroke is normalised.
 const STROKE_FLOOR: f32 = 0.05;
+/// The normalised levels of a stroke that map to nothing and to full strength.
 const STROKE_EDGE: (f32, f32) = (0.3, 0.65);
 
+/// Marks the pixels of the given boxes that have ink, with a margin of one pixel around the ink.
 fn kept(core: &Plane, keep: &[Box4]) -> Mask {
     let inked = dilate(&Mask::from(core, |v| v > 0.1), 1);
     let mut mask = Mask::new(core.w, core.h);
@@ -147,12 +203,16 @@ fn kept(core: &Plane, keep: &[Box4]) -> Mask {
     mask
 }
 
+/// Enlarges a picture to four times the size and keeps its edges crisp.
+/// Each channel is enlarged smoothly, and then the values near an edge are pushed towards the lowest or the highest value of the pixels around.
 pub fn sharp_art(image: &Rgba) -> Rgba {
     let (w, h) = (image.w, image.h);
     let alpha = image.channel(3);
+    // The colour channels are multiplied by the alpha, so that clear pixels do not bleed their colour into the edges.
     let channels = [0, 1, 2, 3].map(|k| if k == 3 { alpha.clone() } else { image.channel(k).zip(&alpha, |v, a| v * a) });
     let shaped = channels.map(|p| {
         let up = resize(&p, w * SCALE, h * SCALE, Filter::Bicubic);
+        // The lowest or the highest value in the three by three pixels around each pixel, enlarged.
         let around = |pick: fn(f32, f32) -> f32, start: f32| {
             let mut out = Plane::new(w, h);
             for y in 0..h {
@@ -178,6 +238,7 @@ pub fn sharp_art(image: &Rgba) -> Rgba {
                     if r <= EDGE_CONTRAST {
                         return u.clamp(0.0, 1.0);
                     }
+                    // Where there is an edge, the position between the low and the high value is steepened with two smoothstep curves.
                     let mut t = ((u - l) / r).clamp(0.0, 1.0);
                     for _ in 0..2 {
                         t = t * t * (3.0 - 2.0 * t);
@@ -187,6 +248,7 @@ pub fn sharp_art(image: &Rgba) -> Rgba {
                 .collect(),
         }
     });
+    // Undo the multiplication by the alpha.
     let mut out = Rgba::new(w * SCALE, h * SCALE);
     for (i, p) in out.v.iter_mut().enumerate() {
         let a = shaped[3].v[i].clamp(0.0, 1.0);
@@ -195,10 +257,12 @@ pub fn sharp_art(image: &Rgba) -> Rgba {
     out
 }
 
+/// Multiplies the colour of a pixel by its alpha.
 fn premultiplied(p: [f32; 4]) -> [f32; 4] {
     [p[0] * p[3], p[1] * p[3], p[2] * p[3], p[3]]
 }
 
+/// Divides the colour of a pixel by its alpha again, and gives a fully clear pixel for an alpha that is nearly zero.
 fn unpremultiplied(p: [f32; 4]) -> [f32; 4] {
     let a = p[3].clamp(0.0, 1.0);
     if a > 1e-4 {
@@ -208,6 +272,8 @@ fn unpremultiplied(p: [f32; 4]) -> [f32; 4] {
     }
 }
 
+/// Smooths the noise in a picture without blurring its edges.
+/// It is a bilateral filter, where the weight of a neighbour falls with both its distance and its difference in colour.
 pub fn calm(image: &Rgba) -> Rgba {
     let (w, h) = (image.w, image.h);
     let mut pixels: Vec<[f32; 4]> = image.v.iter().map(|&p| premultiplied(p)).collect();
@@ -233,6 +299,7 @@ pub fn calm(image: &Rgba) -> Rgba {
     Rgba { w, h, v: pixels.into_iter().map(unpremultiplied).collect() }
 }
 
+/// Returns the median of each of the four channels of the samples.
 fn median4(mut samples: Vec<[f32; 4]>) -> [f32; 4] {
     [0, 1, 2, 3].map(|k| {
         samples.sort_by(|a, b| a[k].total_cmp(&b[k]));
@@ -240,65 +307,108 @@ fn median4(mut samples: Vec<[f32; 4]>) -> [f32; 4] {
     })
 }
 
+/// The sum of the differences of the four channels of two pixels.
 fn gap(a: [f32; 4], b: [f32; 4]) -> f32 {
     (0..4).map(|k| (a[k] - b[k]).abs()).sum()
 }
 
+/// The letters of a box, told apart from its background.
 struct Split {
+    /// The colour of the letters, with the colour multiplied by the alpha.
     letter: [f32; 4],
+    /// The colour of the background in each row of the box.
     rows: Vec<[f32; 4]>,
+    /// How much each pixel is covered by letters, from 0 to 1.
     mask: Plane,
+    /// The pixels that show at least a trace of the letters.
+    faint: Mask,
 }
 
+/// What the letters of a word look like against their background.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Ink {
+    /// The letters are lighter than the background.
     Light,
+    /// The letters are darker than the background.
     Dark,
+    /// The letters are the opaque part of the picture, and the rest is clear.
     Opaque,
 }
 
+/// How a word is painted.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Look {
+    /// One colour.
     Flat,
-    Gradient,
+    /// A colour that changes from the top row of the word to the bottom row.
+    Graded,
+    /// One colour with a drop shadow.
     Shadow,
-    Outline,
+    /// A changing colour with a drop shadow.
+    GradedShadow,
+    /// A changing colour with an outline.
+    GradedOutline,
 }
 
+impl Look {
+    /// Tells whether the colour changes from row to row.
+    fn graded(self) -> bool {
+        matches!(self, Look::Graded | Look::GradedShadow | Look::GradedOutline)
+    }
+}
+
+/// Where a word sits in its box.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Align {
     Centre,
+    /// The word starts where the old letters started.
     Left,
+    /// The word ends where the old letters ended.
+    Right,
 }
 
+/// A word to draw in a box of a picture.
 #[derive(Clone, Copy)]
 pub struct Word {
+    /// The box that holds the old word.
     pub at: Box4,
+    /// The new text.
     pub text: &'static str,
     pub ink: Ink,
     pub look: Look,
     pub align: Align,
+    /// The slant of the letters, where 0 is upright.
     pub slant: f32,
 }
 
 impl Word {
+    /// Creates a flat, centred and upright word.
     pub fn flat(at: Box4, text: &'static str, ink: Ink) -> Word {
         Word { at, text, ink, look: Look::Flat, align: Align::Centre, slant: 0.0 }
     }
 }
 
+/// The colours that a word is painted with.
 struct Paint {
     look: Look,
+    /// The colour of the letters for each row of the word, from top to bottom.
     rows: Vec<[f32; 3]>,
+    /// The colour of the shadow or the outline.
     dark: [f32; 3],
 }
 
+/// Finds the letters in a box.
+/// The pixels are ranked by luminance, or by alpha for opaque ink, and the most extreme tenth gives the colour of the letters.
+/// The background is estimated for each row, and the coverage of each pixel is its position between the background and the letter colour.
+/// Returns `None` when the box has too little contrast.
 fn split(region: &Rgba, ink: Ink) -> Option<Split> {
     let (w, h) = (region.w, region.h);
     let pixels: Vec<[f32; 4]> = region.v.iter().map(|&p| premultiplied(p)).collect();
+    // The luminance uses the Rec. 601 weights.
     let lum: Vec<f32> = pixels.iter().map(|p| if ink == Ink::Opaque { p[3] } else { p[0] * 0.299 + p[1] * 0.587 + p[2] * 0.114 }).collect();
     let mut order: Vec<usize> = (0..pixels.len()).collect();
     order.sort_by(|&a, &b| lum[a].total_cmp(&lum[b]));
+    // After this, the pixels that look most like letters come first.
     if ink != Ink::Dark {
         order.reverse();
     }
@@ -307,10 +417,14 @@ fn split(region: &Rgba, ink: Ink) -> Option<Split> {
         return None;
     }
     let letter = median4(order[..extreme].iter().map(|&i| pixels[i]).collect());
+    // For opaque ink, the alpha is the coverage, with a soft ramp between 0.15 and 0.65.
     if ink == Ink::Opaque {
         let mask = Plane { w, h, v: pixels.iter().map(|p| ((p[3] - 0.15) / 0.5).clamp(0.0, 1.0)).collect() };
-        return Some(Split { letter, rows: vec![[0.0; 4]; h], mask });
+        let faint = Mask { w, h, v: pixels.iter().map(|p| p[3] > CLEAR).collect() };
+        return Some(Split { letter, rows: vec![[0.0; 4]; h], mask, faint });
     }
+    // The reach is half of the distance from the letter colour to the median of the half of the pixels that are farthest from it.
+    // Pixels beyond the reach count as background.
     let mut far: Vec<(f32, [f32; 4])> = pixels.iter().map(|&p| (gap(p, letter), p)).collect();
     far.sort_by(|a, b| b.0.total_cmp(&a.0));
     let reach = gap(letter, median4(far.iter().take(far.len().div_ceil(2)).map(|&(_, p)| p).collect())) * 0.5;
@@ -320,6 +434,7 @@ fn split(region: &Rgba, ink: Ink) -> Option<Split> {
             (plain.len() >= 3).then(|| median4(plain))
         })
         .collect();
+    // A row with too few background pixels takes the median of its half that is farthest from the letter colour.
     let rows: Vec<[f32; 4]> = (0..h)
         .map(|y| {
             found[y].unwrap_or_else(|| {
@@ -330,7 +445,9 @@ fn split(region: &Rgba, ink: Ink) -> Option<Split> {
         })
         .collect();
     let mut mask = Plane::new(w, h);
+    let mut faint = Mask::new(w, h);
     for y in 0..h {
+        // The coverage is the projection of the pixel on the line from the background to the letter colour.
         let bg = rows[y];
         let span: Vec<f32> = (0..4).map(|k| letter[k] - bg[k]).collect();
         let length: f32 = span.iter().map(|v| v * v).sum::<f32>().max(1e-4);
@@ -338,8 +455,10 @@ fn split(region: &Rgba, ink: Ink) -> Option<Split> {
             let p = pixels[y * w + x];
             let t = (0..4).map(|k| (p[k] - bg[k]) * span[k]).sum::<f32>() / length;
             mask.set(x, y, ((t - 0.15) / 0.5).clamp(0.0, 1.0));
+            faint.set(x, y, t.abs() > FAINT);
         }
     }
+    // Rows and columns that are almost entirely covered are lines of the frame, not letters, so they are removed from the mask.
     let lines_x: Vec<usize> = (0..w).filter(|&x| (0..h).filter(|&y| mask.at(x, y) > 0.5).count() as f32 >= LINE_SHARE * h as f32).collect();
     let lines_y: Vec<usize> = (0..h).filter(|&y| (0..w).filter(|&x| mask.at(x, y) > 0.5).count() as f32 >= LINE_SHARE * w as f32).collect();
     for x in lines_x {
@@ -348,9 +467,11 @@ fn split(region: &Rgba, ink: Ink) -> Option<Split> {
     for y in lines_y {
         (0..w).for_each(|x| mask.set(x, y, 0.0));
     }
-    Some(Split { letter, rows, mask })
+    Some(Split { letter, rows, mask, faint })
 }
 
+/// Erases the marked pixels of a box by filling them from the pixels around that are not letters.
+/// The fill is a Gaussian weighted mean, and a pixel with no known neighbours takes the background colour of its row.
 fn fill(region: &Rgba, found: &Split, erase: &Mask) -> Rgba {
     let (w, h) = (region.w, region.h);
     let pixels: Vec<[f32; 4]> = region.v.iter().map(|&p| premultiplied(p)).collect();
@@ -381,7 +502,10 @@ fn fill(region: &Rgba, found: &Split, erase: &Mask) -> Rgba {
     out
 }
 
+/// Draws a word as a plane of coverage with the given height, squeezed horizontally if needed to fit the room.
+/// The room is the width and the height that are available, and the squeeze never goes below the condensed limit.
 fn word(face: &Face, text: &str, height: f32, room: (f32, f32)) -> Option<Plane> {
+    // The line is drawn large and then reduced, which gives smooth edges.
     let line = face.sized(40.0 * SS as f32).line(text, 0.0)?;
     let tall = (height / line.h as f32).min(room.1 / line.h as f32);
     let squeeze = (room.0 / (line.w as f32 * tall)).clamp(CONDENSED, 1.0);
@@ -389,6 +513,7 @@ fn word(face: &Face, text: &str, height: f32, room: (f32, f32)) -> Option<Plane>
     Some(resize(&line, ((line.w as f32 * tall * squeeze).round() as usize).max(1), ((line.h as f32 * tall).round() as usize).max(1), Filter::Lanczos).map(|v| v.clamp(0.0, 1.0)))
 }
 
+/// Blends a layer of coverage onto the picture at an offset, with a colour that can change from row to row.
 fn over(out: &mut Rgba, layer: &Plane, (ox, oy): (isize, isize), colour: impl Fn(usize) -> [f32; 3]) {
     for y in 0..layer.h {
         let ty = oy + y as isize;
@@ -409,12 +534,14 @@ fn over(out: &mut Rgba, layer: &Plane, (ox, oy): (isize, isize), colour: impl Fn
     }
 }
 
+/// Returns a copy of the plane with clear space around it.
 fn padded(p: &Plane, pad: usize) -> Plane {
     let mut out = Plane::new(p.w + 2 * pad, p.h + 2 * pad);
     out.paste(p, pad as isize, pad as isize);
     out
 }
 
+/// Grows the shapes of a plane by a radius in pixels, with a soft edge of half a pixel.
 fn swell(p: &Plane, radius: f32) -> Plane {
     let r = radius.ceil() as isize;
     let mut out = Plane::new(p.w, p.h);
@@ -437,26 +564,31 @@ fn swell(p: &Plane, radius: f32) -> Plane {
     out
 }
 
+/// Paints a word onto the picture at a position, with its shadow or outline below the letters.
 fn paint(out: &mut Rgba, ink: &Plane, (x, y): (usize, usize), paint: &Paint) {
+    // The padding leaves room for the shadow and the outline around the word.
     let pad = (SHADOW.0 + 3.0 * SHADOW.1 + OUTLINE).ceil() as usize * SCALE;
     let big = padded(ink, pad);
     let at = (x as isize - pad as isize, y as isize - pad as isize);
     let rows = paint.rows.len();
+    // The colour of a row of the padded word is the colour of the matching row of the original colours.
     let tint = |row: usize| paint.rows[(row.saturating_sub(pad) * rows / ink.h.max(1)).min(rows - 1)];
     match paint.look {
-        Look::Flat | Look::Gradient => {}
-        Look::Shadow => {
+        Look::Flat | Look::Graded => {}
+        Look::Shadow | Look::GradedShadow => {
             let step = (SHADOW.0 * SCALE as f32).round() as isize;
             let mut moved = Plane::new(big.w, big.h);
             moved.paste(&big, step, step);
             let shadow = gaussian(&moved, SHADOW.1 * SCALE as f32).map(|v| (v * SHADOW.2).clamp(0.0, 1.0));
             over(out, &shadow, at, |_| paint.dark);
         }
-        Look::Outline => over(out, &swell(&big, OUTLINE * SCALE as f32), at, |_| paint.dark),
+        Look::GradedOutline => over(out, &swell(&big, OUTLINE * SCALE as f32), at, |_| paint.dark),
     }
     over(out, &big, at, tint);
 }
 
+/// Works out the colours to paint a word with from the old word.
+/// The dark colour comes from the darkest pixels around the letters, and a graded look takes the colour of the letters row by row.
 fn colours(region: &Rgba, found: &Split, erase: &Mask, (ink, look): (Ink, Look), (y0, y1): (usize, usize)) -> Paint {
     let plain = |p: [f32; 4]| [p[0], p[1], p[2]];
     let lum = |c: [f32; 3]| c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
@@ -469,9 +601,10 @@ fn colours(region: &Rgba, found: &Split, erase: &Mask, (ink, look): (Ink, Look),
         Ink::Opaque if !near.is_empty() => plain(median4(near[near.len() - share..].to_vec())),
         _ => [found.letter[0] / a, found.letter[1] / a, found.letter[2] / a],
     };
-    if look == Look::Flat {
+    if !look.graded() {
         return Paint { look, rows: vec![letter], dark };
     }
+    // A pixel counts as bright when it is on the side of the middle luminance that the letters are on.
     let middle = (lum(dark) + lum(letter)) / 2.0;
     let bright = |p: [f32; 4]| p[3] > 0.5 && (lum(plain(p)) - middle) * (lum(letter) - middle) > 0.0;
     let lit: Vec<usize> = (y0..y1).filter(|&y| (0..region.w).any(|x| found.mask.at(x, y) > 0.5 && bright(region.at(x, y)))).collect();
@@ -487,6 +620,9 @@ fn colours(region: &Rgba, found: &Split, erase: &Mask, (ink, look): (Ink, Look),
     Paint { look, rows, dark }
 }
 
+/// Redraws the words of a picture and enlarges the picture to four times the size.
+/// The old letters are erased, the picture is enlarged with the given function, and the new words are painted on the enlarged picture.
+/// A word whose letters cannot be found is left as it was.
 pub fn buttons(image: &Rgba, words: &[Word], face: &Face, enlarge: fn(&Rgba) -> Rgba) -> Rgba {
     let mut cleaned = image.clone();
     let mut drawn = Vec::new();
@@ -494,16 +630,21 @@ pub fn buttons(image: &Rgba, words: &[Word], face: &Face, enlarge: fn(&Rgba) -> 
         let b = w.at;
         let region = image.crop(b[0], b[1], b[2], b[3]);
         let Some(found) = split(&region, w.ink) else { continue };
+        // The rows with at least two letter pixels give the top and the bottom of the old word.
         let inked: Vec<usize> = (0..region.h).filter(|&y| (0..region.w).filter(|&x| found.mask.at(x, y) > 0.5).count() >= 2).collect();
         let (Some(&y0), Some(&last)) = (inked.first(), inked.last()) else { continue };
         let y1 = last + 1;
-        let reach = if w.look == Look::Shadow && w.ink != Ink::Opaque { 2 } else { 1 };
-        let erase = dilate(&Mask::from(&found.mask, |v| v > 0.05), reach);
+        // A shadow of a word with light or dark ink extends further, so more pixels around the letters are erased.
+        let reach = if matches!(w.look, Look::Shadow | Look::GradedShadow) && w.ink != Ink::Opaque { 3 } else { 1 };
+        let core = Mask::from(&found.mask, |v| v > 0.5);
+        let touched = Mask::from(&found.mask, |v| v > 0.05).or(&found.faint);
+        let erase = dilate(&core, reach).or(&dilate(&core, reach + 1).and(&touched));
         cleaned.paste(&fill(&region, &found, &erase), b[0], b[1]);
         let colour = colours(&region, &found, &erase, (w.ink, w.look), (y0, y1));
+        // The shadow or the outline of opaque ink is part of the old word, so its size is taken off the height of the new letters.
         let (above, below) = match (w.ink, w.look) {
-            (Ink::Opaque, Look::Shadow) => (0.0, SHADOW.0),
-            (Ink::Opaque, Look::Outline) => (OUTLINE, OUTLINE),
+            (Ink::Opaque, Look::Shadow | Look::GradedShadow) => (0.0, SHADOW.0),
+            (Ink::Opaque, Look::GradedOutline) => (OUTLINE, OUTLINE),
             _ => (0.0, 0.0),
         };
         let room = (((b[2] - b[0]) * SCALE) as f32 - 2.0 * FIT_MARGIN, ((b[3] - b[1]) * SCALE) as f32 - 2.0 * FIT_MARGIN);
@@ -515,7 +656,12 @@ pub fn buttons(image: &Rgba, words: &[Word], face: &Face, enlarge: fn(&Rgba) -> 
                 let first = (0..region.w).find(|&x| (y0..y1).any(|y| found.mask.at(x, y) > 0.5)).unwrap_or(0);
                 ((b[0] + first) * SCALE).min(b[2] * SCALE - ink.w)
             }
+            Align::Right => {
+                let last = (0..region.w).rev().find(|&x| (y0..y1).any(|y| found.mask.at(x, y) > 0.5)).unwrap_or(region.w - 1);
+                ((b[0] + last + 1) * SCALE).saturating_sub(ink.w).max(b[0] * SCALE)
+            }
         };
+        // The new word is centred vertically on the old one.
         let centre = (b[1] as f32 + (y0 as f32 + above + y1 as f32 - below) / 2.0) * SCALE as f32;
         let y = ((centre - ink.h as f32 / 2.0).round() as usize).clamp(b[1] * SCALE, (b[3] * SCALE).saturating_sub(ink.h));
         drawn.push((x, y, ink, colour));
@@ -527,6 +673,7 @@ pub fn buttons(image: &Rgba, words: &[Word], face: &Face, enlarge: fn(&Rgba) -> 
     out
 }
 
+/// Tells whether two pixels have the same colour within a tolerance, or are both clear.
 fn alike(a: [f32; 4], b: [f32; 4]) -> bool {
     if a[3] < CLEAR || b[3] < CLEAR {
         return a[3] < CLEAR && b[3] < CLEAR;
@@ -534,9 +681,35 @@ fn alike(a: [f32; 4], b: [f32; 4]) -> bool {
     (0..3).all(|k| (a[k] - b[k]).abs() <= ALIKE)
 }
 
+/// The boxes of the defence, avoid and healing icons of the terrain panel, in the unit picture.
+/// These icons are pixel art, so they keep their square pixels.
+pub const TERRAIN_ICONS: [Box4; 3] = [[14, 26, 22, 36], [32, 26, 41, 36], [54, 27, 63, 35]];
+
+/// Enlarges the unit picture like faithful_art, and the icons of the terrain panel with square pixels.
+pub fn unit_art(image: &Rgba) -> Rgba {
+    let mut out = faithful_art(image);
+    for b in TERRAIN_ICONS {
+        out.paste(&square_pixels(&image.crop(b[0], b[1], b[2], b[3])), b[0] * SCALE, b[1] * SCALE);
+    }
+    out
+}
+
+/// Enlarges a picture to four times the size, each pixel becoming a square of the same colour.
+fn square_pixels(image: &Rgba) -> Rgba {
+    let mut out = Rgba::new(image.w * SCALE, image.h * SCALE);
+    let wide = out.w;
+    for (i, p) in out.v.iter_mut().enumerate() {
+        *p = image.v[(i / wide / SCALE) * image.w + i % wide / SCALE];
+    }
+    out
+}
+
+/// Enlarges a picture to four times the size without inventing colours.
+/// Each sample blends only the neighbouring pixels that have the same colour as the pixel that fits best, so flat areas stay flat and edges stay sharp.
 pub fn faithful_art(image: &Rgba) -> Rgba {
     let (w, h) = (image.w, image.h);
     let pre: Vec<[f32; 4]> = image.v.iter().map(|&p| premultiplied(p)).collect();
+    let plain: Vec<[f32; 4]> = pre.iter().map(|&p| unpremultiplied(p)).collect();
     let samples = SCALE * FAITHFUL_SAMPLES;
     let mut out = Rgba::new(w * SCALE, h * SCALE);
     for oy in 0..h * SCALE {
@@ -544,6 +717,7 @@ pub fn faithful_art(image: &Rgba) -> Rgba {
             let mut sum = [0.0f32; 4];
             for sy in 0..FAITHFUL_SAMPLES {
                 for sx in 0..FAITHFUL_SAMPLES {
+                    // The position of the sample in the original picture, and the four pixels around it with their bilinear weights.
                     let u = ((ox * FAITHFUL_SAMPLES + sx) as f32 + 0.5) / samples as f32;
                     let v = ((oy * FAITHFUL_SAMPLES + sy) as f32 + 0.5) / samples as f32;
                     let own = (v as usize).min(h - 1) * w + (u as usize).min(w - 1);
@@ -551,8 +725,8 @@ pub fn faithful_art(image: &Rgba) -> Rgba {
                     let (tx, ty) = (u - 0.5 - bx, v - 0.5 - by);
                     let at = |dx: isize, dy: isize| (by as isize + dy).clamp(0, h as isize - 1) as usize * w + (bx as isize + dx).clamp(0, w as isize - 1) as usize;
                     let corners = [(at(0, 0), (1.0 - tx) * (1.0 - ty)), (at(1, 0), tx * (1.0 - ty)), (at(0, 1), (1.0 - tx) * ty), (at(1, 1), tx * ty)];
-                    let plain = |i: usize| unpremultiplied(pre[i]);
-                    let share = |i: usize| corners.iter().filter(|&&(j, _)| alike(plain(j), plain(i))).map(|&(_, weight)| weight).sum::<f32>();
+                    let share = |i: usize| corners.iter().filter(|&&(j, _)| alike(plain[j], plain[i])).map(|&(_, weight)| weight).sum::<f32>();
+                    // The best pixel is the one whose colour is shared by the largest weight of the corners, and the pixel that holds the sample wins a tie.
                     let (mut best, mut most) = (own, share(own));
                     for &(j, _) in &corners {
                         let s = share(j);
@@ -561,7 +735,7 @@ pub fn faithful_art(image: &Rgba) -> Rgba {
                         }
                     }
                     for &(j, weight) in &corners {
-                        if alike(plain(j), plain(best)) {
+                        if alike(plain[j], plain[best]) {
                             (0..4).for_each(|k| sum[k] += pre[j][k] * weight / most.max(1e-6));
                         }
                     }
@@ -573,9 +747,12 @@ pub fn faithful_art(image: &Rgba) -> Rgba {
     out
 }
 
+/// Enlarges a picture and redraws the strokes of its core as smooth lines in the light colour of the strokes.
+/// It is used for the parts of a picture that are kept and not redrawn with the new font.
 fn strokes(image: &Rgba, core: &Plane) -> Rgba {
     let mut out = super::labels::enlarge(image);
     let up = resize(core, core.w * SCALE, core.h * SCALE, Filter::Bicubic).map(|v| v.clamp(0.0, 1.0));
+    // Each value is divided by the peak nearby, which evens out strokes of different strength, and then a smoothstep sharpens the edge.
     let peak = swell(&up, STROKE_REACH * SCALE as f32);
     let line = up.zip(&peak, |v, p| {
         let t = ((v / p.max(STROKE_FLOOR) - STROKE_EDGE.0) / (STROKE_EDGE.1 - STROKE_EDGE.0)).clamp(0.0, 1.0);
@@ -590,9 +767,13 @@ fn strokes(image: &Rgba, core: &Plane) -> Rgba {
     out
 }
 
+/// Redraws the text of a picture in the boxes of the given words, at four times the size.
+/// The strokes inside the keep boxes are not redrawn but only enlarged.
+/// Returns `None` when a box has no letters or a word does not fit.
 pub fn redraw(image: &Rgba, words: &[(Box4, &str)], keep: &[Box4], tone: banners::Tone, face: &Face) -> Option<Rgba> {
     let core = banners::core(image);
     let keep_mask = kept(&core, keep);
+    // The text is the core of the letters without the parts that are kept.
     let text = core.zip(&keep_mask.as_plane(), |c, k| if k > 0.0 { 0.0 } else { c });
     let probe = face.sized(40.0 * SS as f32);
     let mut big = Plane::new(image.w * SCALE, image.h * SCALE);
@@ -606,6 +787,7 @@ pub fn redraw(image: &Rgba, words: &[(Box4, &str)], keep: &[Box4], tone: banners
             *v = v.max(*c);
         }
     }
+    // The kept parts are cleared before the redraw, and put back from the enlarged strokes afterwards.
     let mut cleared = image.clone();
     for (p, &k) in cleared.v.iter_mut().zip(&keep_mask.v) {
         if k {
@@ -625,7 +807,9 @@ pub fn redraw(image: &Rgba, words: &[(Box4, &str)], keep: &[Box4], tone: banners
     Some(out)
 }
 
+/// Enlarges the logo of the title screen to four times the size as a grey picture with smooth edges, and redraws its "TM" mark in the new font.
 pub fn logo(image: &Rgba, face: &Face) -> Rgba {
+    // The luminance is enlarged to a finer scale, blurred, thresholded and then reduced, which gives smooth edges.
     let fine = SCALE * 4;
     let up = resize(&image.lum(), image.w * fine, image.h * fine, Filter::Bicubic);
     let level = gaussian(&up, LOGO_SMOOTH * fine as f32).map(|v| {
@@ -637,6 +821,7 @@ pub fn logo(image: &Rgba, face: &Face) -> Rgba {
     for (p, &l) in out.v.iter_mut().zip(&level.v) {
         *p = [l, l, l, 1.0];
     }
+    // The old "TM" mark is painted black first.
     let b = TM_BOX;
     for y in b[1] * SCALE..b[3] * SCALE {
         out.v[y * out.w + b[0] * SCALE..y * out.w + b[2] * SCALE].fill([0.0, 0.0, 0.0, 1.0]);

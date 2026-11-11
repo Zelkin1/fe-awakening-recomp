@@ -30,8 +30,11 @@ pub struct Options {
     pub interpreter: bool,
     /// play no sound.
     pub mute: bool,
+    /// The arrangement of the screens, none to use the saved setting.
     pub layout: Option<Screens>,
+    /// The shape of the top screen, none to use the saved setting.
     pub top_shape: Option<TopShape>,
+    /// The names of the enhancements of the game to turn on.
     pub enhance: Vec<String>,
 }
 
@@ -157,6 +160,7 @@ pub fn parse() -> Result<Options, String> {
             "--top-shape" => {
                 let value = args.next().ok_or("--top-shape needs a value")?;
                 options.top_shape = Some(match value.as_str() {
+                    // The top screen of the console is 400 by 240 pixels, which is 5:3.
                     "console" | "5:3" => TopShape::Console,
                     "16:9" => TopShape::Wide16x9,
                     "21:9" => TopShape::Wide21x9,
@@ -165,6 +169,7 @@ pub fn parse() -> Result<Options, String> {
             }
             "--enhance" => {
                 let value = args.next().ok_or("--enhance needs a name")?;
+                // The names are separated by commas, and empty entries are dropped.
                 options.enhance.extend(value.split(',').map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned));
             }
             "--profile" => options.profile = true,

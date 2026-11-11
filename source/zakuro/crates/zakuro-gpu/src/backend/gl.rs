@@ -263,6 +263,7 @@ impl GlPresenter {
 
     fn set_viewport(&self, viewport: Viewport) {
         // OpenGL's origin is the bottom left, so the y coordinate flips.
+        // The edges are rounded first, so neighbouring viewports share a border without a gap.
         let [left, top, right, bottom] = viewport.pixels();
         unsafe { self.gl.viewport(left, self.window.1 as i32 - bottom, right - left, bottom - top) };
     }
@@ -348,6 +349,7 @@ impl Presenter for GlPresenter {
 
         unsafe {
             self.gl.bind_vertex_array(None);
+            // The overlay draws the bottom screen itself when it holds a picture, so it gets the texture of the screen.
             let bottom_screen = (self.sizes[1] != (0, 0)).then_some(self.textures[1]);
             self.overlay.draw(&self.gl, overlay, self.window, bottom_screen);
         }
@@ -493,6 +495,7 @@ impl GlOverlay {
                 gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vertices));
                 gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(self.indices));
                 for mesh in &overlay.meshes {
+                    // This id stands for the bottom screen, which is not one of the textures of the overlay.
                     let texture = if mesh.texture == BOTTOM_SCREEN_TEXTURE { bottom_screen } else { self.textures.get(&mesh.texture).copied() };
 
                     let Some(texture) = texture else { continue };

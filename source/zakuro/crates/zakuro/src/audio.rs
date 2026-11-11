@@ -34,23 +34,31 @@ struct Queue {
     underruns: u64,
     /// how much a queue that ran dry waits for before it plays again.
     refill: usize,
+    /// The sounds of the launcher that play now, mixed over the sound of the console.
     sounds: Vec<PlayingSound>,
 }
 
+/// A sound of the launcher that is partly played.
 struct PlayingSound {
+    /// The stereo frames of the whole sound.
     frames: Arc<[[f32; 2]]>,
+    /// The place in the frames of the next output sample. The fraction lies between two frames.
     position: f64,
+    /// How many frames the position advances per output sample, which is the rate of the sound divided by the output rate.
     step: f64,
+    /// The volume of the sound, fixed when it starts.
     gain: f32,
 }
 
 impl PlayingSound {
+    /// Returns the next output sample, or nothing when the sound has ended.
     fn next_frame(&mut self) -> Option<[f32; 2]> {
         let index = self.position as usize;
         if index + 1 >= self.frames.len() {
             return None;
         }
         let (current, next) = (self.frames[index], self.frames[index + 1]);
+        // The sample is interpolated linearly between two frames, because the rates of the sound and of the output differ.
         let fraction = (self.position - index as f64) as f32;
         self.position += self.step;
         Some([0, 1].map(|channel| (current[channel] + (next[channel] - current[channel]) * fraction) * self.gain))
@@ -58,6 +66,7 @@ impl PlayingSound {
 }
 
 impl Queue {
+    /// The next output sample, which is the sample of the console with the playing sounds of the launcher added. A sound that ended is dropped.
     fn next(&mut self) -> [f32; 2] {
         let mut out = self.next_console_sample();
         self.sounds.retain_mut(|sound| match sound.next_frame() {
@@ -71,6 +80,7 @@ impl Queue {
         out
     }
 
+    /// The next output sample of the console alone, between two of the console samples.
     fn next_console_sample(&mut self) -> [f32; 2] {
         if !self.starved && self.samples.len() < 2 {
             self.starved = true;
@@ -225,6 +235,7 @@ impl Stretch {
 
 pub struct Audio {
     queue: Arc<Mutex<Queue>>,
+    /// The sample rate of the output device in hertz.
     output_rate: f64,
     /// 0 to 1, applied as samples come in.
     volume: std::cell::Cell<f32>,
@@ -287,6 +298,7 @@ impl Audio {
         self.volume.set(volume.clamp(0.0, 1.0));
     }
 
+    /// Starts a sound of the launcher on top of the sound of the console, at the current volume. At volume 0 nothing starts.
     pub fn play(&self, sound: &crate::sounds::Sound) {
         let gain = self.volume.get();
         if gain == 0.0 {

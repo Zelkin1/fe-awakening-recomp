@@ -7,6 +7,7 @@ mod banners;
 mod camera;
 mod cli;
 mod console;
+mod downloads;
 mod feet;
 mod gamepad;
 mod gui;
@@ -28,6 +29,7 @@ mod zig;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+/// The time without any use of the mouse after which the cursor is hidden while a game runs.
 const CURSOR_HIDES_AFTER: Duration = Duration::from_secs(3);
 
 use winit::application::ApplicationHandler;
@@ -383,9 +385,11 @@ struct Running {
     replay: Option<zakuro_core::replay::Replay>,
     frame: u64,
     frames: u32,
+    /// The counts of pictures at the last measure of the frame rate.
     pictures: zakuro_core::Pictures,
     counting_since: Instant,
     fps: f32,
+    /// The pictures per second that come from the game and the pictures per second that are interpolated.
     shown: (f32, f32),
 }
 
@@ -449,37 +453,65 @@ struct App {
     scale: u32,
     /// how the screens are arranged.
     layout: Screens,
+    /// Whether the bottom screen is laid over the top screen right now.
     bottom_over: bool,
+    /// Whether the bottom screen is wanted over the top screen, by the key, the button or a scripted step.
     bottom_over_key: bool,
+    /// The pointer on the bottom screen that is steered with the gamepad.
     pad_pointer: overlays::PadPointer,
+    /// The moment of the last touch while the bottom screen was laid over the top screen.
     over_touched_at: Option<Instant>,
+    /// The scene that was shown at the last touch while the bottom screen was laid over the top screen.
     touched_scene: Scene,
+    /// The point where the current touch began while the bottom screen is over the top screen, and whether the inventory was shown at that moment.
     over_touch_start: Option<((u16, u16), bool)>,
+    /// The frame where the switch to the view of a unit began, and the last frame in which the game talked.
     unit_view_from: Option<(u64, u64)>,
+    /// A touch that the launcher presses on its own, with the point and the number of frames that are left.
     scripted_tap: Option<((u16, u16), u8)>,
+    /// The number of frames that are already waited for the overview of the map to show.
     pending_overview: Option<u8>,
+    /// Whether the inventory tab is tapped again once the overview of the map closes.
     restore_inventory: bool,
+    /// Whether the bottom screen is closing because the user asked for it, which decides if the close sound plays.
     closing_by_user: bool,
+    /// Whether the bottom screen opens without the open sound.
     quiet_over: bool,
+    /// The scene that keeps the bottom screen over the top screen, see `keeps_bottom_over`.
     kept_scene: Option<Scene>,
+    /// The sounds that play when the bottom screen opens and closes.
     bottom_sounds: sounds::BottomScreen,
+    /// The scene that the game shows.
     scene: Scene,
+    /// The screen layout that was last given to the backend.
     placed: Option<zakuro_gpu::ScreenLayout>,
+    /// The pieces of the last layout, kept so that they can fade out after the layout changed.
     last_pieces: Option<&'static [zakuro_gpu::Piece]>,
+    /// The banners that were read last from the bottom screen.
     last_banners: Option<banners::Read>,
+    /// The textures of the banners.
     banner_textures: overlays::BannerTextures,
+    /// Whether this build is able to install updates.
     updatable: bool,
+    /// The channel that delivers the result of the check for an update, while the check runs.
     update_check: Option<std::sync::mpsc::Receiver<Option<update::Release>>>,
+    /// The release that is on offer as an update.
     update_offer: Option<update::Release>,
+    /// The update that is being installed.
     update_install: Option<update::Installing>,
+    /// The buttons of a battle that are shown or fading.
     buttons: Option<ShownButtons>,
+    /// The buttons that were held, and whether the screen was touched, in the previous frame of the game.
     last_input: (zakuro_core::services::hid::PadState, bool),
+    /// Whether the B button is held back from the game until it is released, after it closed the bottom screen.
     holding_back_cancel: bool,
+    /// Whether a key or a button of the gamepad was pressed since the last frame of the game.
     any_button_pressed: bool,
     /// how wide the top screen shows.
     top_shape: settings::TopShape,
     /// the left button is down, and where the pointer is, in window pixels.
     mouse_down: bool,
+    /// The moment of the last use of the mouse, which hides the cursor once it is long enough ago.
     mouse_used_at: Instant,
     /// where the pointer was when the right button went down, which tilts
     /// the console while held.
@@ -585,6 +617,7 @@ impl ApplicationHandler for App {
             return;
         }
 
+        // Without a game to start, the window is made 30 percent larger for the library.
         let size = match (self.options.rom.is_none(), self.window_size()) {
             (true, winit::dpi::Size::Logical(size)) => winit::dpi::LogicalSize::new(size.width * 1.3, size.height * 1.3).into(),
             (_, size) => size,
@@ -969,7 +1002,12 @@ impl App {
         }));
     }
 
+    /// Turns a mouse touch on the pieces of the bottom screen into a touch of the game.
+    ///
+    /// The result is `None` when no pieces are drawn, so the normal handling of touches goes on.
+    /// Otherwise it holds the touched point of the bottom screen, or `None` for no touch.
     fn touch_on_pieces(&self, top: zakuro_gpu::Viewport) -> Option<Option<(u16, u16)>> {
+        // The buttons of a battle count while they are at least a little visible.
         let buttons = self.buttons.filter(|shown| shown.opacity(Instant::now()) > 0.0).map(|shown| shown.pieces);
         let laid = match self.shown_layout() {
             zakuro_gpu::ScreenLayout::TopWithPieces(pieces) => Some(pieces),
@@ -980,6 +1018,7 @@ impl App {
         }
         let spans = self.marker_spans();
         let mut places = buttons.into_iter().chain(laid).flat_map(|pieces| zakuro_gpu::piece_places(top, pieces, &spans));
+        // Find the first piece under the cursor and map the cursor to a pixel of the bottom screen, which is 320 by 240 pixels.
         let at = places.find_map(|zakuro_gpu::PiecePlace { viewport: place, part: [left, top, width, height], .. }| {
             let (x, y) = ((self.cursor.0 - place.x) / place.width, (self.cursor.1 - place.y) / place.height);
             ((0.0..1.0).contains(&x) && (0.0..1.0).contains(&y)).then(|| (((left + x * width) * 320.0) as u16, ((top + y * height) * 240.0) as u16))
@@ -987,6 +1026,7 @@ impl App {
         Some(at.filter(|_| self.mouse_down))
     }
 
+    /// Returns the marker spans that the game reports for the pieces, or none without a game.
     fn marker_spans(&self) -> Vec<(u32, [f32; 4])> {
         self.game.as_ref().map(|game| game.system.marker_spans()).unwrap_or_default()
     }
@@ -1123,6 +1163,7 @@ impl App {
         }
     }
 
+    /// Returns where the library finds games: the chosen game file, else the chosen folder, else nowhere.
     fn library_source(&self) -> Option<library::Source> {
         match (&self.settings.game_file, &self.settings.games) {
             (Some(game), _) => Some(library::Source::Files { game: game.clone(), update: self.settings.update_file.clone() }),
@@ -1131,6 +1172,7 @@ impl App {
         }
     }
 
+    /// Saves the settings and scans the library again.
     fn save_and_rescan(&mut self) {
         self.settings.save();
         if let Some(source) = self.library_source() {
@@ -1138,6 +1180,10 @@ impl App {
         }
     }
 
+    /// Returns the layout of the screens that is actually drawn.
+    ///
+    /// It follows the chosen layout, except that the top screen alone can gain pieces of the bottom screen, or the bottom screen laid over it, depending on the scene.
+    /// Original mode always keeps the chosen layout.
     fn shown_layout(&self) -> zakuro_gpu::ScreenLayout {
         use zakuro_gpu::ScreenLayout;
         match self.layout.screens() {
@@ -1159,13 +1205,19 @@ impl App {
         }
     }
 
+    /// Returns the layout that lays the bottom screen over the top screen.
     fn bottom_over_layout(&self) -> zakuro_gpu::ScreenLayout {
+        // Leave room for the soft edge, then take a fixed share of what remains.
         let room = 1.0 - BOTTOM_OVER_EDGE / self.top_shape.width();
         let width = BOTTOM_OVER_WIDTH * room;
+        // The layout stores the width as a whole number of ten thousandths of the width of the top screen.
         let ten_thousandths = (width * 10_000.0).round().clamp(0.0, 10_000.0) as u16;
         zakuro_gpu::ScreenLayout::BottomOverTop { width: ten_thousandths }
     }
 
+    /// Returns the scene that the game shows, as far as the state of the game tells.
+    ///
+    /// It is `Plain` unless the top screen is shown alone.
     fn current_scene(&self) -> Scene {
         let Some(game) = self.game.as_ref().filter(|_| self.layout == Screens::TopOnly) else {
             return Scene::Plain;
@@ -1179,15 +1231,21 @@ impl App {
         }
     }
 
+    /// Returns whether the bottom screen shows the level up screen right now.
     fn showing_level_up(&mut self) -> bool {
         self.game.as_mut().and_then(|game| game.system.bottom_picture()).is_some_and(|picture| overlays::level_up_screen(&picture))
     }
 
+    /// Returns which screen of the world map the bottom screen shows, if any.
     fn bottom_map_screen(&mut self) -> Option<overlays::MapScreen> {
         self.game.as_mut().and_then(|game| game.system.bottom_picture()).as_deref().and_then(overlays::map_screen)
     }
 
+    /// Decides, once per presented frame, whether the bottom screen is laid over the top screen, and applies the result.
+    ///
+    /// It works out the scene, plays the open or close sound, runs the scripted taps that restore the screens of the map, and hands a changed layout to the backend.
     fn place_bottom_over(&mut self) {
+        // After the map button was tapped, wait until the overview shows, or give up after a number of frames.
         if let Some(waited) = self.pending_overview {
             if waited >= overlays::OVERVIEW_WAIT || self.bottom_map_screen() == Some(overlays::MapScreen::Overview) {
                 self.pending_overview = None;
@@ -1198,6 +1256,7 @@ impl App {
         }
         let mut scene = self.current_scene();
         let mut talking = self.game.as_ref().is_some_and(|game| game.system.talking());
+        // After a tap on the portrait, the scene counts as the view of the unit for a number of frames from the tap and for a number of frames after the game last talked.
         if let Some((from, talked)) = self.unit_view_from {
             let now = self.game.as_ref().map_or(from, |game| game.system.frames);
             let talked = if talking { now } else { talked };
@@ -1211,6 +1270,7 @@ impl App {
         if scene == Scene::Plain && self.bottom_over_key && self.showing_level_up() {
             scene = Scene::LevelUp;
         }
+        // Only these scenes can show the bottom screen over the top screen.
         let opens = matches!(scene, Scene::Plain | Scene::WorldMap | Scene::UnitView | Scene::LevelUp);
         let into_level_up = scene == Scene::LevelUp && self.scene == Scene::Plain;
         let moved_on = (scene != self.scene && !into_level_up) || (opens && talking && scene != Scene::LevelUp);
@@ -1221,6 +1281,7 @@ impl App {
         }
         self.scene = scene;
         let shown = self.game.is_some() && self.layout == Screens::TopOnly && !self.settings.original && opens && self.bottom_over_key;
+        // Play the open sound when the bottom screen appears. Play the close sound when it goes away by the choice of the user or because the talk ended, not when the scene simply changed.
         let sound = match (self.bottom_over, shown) {
             (false, true) if !self.quiet_over => self.bottom_sounds.open.as_ref(),
             (true, false) if !self.quiet_over && (!moved_on || talk_ended || self.closing_by_user) && self.game.is_some() => self.bottom_sounds.close.as_ref(),
@@ -1233,6 +1294,7 @@ impl App {
         if !shown && self.pending_overview.is_none() {
             self.quiet_over = false;
         }
+        // When the bottom screen closes, tap the game back to the screen that it showed before.
         if self.bottom_over && !shown && std::mem::take(&mut self.restore_inventory) && self.bottom_map_screen() == Some(overlays::MapScreen::Overview) {
             self.scripted_tap = Some((overlays::INVENTORY_TAB, overlays::TAP_FRAMES));
         }
@@ -1252,11 +1314,15 @@ impl App {
         }
     }
 
+    /// Toggles the bottom screen over the top screen and holds back the B button from the game until it is released.
     fn close_bottom_over_with_cancel(&mut self) {
         self.toggle_bottom_over();
         self.holding_back_cancel = true;
     }
 
+    /// Opens or closes the overview of the world map over the top screen.
+    ///
+    /// When the bottom screen shows the inventory, the map button is tapped first, and the overview opens once it shows.
     fn map_overview(&mut self) {
         if self.pending_overview.is_some() || self.layout != Screens::TopOnly || self.settings.original {
             return;
@@ -1296,11 +1362,15 @@ impl App {
         }
     }
 
+    /// Turns the bottom screen over the top screen on or off.
+    ///
+    /// It does nothing in original mode or with another layout than the top screen alone.
     fn toggle_bottom_over(&mut self) {
         let Some(game) = &self.game else { return };
         if self.layout != Screens::TopOnly || self.settings.original {
             return;
         }
+        // Without a unit under the cursor or selected there is nothing to show, unless the level up screen is up.
         let on_unit = !game.system.follows_cursor() || game.system.cursor_on_unit() || game.system.unit_selected();
         if !self.bottom_over_key && self.scene == Scene::Plain && !on_unit && !self.showing_level_up() {
             return;
@@ -1327,9 +1397,9 @@ impl App {
     /// set, with Zig downloaded first. with none of those it asks whether
     /// to download it.
     fn recompile(&mut self, index: usize, download: bool) {
-        let Some(game) = self.library.games.get(index) else { return };
-        self.jobs.retain(|job| job.program_id != game.program_id || !job.stage().finished());
-        if self.jobs.iter().any(|job| job.program_id == game.program_id) {
+        let Some(program_id) = self.library.games.get(index).map(|game| game.program_id) else { return };
+        self.jobs.retain(|job| job.program_id != program_id || !job.stage().finished());
+        if self.jobs.iter().any(|job| job.program_id == program_id) {
             return;
         }
         let tools = zig::tools_dir(self.data_dir.as_deref());
@@ -1355,23 +1425,53 @@ impl App {
                 },
             },
         };
+        let Some(game) = self.library.games.get(index) else { return };
         let update = game.update.as_ref().map(|update| update.path.as_path());
         self.jobs.push(Job::start(&game.path, update, game.program_id, &game.name, self.data_dir.as_deref(), toolchain));
     }
 
-    fn build_mods(&mut self, index: usize) {
-        let Some(game) = self.library.games.get(index) else { return };
-        let Some(data_dir) = self.data_dir.as_deref() else {
+    /// Uninstalls the mod at the index and tells the result in a message.
+    ///
+    /// It does nothing while the mod is being installed.
+    fn uninstall_mod(&mut self, index: usize) {
+        let (Some(step), Some(data_dir)) = (recompile::MOD_STEPS.get(index), self.data_dir.as_deref()) else { return };
+        if self.jobs.iter().any(|job| job.installing == Some(step.label) && !job.stage().finished()) {
+            return;
+        }
+        self.menus.message = Some(match step.uninstall(data_dir) {
+            Ok(()) => format!("The {} mod is uninstalled.", step.label),
+            Err(error) => format!("The {} mod could not be uninstalled, {error}", step.label),
+        });
+    }
+
+    /// Starts the installation of the mod at the index as a job.
+    ///
+    /// The mod is built from the game that it belongs to.
+    /// When downloads are needed and the user has not agreed yet, an offer is shown instead.
+    fn install_mod(&mut self, index: usize, agreed: bool) {
+        let Some(step) = recompile::MOD_STEPS.get(index) else { return };
+        let Some(data_dir) = self.data_dir.clone() else {
             self.menus.message = Some("The mods need Zakuro's data folder.".to_owned());
             return;
         };
-        self.jobs.retain(|job| job.program_id != game.program_id || !job.stage().finished());
-        if self.jobs.iter().any(|job| job.program_id == game.program_id) {
+        let Some((path, name)) = self.library.games.iter().find(|game| game.program_id == step.program_id).map(|game| (game.path.clone(), game.name.clone())) else {
+            self.menus.message = Some(format!("The {} mod is built from your copy of the game. Choose it first, in Settings, System.", step.label));
+            return;
+        };
+        self.jobs.retain(|job| job.program_id != step.program_id || !job.stage().finished());
+        if self.jobs.iter().any(|job| job.program_id == step.program_id) {
             return;
         }
-        self.jobs.push(Job::build_mods_only(&game.path, game.program_id, &game.name, data_dir));
+        if !agreed && step.lacks_downloads(&data_dir) {
+            self.menus.download_offer = Some(menus::DownloadOffer { step: index });
+            return;
+        }
+        self.jobs.push(Job::install(&path, &name, &data_dir, step));
     }
 
+    /// Collects the results of the check for an update and of the installation, and sets the state of the update button.
+    ///
+    /// A finished installation restarts the launcher.
     fn poll_update(&mut self) {
         if let Some(found) = self.update_check.as_ref().and_then(|check| check.try_recv().ok()) {
             self.update_check = None;
@@ -1397,18 +1497,19 @@ impl App {
         for job in &mut self.jobs {
             if !job.announced && job.stage().finished() {
                 job.announced = true;
-                finished.push((job.program_id, job.name.clone(), job.stage(), job.mods_only));
+                finished.push((job.program_id, job.name.clone(), job.stage(), job.installing));
             }
         }
-        for (program_id, name, stage, mods_only) in finished {
-            match stage {
-                Stage::Done if mods_only => self.menus.message = Some(format!("The mods for {name} are built. They show from the next time the game starts.")),
-                Stage::Failed(error) if mods_only && error != "cancelled" => self.menus.message = Some(format!("Building the mods for {name} failed, {error}")),
-                Stage::Done => {
+        for (program_id, name, stage, installing) in finished {
+            match (stage, installing) {
+                (Stage::Done, Some(label)) => self.menus.message = Some(format!("The {label} mod is installed.")),
+                (Stage::Failed(error), Some(label)) if error != "cancelled" => self.menus.message = Some(format!("Installing the {label} mod failed, {error}")),
+                (_, Some(_)) => {}
+                (Stage::Done, None) => {
                     self.library.refresh_recompiled();
                     let playing = self.game.as_ref().is_some_and(|game| game.system.title.as_ref().is_some_and(|title| title.program_id() == program_id));
-                    if !playing && crate::recompile::has_mod_steps(program_id) {
-                        self.menus.message = Some(format!("{name} is built and ready to play."));
+                    if !playing {
+                        self.menus.message = Some(format!("{name} is recompiled and ready to play."));
                     }
                     let installed = zakuro_core::recompiled::installed(program_id);
                     if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
@@ -1422,10 +1523,7 @@ impl App {
                         }
                     }
                 }
-                Stage::Failed(error) if error != "cancelled" => {
-                    let doing = if crate::recompile::has_mod_steps(program_id) { "Building" } else { "Recompiling" };
-                    self.menus.message = Some(format!("{doing} {name} failed, {error}"));
-                }
+                (Stage::Failed(error), None) if error != "cancelled" => self.menus.message = Some(format!("Recompiling {name} failed, {error}")),
                 _ => {}
             }
         }
@@ -1439,7 +1537,8 @@ impl App {
                 }
             }
             Action::Recompile(index) => self.recompile(index, false),
-            Action::BuildMods(index) => self.build_mods(index),
+            Action::InstallMod(index, agreed) => self.install_mod(index, agreed),
+            Action::UninstallMod(index) => self.uninstall_mod(index),
             Action::ModEnabled(index, on) => {
                 if let (Some(data_dir), Some(step)) = (&self.data_dir, recompile::MOD_STEPS.get(index)) {
                     if let Err(error) = zakuro_core::mods::set_enabled(&step.folder_in(data_dir), on) {
@@ -1603,7 +1702,22 @@ impl App {
             self.menus.mods = self
                 .data_dir
                 .as_deref()
-                .map(|data_dir| recompile::MOD_STEPS.iter().map(|step| menus::ModSwitch { label: step.label, about: step.about, on: zakuro_core::mods::enabled(&step.folder_in(data_dir)) }).collect())
+                .map(|data_dir| {
+                    recompile::MOD_STEPS
+                        .iter()
+                        .map(|step| {
+                            let installing = self.jobs.iter().find(|job| job.installing == Some(step.label) && !job.stage().finished());
+                            menus::ModSwitch {
+                                label: step.label,
+                                program_id: step.program_id,
+                                about: step.about,
+                                on: zakuro_core::mods::enabled(&step.folder_in(data_dir)),
+                                installed: step.installed(data_dir),
+                                progress: installing.map(|job| job.stage()).map(|stage| (stage.fraction(), stage.doing())),
+                            }
+                        })
+                        .collect()
+                })
                 .unwrap_or_default();
         }
         self.poll_gamepads();
@@ -1724,10 +1838,12 @@ impl App {
             }
             None => self.gamepads.apply(self.keyboard.state()),
         };
+        // A scripted tap presses its point for a number of frames, one frame at a time.
         if let (None, Some((spot, frames))) = (&game.replay, self.scripted_tap) {
             input.touch = Some(spot);
             self.scripted_tap = frames.checked_sub(1).filter(|&left| left > 0).map(|left| (spot, left));
         }
+        // Keep the B button from the game while it is still held, so that the press that closed the bottom screen does not also cancel in the game.
         if self.holding_back_cancel {
             if input.buttons.contains(zakuro_core::services::hid::PadState::B) {
                 input.buttons.remove(zakuro_core::services::hid::PadState::B);
@@ -1755,6 +1871,7 @@ impl App {
             self.over_touched_at = Some(Instant::now());
             self.touched_scene = self.scene;
         }
+        // Only the buttons that went down in this frame, and a touch that began in this frame, can bring the buttons of a battle.
         let (held, touched) = std::mem::replace(&mut self.last_input, (input.buttons, input.touch.is_some()));
         let pieces = match self.scene {
             Scene::Battle(_) if !self.settings.original => game.system.battle_buttons(self.settings.battle_ui == settings::BattleUi::Panels),
@@ -2088,6 +2205,7 @@ impl App {
                 actions.extend(menus.keyboard(ui.ctx(), request));
             }
             actions.extend(menus.compiler_offer(ui.ctx()));
+            actions.extend(menus.download_offer(ui.ctx()));
             menus.message(ui.ctx());
             if cursor_idle {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::None);
@@ -2100,11 +2218,15 @@ impl App {
         overlay
     }
 
+    /// Returns where the top and the bottom screen lie in the window for the given layout, or `None` without a window.
     fn window_layout(&self, arrangement: zakuro_gpu::ScreenLayout) -> Option<(Option<zakuro_gpu::Viewport>, Option<zakuro_gpu::Viewport>)> {
         let size = self.window.as_ref()?.inner_size();
         Some(layout(size.width, size.height, arrangement, self.top_shape.width(), self.settings.integer_scale))
     }
 
+    /// Returns the place of the bottom screen over the top screen, with the size of its edge and of its corners in pixels of the window.
+    ///
+    /// The result is `None` when the bottom screen is not laid over the top screen.
     fn bottom_over_frame(&self) -> Option<(zakuro_gpu::Viewport, f32, f32)> {
         let arrangement = self.shown_layout();
         if !matches!(arrangement, zakuro_gpu::ScreenLayout::BottomOverTop { .. }) {
@@ -2115,11 +2237,15 @@ impl App {
         Some((bottom, BOTTOM_OVER_EDGE * top?.width / self.top_shape.width(), BOTTOM_OVER_CORNER * bottom.width / 320.0))
     }
 
+    /// Returns where the pieces of the bottom screen lie in the window, with the size of their shadow in pixels of the window.
     fn placed_pieces(&self, pieces: &'static [zakuro_gpu::Piece]) -> Option<(Vec<zakuro_gpu::PiecePlace>, f32)> {
         let top = self.window_layout(zakuro_gpu::ScreenLayout::TopWithPieces(pieces))?.0?;
         Some((zakuro_gpu::piece_places(top, pieces, &self.marker_spans()), PIECE_SHADOW * top.height / 240.0))
     }
 
+    /// Returns, for each place, the runs of pixels that are cut out of the picture of the bottom screen.
+    ///
+    /// A place without a cut gets an empty list.
     fn bottom_screen_cuts(&mut self, places: Option<&[zakuro_gpu::PiecePlace]>) -> Vec<Vec<[u16; 3]>> {
         let (Some(places), Some(game)) = (places, self.game.as_mut()) else {
             return Vec::new();
@@ -2141,6 +2267,7 @@ impl App {
             .collect()
     }
 
+    /// Returns whether the HD banners are drawn: in a battle, with the banner interface chosen and not in original mode.
     fn banners_on(&self) -> bool {
         matches!(self.shown_layout(), zakuro_gpu::ScreenLayout::TopWithPieces(_) | zakuro_gpu::ScreenLayout::TopOnly)
             && matches!(self.scene, Scene::Battle(_))
@@ -2148,6 +2275,7 @@ impl App {
             && !self.settings.original
     }
 
+    /// Reads the banners from the picture of the bottom screen and keeps the result when the read succeeds.
     fn read_banners(&mut self) {
         let Some(game) = self.game.as_mut() else { return };
         if let (Some(banners), Some(picture)) = (game.system.battle_banners(), game.system.bottom_picture()) {
@@ -2158,6 +2286,9 @@ impl App {
         }
     }
 
+    /// Returns where the buttons of a battle lie in the window, with the size of their shadow and their opacity.
+    ///
+    /// The result is `None` while the buttons are invisible.
     fn button_places(&self, top: Option<zakuro_gpu::Viewport>) -> Option<(Vec<zakuro_gpu::PiecePlace>, f32, f32)> {
         let (shown, opacity) = self.buttons.map(|shown| (shown, shown.opacity(Instant::now()))).filter(|&(_, opacity)| opacity > 0.0)?;
         let top = top?;
@@ -2266,6 +2397,7 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
 /// keeps the renderer kind referenced even when a backend feature is off.
 const _: RendererKind = RendererKind::Software;
 
+/// Converts the setting of a cheat into the setting that the menus show.
 fn mod_setting(cheat_setting: &zakuro_core::cheats::CheatSetting) -> menus::ModSetting {
     let setting = &cheat_setting.setting;
     menus::ModSetting { name: setting.name.clone(), min: setting.min, max: setting.max, value: cheat_setting.value, unit: setting.unit.clone() }

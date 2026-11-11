@@ -35,6 +35,7 @@ use memory::{Memory, MemoryState, Permission};
 use services::hid::InputState;
 use services::ServiceState;
 
+/// The key in the enhancement lists of the configuration for the enhancements that apply to every game, in place of a program id.
 pub const ANY_GAME: u64 = 0;
 
 /// console settings the frontend can change.
@@ -63,12 +64,14 @@ pub struct Config {
     /// draw the pictures of the texture pack in the title's mods folder in
     /// place of its textures, which takes the host's GPU.
     pub texture_packs: bool,
+    /// Run the game as it ships. The mods of the data directory and the cheats are left out.
     pub original: bool,
     /// the title's update, an update's CIA, whose code and data it runs.
     pub update: Option<std::path::PathBuf>,
     /// the title's downloadable content, DLC CIAs.
     pub dlc: Vec<std::path::PathBuf>,
     pub enhancements: std::collections::BTreeMap<u64, Vec<String>>,
+    /// The values of the settings of the enhancements, by name, for each title by its id.
     pub enhancement_values: std::collections::BTreeMap<u64, std::collections::BTreeMap<String, u16>>,
     /// how many times the console's resolution the host's GPU draws at.
     pub resolution: u32,
@@ -132,10 +135,12 @@ impl Default for Config {
 }
 
 impl Config {
+    /// The data directory to take mods from, which is none in the original mode.
     pub fn mods_dir(&self) -> Option<&std::path::Path> {
         self.data_dir.as_deref().filter(|_| !self.original)
     }
 
+    /// The names of the enhancements turned on for the title, those of the title followed by those that apply to every game.
     pub fn enhancements_on(&self, program_id: u64) -> Vec<String> {
         let mut on = self.enhancements.get(&program_id).cloned().unwrap_or_default();
         for name in self.enhancements.get(&ANY_GAME).into_iter().flatten() {
@@ -176,14 +181,18 @@ struct Pacing {
     between: bool,
     /// the refreshes that showed pictures in between so far.
     shown: u64,
+    /// The GPU draws the pictures in between along with the frames of the title, which it does while the title keeps to every other refresh or every third one.
     twinning: bool,
 }
 
 pub use scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
 
+/// The counts of the pictures shown on the top screen, split by where they come from.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Pictures {
+    /// The pictures that the game set itself.
     pub from_game: u64,
+    /// The pictures in between that were drawn by frame interpolation.
     pub interpolated: u64,
 }
 
@@ -213,8 +222,11 @@ pub struct System {
     showing: [Option<zakuro_gpu::ScreenRef>; 3],
     /// frame interpolation's count of the refreshes.
     pacing: Pacing,
+    /// The counts of the pictures shown on the top screen.
     pictures: Pictures,
+    /// Which screens of the game show, from the markers of the renderer.
     scenes: scenes::Scenes,
+    /// The description of the screens of the title, when there is one for it.
     pub(crate) game_ui: Option<&'static game_ui::GameUi>,
     /// the dynamic module loader's state.
     pub cro: cro::CroManager,
@@ -649,6 +661,7 @@ impl System {
         out
     }
 
+    /// Turns the original mode on or off, see `Config::original`.
     pub fn set_original(&mut self, on: bool) {
         self.config.original = on;
     }
@@ -759,6 +772,7 @@ impl System {
         }
 
         self.renderer.end_frame();
+        // The renderer reports the markers it saw in the draws of this frame, and the scenes use them with the button A to track the screens.
         let drawn_markers = self.gpu.take_marked();
         let new_spans = self.gpu.take_spans();
         let a_held = self.services.hid.input.buttons.contains(services::hid::PadState::A);
@@ -805,6 +819,8 @@ impl System {
         let matches = self.gpu.frame_done();
         let pacing = &mut self.pacing;
         pacing.matches = matches;
+        // A title that sets a picture every second or third refresh is paced, and gets the pictures in between.
+        // Frames in between are shown only once the GPU already draws twins, so the first paced frame is shown as it is.
         let paced = gap == 2 || gap == 3;
         pacing.between = paced && pacing.twinning && matches.is_some();
         pacing.shown += pacing.between as u64;
@@ -834,66 +850,83 @@ impl System {
         self.pacing.between
     }
 
+    /// Whether the cursor is over a unit on the map.
     pub fn cursor_on_unit(&self) -> bool {
         self.scenes.shown(ON_UNIT, self.frames)
     }
 
+    /// Whether a conversation is showing.
     pub fn talking(&self) -> bool {
         self.scenes.shown(TALKING, self.frames)
     }
 
+    /// Whether the world map is showing.
     pub fn world_map(&self) -> bool {
         self.scenes.shown(WORLD_MAP, self.frames)
     }
 
+    /// Whether the forecast of a battle is showing.
     pub fn forecast(&self) -> bool {
         self.scenes.shown(FORECAST, self.frames)
     }
 
+    /// Whether the short forecast of a battle is showing.
     pub fn brief_forecast(&self) -> bool {
         self.scenes.shown(BRIEF_FORECAST, self.frames)
     }
 
+    /// Whether the view of a unit is showing.
     pub fn unit_view(&self) -> bool {
         self.scenes.shown(UNIT_VIEW, self.frames)
     }
 
+    /// Whether a unit is selected on the map.
     pub fn unit_selected(&self) -> bool {
         self.scenes.unit_selected()
     }
 
+    /// The panels of a battle to show over the top screen, when a battle is showing.
     pub fn battle_pieces(&self) -> Option<&'static [zakuro_gpu::Piece]> {
         self.battle_ui().map(|ui| ui.battle_panels)
     }
 
+    /// The places of the text of the banners of a battle, when a battle is showing.
     pub fn battle_banners(&self) -> Option<&'static zakuro_gpu::Banners> {
         self.battle_ui().map(|ui| ui.battle_banners)
     }
 
+    /// The buttons of a battle to show over the top screen, when a battle is showing.
+    /// The row sits higher when it has to clear the panels.
     pub fn battle_buttons(&self, over_panels: bool) -> Option<&'static [zakuro_gpu::Piece]> {
         self.battle_ui().map(|ui| if over_panels { ui.battle_buttons_over_panels } else { ui.battle_buttons })
     }
 
+    /// The description of the screens of the title while a battle is showing.
     fn battle_ui(&self) -> Option<&'static game_ui::GameUi> {
         self.game_ui.filter(|_| self.scenes.battle_shows(self.frames))
     }
 
+    /// The pieces of the title screen to show over the top screen, while it is showing.
     pub fn title_pieces(&self) -> Option<&'static [zakuro_gpu::Piece]> {
         self.game_ui.filter(|_| self.scenes.shown(TITLE, self.frames)).map(|ui| ui.title_pieces)
     }
 
+    /// The pieces of the world map to show over the top screen, while it is showing and nobody is talking.
     pub fn world_pieces(&self) -> Option<&'static [zakuro_gpu::Piece]> {
         self.game_ui.filter(|_| self.world_map() && !self.talking()).map(|ui| ui.world_map_pieces)
     }
 
+    /// The latest areas of the markers on the screen, for the pieces that follow a marker.
     pub fn marker_spans(&self) -> Vec<(u32, [f32; 4])> {
         self.scenes.marker_spans(self.frames)
     }
 
+    /// Whether the GPU follows markers.
     pub fn follows_cursor(&self) -> bool {
         self.gpu.follows_markers()
     }
 
+    /// The counts of the pictures shown on the top screen.
     pub fn pictures(&self) -> Pictures {
         self.pictures
     }
@@ -958,6 +991,7 @@ impl System {
         stride: u32,
         format: u32,
     ) {
+        // Screen 0 is the top screen.
         if screen == 0 {
             self.pictures.from_game += 1;
         }
@@ -1113,6 +1147,7 @@ impl System {
         memory::config::set_slider_3d(self.memory.phys.shared_page_mut(), value);
     }
 
+    /// Changes the resolution that the GPU draws at, as a multiple of the console, and returns the scale it settled on.
     pub fn set_resolution(&mut self, scale: u32) -> u32 {
         let mut guest = GuestMemory { linear_base: self.kernel.linear_base, memory: &mut self.memory, writes: 0 };
         let scale = self.gpu.set_resolution(&mut guest, scale);
@@ -1213,6 +1248,8 @@ impl System {
         self.gpu.scaled_screen(base, (height, width), stride / bpp, format, &bytes)
     }
 
+    /// The picture of the bottom screen at its native size, as RGBA bytes.
+    /// It is read from the memory of the game, or from the GPU when the GPU draws the screens itself.
     pub fn bottom_picture(&mut self) -> Option<Vec<u8>> {
         if !self.gpu.draws_on_gpu() {
             return Some(self.read_screen(zakuro_common::Screen::Bottom));

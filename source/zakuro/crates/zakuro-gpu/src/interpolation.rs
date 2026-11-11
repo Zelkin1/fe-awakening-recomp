@@ -17,7 +17,9 @@ use crate::shader::{ShaderUnit, Vec4, FLOAT_UNIFORMS};
 /// the vertex shader's float uniforms at a draw.
 pub(crate) type Uniforms = [Vec4; FLOAT_UNIFORMS];
 
+/// How much a component may differ from its expected move before it counts as a jump.
 const JUMP: f32 = 1.0;
+/// The size above which a component is taken as a translation, which never counts as a jump. Rotation components stay within it.
 const TURN: f32 = 1.5;
 
 /// whether a component a texture's coordinates may read steps from one
@@ -28,6 +30,7 @@ fn steps(before: f32, now: f32) -> bool {
     round(before) && round(now)
 }
 
+/// Whether a component steps between round values from standing still, or back the way it came. Such a step is a switch, so it is drawn as it is and never halfway.
 fn toggles(before: f32, now: f32, moved_before: f32) -> bool {
     steps(before, now) && (moved_before == 0.0 || now - before == -moved_before)
 }
@@ -184,6 +187,7 @@ impl Interpolation {
         // a component jumps when its move differs from its move the frame
         // before by more than JUMP says. NaN and infinity compare false,
         // and jump
+        // A component with a large value is a translation, which goes on however fast it moves.
         let jumps = |before: f32, now: f32, moved_before: f32| {
             let change = (now - before - moved_before).abs();
             !(before.is_finite() && now.is_finite() && (change <= JUMP || before.abs().max(now.abs()) > TURN))
@@ -197,6 +201,7 @@ impl Interpolation {
                 // one the coordinates may read too is as the frame has it,
                 // whatever it is, one that only places the vertices says
                 // the draw is another than the one before
+                // A uniform with one non-zero component is a plain scale or offset, so a jump in it does not make the draw another one.
                 let single = |value: &Vec4| value.iter().filter(|component| **component != 0.0).count() <= 1;
                 if !shared(uniform) && !(single(before) && single(now)) {
                     jumped = true;
@@ -205,6 +210,7 @@ impl Interpolation {
                 *out = *now;
                 continue;
             }
+            // The components that switch are left as the frame has them, and the others go halfway.
             let lerping: [bool; 4] = std::array::from_fn(|i| moving[i] && !toggles(before[i], now[i], moved_before[i]));
             *out = std::array::from_fn(|i| if lerping[i] { before[i] + (now[i] - before[i]) * 0.5 } else { now[i] });
             lerped |= lerping.contains(&true);

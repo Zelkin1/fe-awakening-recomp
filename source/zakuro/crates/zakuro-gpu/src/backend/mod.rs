@@ -47,6 +47,7 @@ pub struct Overlay {
     pub free: Vec<u64>,
 }
 
+/// The id of the texture of a mesh that stands for the bottom screen. The presenter draws the picture of the screen for it.
 pub const BOTTOM_SCREEN_TEXTURE: u64 = 1;
 
 /// pixels for a texture of the overlay.
@@ -92,6 +93,7 @@ pub struct Viewport {
 }
 
 impl Viewport {
+    /// The left, top, right and bottom edges in whole pixels. Rounding the edges instead of the size keeps the last column and row of the viewport.
     pub(crate) fn pixels(&self) -> [i32; 4] {
         let edge = |coordinate: f32| coordinate.round() as i32;
         [edge(self.x), edge(self.y), edge(self.x + self.width), edge(self.y + self.height)]
@@ -112,67 +114,104 @@ pub enum ScreenLayout {
     BottomOnly,
     /// the top screen big, the bottom one small at its lower right.
     LargeTop,
+    /// The bottom screen drawn over the middle of the top one, as wide as this share of the top screen in ten thousandths.
     BottomOverTop { width: u16 },
+    /// The top screen alone, with pieces of the bottom screen drawn over it.
     TopWithPieces(&'static [Piece]),
 }
 
+/// A part of the bottom screen shown over the top screen, made of rounded rectangles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Piece {
+    /// The box that holds the piece in the picture of the bottom screen, as the left, top, width and height in pixels.
     pub from: [u16; 4],
+    /// Where the box lies across the top screen.
     pub across: Anchor,
+    /// Where the box lies down the top screen.
     pub down: Anchor,
+    /// The scale of the piece in percent.
     pub size: u16,
+    /// The rectangles that make up the piece.
     pub shapes: &'static [Rounded],
+    /// The id of a marker the piece moves with, and the position of the marker at rest as the pixels of the picture.
     pub follows: Option<(u32, [u16; 2])>,
 }
 
+/// One rectangle of a piece, taken from the picture of the bottom screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rounded {
+    /// The left, top, width and height in the picture of the bottom screen, in pixels.
     pub rect: [u16; 4],
+    /// How far the rectangle moves from its place in the picture, in pixels.
     pub shift: [i16; 2],
+    /// Whether the rectangle is flipped from left to right.
     pub mirror: bool,
+    /// The radii of the corners in pixels, in the order top left, top right, bottom left and bottom right.
     pub corners: [u8; 4],
+    /// The width of the blur at the edge, in pixels.
     pub soft: u8,
+    /// Whether the rectangle is drawn without alpha, so it adds light.
     pub light: bool,
+    /// The brightness of the tint, where 255 leaves the picture as it is.
     pub shade: u8,
+    /// Whether the rectangle casts a shadow.
     pub shadow: bool,
+    /// The points of an outline in tenths of a pixel of the picture. When it is not empty, the outline is drawn instead of the rectangle.
     pub outline: &'static [[u16; 2]],
+    /// When set, only the pixels of the rectangle that are not ground are drawn.
     pub cut: Option<Ground>,
 }
 
+/// The places in the picture of the bottom screen that the banners of a battle read their text from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Banners {
+    /// The left and the right banner.
     pub sides: [BannerSide; 2],
+    /// The rectangles of three labels that do not belong to a side.
     pub labels: [[u16; 4]; 3],
 }
 
+/// The places in the picture of the bottom screen that hold the text of one side of a battle. Each rectangle is the left, top, width and height in pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BannerSide {
+    /// The name of the unit.
     pub name: [u16; 4],
+    /// The hit points.
     pub hp: [u16; 4],
+    /// The gauge.
     pub gauge: [u16; 4],
+    /// The name of the weapon.
     pub weapon: [u16; 4],
+    /// Three more numbers.
     pub values: [[u16; 4]; 3],
+    /// The id of a marker the side moves with, and the position of the marker at rest as the pixels of the picture.
     pub follows: Option<(u32, [u16; 2])>,
 }
 
+/// How to tell the ground of a rectangle from what is drawn on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ground {
+    /// How much more red than green a pixel needs to be taken as ground.
     pub redder: u8,
+    /// The sum of red, green and blue that a pixel of the ground stays under.
     pub darker: u16,
 }
 
+/// The pixels of a rectangle of the picture of the bottom screen that are not ground, as runs of the row, the first column and the end column. The ground is the part that touches the edge of the rectangle. The picture holds 320 by 240 pixels as RGBA, and an empty list comes back when it is too small or the rectangle lies outside it.
 pub fn cut_out(picture: &[u8], rect: [u16; 4], ground: Ground) -> Vec<[u16; 3]> {
     let [left, top, width, height] = rect.map(usize::from);
+    // The picture is 320 by 240 pixels of four bytes, and the rectangle has to lie inside it.
     if picture.len() < 320 * 240 * 4 || left + width > 320 || top + height > 240 || width == 0 || height == 0 {
         return Vec::new();
     }
+    // A pixel of the ground is reddish and dark.
     let is_ground = |x: usize, y: usize| {
         let at = ((top + y) * 320 + left + x) * 4;
         let [red, green, blue] = [picture[at], picture[at + 1], picture[at + 2]].map(u16::from);
         red > green + ground.redder as u16 && red + green + blue < ground.darker
     };
     let mut reached = vec![false; width * height];
+    // A flood fill from every pixel on the border, so a dark pixel inside the drawing is kept.
     let mut stack: Vec<(usize, usize)> = (0..width).map(|x| (x, 0)).chain((0..height).flat_map(|y| [(0, y), (width - 1, y)])).collect();
     while let Some((x, y)) = stack.pop() {
         if reached[y * width + x] || !is_ground(x, y) {
@@ -192,6 +231,7 @@ pub fn cut_out(picture: &[u8], rect: [u16; 4], ground: Ground) -> Vec<[u16; 3]> 
             stack.push((x, y + 1));
         }
     }
+    // Each row turns into runs of the pixels the fill did not reach.
     let mut runs = Vec::new();
     for y in 0..height {
         let mut x = 0;
@@ -210,27 +250,43 @@ pub fn cut_out(picture: &[u8], rect: [u16; 4], ground: Ground) -> Vec<[u16; 3]> 
     runs
 }
 
+/// One rectangle of a piece, placed in the window.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PiecePlace {
+    /// Where the rectangle is drawn, in pixels of the window.
     pub viewport: Viewport,
+    /// The part of the picture of the bottom screen to draw, as the left, top, width and height in fractions of the picture. A negative width flips it.
     pub part: [f32; 4],
+    /// The radii of the corners in pixels of the window.
     pub corners: [f32; 4],
+    /// The width of the blur at the edge in pixels of the window.
     pub soft: f32,
+    /// As in `Rounded`.
     pub light: bool,
+    /// As in `Rounded`.
     pub shade: u8,
+    /// As in `Rounded`.
     pub shadow: bool,
+    /// As in `Rounded`.
     pub outline: &'static [[u16; 2]],
+    /// As in `Rounded`.
     pub cut: Option<Ground>,
 }
 
+/// Where a box lies along one side of the top screen. The numbers are pixels of a picture 240 high.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Anchor {
+    /// The distance from the start edge.
     Start(u16),
+    /// The offset from the middle.
     Middle(i16),
+    /// The distance from the end edge.
     End(u16),
 }
 
+/// Places the rectangles of pieces over the top screen. The spans are the current areas of the markers, which the pieces that follow a marker move with, by at most a tenth of the picture.
 pub fn piece_places(top: Viewport, pieces: &[Piece], spans: &[(u32, [f32; 4])]) -> Vec<PiecePlace> {
+    // The pictures of the game are 240 pixels high, so this turns their pixels into pixels of the window.
     let scale = top.height / 240.0;
     let position = |anchor: Anchor, start: f32, length: f32, size: f32| match anchor {
         Anchor::Start(margin) => start + margin as f32 * scale,
@@ -244,6 +300,7 @@ pub fn piece_places(top: Viewport, pieces: &[Piece], spans: &[(u32, [f32; 4])]) 
         let x = position(piece.across, top.x, top.width, box_width * size);
         let y = position(piece.down, top.y, top.height, box_height * size);
         let step = scale * size;
+        // How far the marker has moved from its place at rest, in fractions of the picture and limited to a tenth.
         let [moved_x, moved_y] = piece
             .follows
             .and_then(|(id, [rest_x, rest_y])| spans.iter().find(|&&(marked, _)| marked == id).map(|&(_, [x, y, ..])| [x - rest_x as f32 / 320.0, y - rest_y as f32 / 240.0]))
@@ -253,6 +310,7 @@ pub fn piece_places(top: Viewport, pieces: &[Piece], spans: &[(u32, [f32; 4])]) 
             let [shift_x, shift_y] = shape.shift.map(f32::from);
             let (to_x, to_y) = (x + (shape_x + shift_x - box_left) * step, y + (shape_y + shift_y - box_top) * step);
             let viewport = Viewport { x: to_x, y: to_y, width: shape_width * step, height: shape_height * step };
+            // A mirrored part starts at its right edge and has a negative width.
             let part = match shape.mirror {
                 false => [shape_x / 320.0 + moved_x, shape_y / 240.0 + moved_y, shape_width / 320.0, shape_height / 240.0],
                 true => [(shape_x + shape_width) / 320.0 + moved_x, shape_y / 240.0 + moved_y, -shape_width / 320.0, shape_height / 240.0],
@@ -369,6 +427,7 @@ pub fn layout(window_width: u32, window_height: u32, arrangement: ScreenLayout, 
         }
         ScreenLayout::TopOnly | ScreenLayout::TopWithPieces(_) => None,
         ScreenLayout::BottomOverTop { width } => {
+            // The width is a share of the top screen in ten thousandths, limited so the height of the bottom screen does not pass the height of the top one.
             let (top_width, top_height) = (top_w * scale, 240.0 * scale);
             let width = (top_width * width as f32 / 10_000.0).min(top_height * 320.0 / 240.0);
             let height = width * 240.0 / 320.0;
@@ -430,6 +489,7 @@ pub enum Shown {
 /// when the title drew a picture for the right eye, side by side shows the
 /// left one's twice otherwise, so a 3D TV keeps its halves.
 pub fn place(window_width: u32, window_height: u32, arrangement: ScreenLayout, top_width: f32, integer: bool, stereo: Stereo, right: bool) -> Vec<(Viewport, Shown)> {
+    // The overlay draws the bottom screen in this layout, so the presenter does not.
     let bottom_over_top = matches!(arrangement, ScreenLayout::BottomOverTop { .. });
     let screens = |(top, bottom): (Option<Viewport>, Option<Viewport>), eye: Shown| {
         top.map(|viewport| (viewport, eye)).into_iter().chain(bottom.filter(|_| !bottom_over_top).map(|viewport| (viewport, Shown::Bottom)))

@@ -6,33 +6,33 @@ This list separates the project's code from Zakuro's and 3dsrecomp's. Paths star
 
 | File | Lines | What it holds |
 |---|---|---|
-| `zakuro/crates/zakuro-core/src/game_ui.rs` | 162 | Awakening's screen data: the markers that tell its scenes apart, and the rectangles of the battle panels, battle buttons, FE3H banners, title and world-map pieces. |
-| `zakuro/crates/zakuro-core/src/scenes.rs` | 146 | Scene detection from the markers the GPU sees: which scene shows, the end of a battle, marker positions, and the unit selection. |
-| `zakuro/crates/zakuro/src/banners.rs` | 221 | Reads the text of the FE3H-style banners (names, HP, weapon, stats) off the bottom screen. |
-| `zakuro/crates/zakuro/src/console.rs` | 81 | The optional console window with Zakuro's log (Settings, System). |
-| `zakuro/crates/zakuro/src/hdtext/banners.rs` | 213 | The phase, mission and result banners: lettering fitted with its spacing, glow, outline or stone fill drawn again. |
-| `zakuro/crates/zakuro/src/hdtext/data.rs` | 394 | The words the redrawn pictures spell, in each language: banners, inventory labels, title screen and main menu. |
-| `zakuro/crates/zakuro/src/hdtext/fonts/AlegreyaSans-Bold.ttf` | binary | Open font, under the SIL Open Font License. |
-| `zakuro/crates/zakuro/src/hdtext/fonts/AlegreyaSans-ExtraBold.ttf` | binary | Open font, under the SIL Open Font License. |
-| `zakuro/crates/zakuro/src/hdtext/fonts/OFL.txt` | 94 | The open font's copyright notice and the SIL Open Font License. |
-| `zakuro/crates/zakuro/src/hdtext/labels.rs` | 985 | The inventory's labels: letters taken off their plates, plates and cells evened with their grain given back, words drawn again with shadow, shine or engraving. |
-| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 378 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
-| `zakuro/crates/zakuro/src/hdtext/ops.rs` | 683 | Image operations for the redraws: planes, masks, blurs, resizing, labelling and distance transforms. |
-| `zakuro/crates/zakuro/src/hdtext/rom.rs` | 129 | Finds textures in the game's files and reads its message files. |
-| `zakuro/crates/zakuro/src/hdtext/sheets.rs` | 320 | Reads and writes the game's font files: each letter drawn at its natural width from an open font, packed into new sheets, with the 4x pictures. |
-| `zakuro/crates/zakuro/src/hdtext/text.rs` | 158 | Draws letters and lines from an open font. |
-| `zakuro/crates/zakuro/src/hdtext/titles.rs` | 192 | Chapter titles: each line fitted to where the original's lettering is, its fill and glow measured and drawn again. |
-| `zakuro/crates/zakuro/src/hdtext/words.rs` | 651 | The title screen's words, its copyright line and the main menu's buttons, drawn again with their icons kept. |
-| `zakuro/crates/zakuro/src/lz.rs` | 157 | LZ11 and LZ13 compression of the game's files, for the mods' build steps. |
-| `zakuro/crates/zakuro/src/overlays.rs` | 611 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
-| `zakuro/crates/zakuro/src/sounds.rs` | 301 | Reads the bottom screen's open and close sounds from the game's sound archive. |
-| `zakuro/crates/zakuro/src/theme.rs` | 380 | The launcher's look: colours, fonts, window frames, tabs and buttons. |
-| `zakuro/crates/zakuro/src/update.rs` | 161 | Update Launcher: finds the latest release on GitHub, downloads it and puts it in place of the running launcher. |
-| `zakuro/crates/zakuro-core/src/feet.rs` | 212 | The feet mod's per-frame hook: turns each foot so that it rests flat on the ground. (feet mod) |
-| `zakuro/crates/zakuro/src/feet/foot.rs` | 1123 | Builds the feet for one body model and writes the changed model. (feet mod) |
-| `zakuro/crates/zakuro/src/feet/formats.rs` | 218 | The game's formats the builder reads and writes: CGFX dictionaries and ETC1 textures. (feet mod) |
-| `zakuro/crates/zakuro/src/feet/mod.rs` | 111 | The feet mod's build step: runs the builder over every body model of the game. (feet mod) |
-| `zakuro/crates/zakuro/src/feet/model.rs` | 133 | Reads a CGFX model's skeleton, vertices and submeshes. (feet mod) |
+| `zakuro/crates/zakuro-core/src/game_ui.rs` | 208 | Awakening's screen data: the markers that tell its scenes apart, and the rectangles of the battle panels, battle buttons, FE3H banners, title and world-map pieces. |
+| `zakuro/crates/zakuro-core/src/scenes.rs` | 193 | Scene detection from the markers the GPU sees: which scene shows, the end of a battle, marker positions, and the unit selection. |
+| `zakuro/crates/zakuro/src/banners.rs` | 270 | Reads the text of the FE3H-style banners (names, HP, weapon, stats) off the bottom screen. |
+| `zakuro/crates/zakuro/src/console.rs` | 96 | The optional console window with Zakuro's log (Settings, System). |
+| `zakuro/crates/zakuro/src/downloads.rs` | 160 |  |
+| `zakuro/crates/zakuro/src/hdtext/banners.rs` | 258 | The phase, mission and result banners: lettering fitted with its spacing, glow, outline or stone fill drawn again. |
+| `zakuro/crates/zakuro/src/hdtext/clean.rs` | 450 |  |
+| `zakuro/crates/zakuro/src/hdtext/data.rs` | 435 | The words the redrawn pictures spell, in each language: banners, inventory labels, title screen and main menu. |
+| `zakuro/crates/zakuro/src/hdtext/esrgan.rs` | 406 |  |
+| `zakuro/crates/zakuro/src/hdtext/labels.rs` | 1083 | The inventory's labels: letters taken off their plates, plates and cells evened with their grain given back, words drawn again with shadow, shine or engraving. |
+| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 536 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
+| `zakuro/crates/zakuro/src/hdtext/ops.rs` | 771 | Image operations for the redraws: planes, masks, blurs, resizing, labelling and distance transforms. |
+| `zakuro/crates/zakuro/src/hdtext/rom.rs` | 161 | Finds textures in the game's files and reads its message files. |
+| `zakuro/crates/zakuro/src/hdtext/sheets.rs` | 386 | Reads and writes the game's font files: each letter drawn at its natural width from an open font, packed into new sheets, with the 4x pictures. |
+| `zakuro/crates/zakuro/src/hdtext/text.rs` | 198 | Draws letters and lines from an open font. |
+| `zakuro/crates/zakuro/src/hdtext/titles.rs` | 230 | Chapter titles: each line fitted to where the original's lettering is, its fill and glow measured and drawn again. |
+| `zakuro/crates/zakuro/src/hdtext/words.rs` | 836 | The title screen's words, its copyright line and the main menu's buttons, drawn again with their icons kept. |
+| `zakuro/crates/zakuro/src/lz.rs` | 182 | LZ11 and LZ13 compression of the game's files, for the mods' build steps. |
+| `zakuro/crates/zakuro/src/overlays.rs` | 751 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
+| `zakuro/crates/zakuro/src/sounds.rs` | 390 | Reads the bottom screen's open and close sounds from the game's sound archive. |
+| `zakuro/crates/zakuro/src/theme.rs` | 461 | The launcher's look: colours, fonts, window frames, tabs and buttons. |
+| `zakuro/crates/zakuro/src/update.rs` | 192 | Update Launcher: finds the latest release on GitHub, downloads it and puts it in place of the running launcher. |
+| `zakuro/crates/zakuro-core/src/feet.rs` | 262 | The feet mod's per-frame hook: turns each foot so that it rests flat on the ground. (feet mod) |
+| `zakuro/crates/zakuro/src/feet/foot.rs` | 1392 | Builds the feet for one body model and writes the changed model. (feet mod) |
+| `zakuro/crates/zakuro/src/feet/formats.rs` | 276 | The game's formats the builder reads and writes: CGFX dictionaries and ETC1 textures. (feet mod) |
+| `zakuro/crates/zakuro/src/feet/mod.rs` | 134 | The feet mod's build step: runs the builder over every body model of the game. (feet mod) |
+| `zakuro/crates/zakuro/src/feet/model.rs` | 179 | Reads a CGFX model's skeleton, vertices and submeshes. (feet mod) |
 
 ## Changes inside Zakuro's files
 
@@ -47,6 +47,7 @@ Added:
 - `impl QuickHasher`
 - `fn QuickHasher::add`
 - `impl Hasher for QuickHasher`
+- `fn <QuickHasher as Hasher>::write`
 - `fn <QuickHasher as Hasher>::finish`
 - `fn tests::consecutive_addresses_spread_over_the_buckets`
 
@@ -90,6 +91,7 @@ Added:
 Changed:
 
 - `fn main`
+- `code outside any item`
 
 ### `zakuro/crates/zakuro-core/src/cheats.rs`
 
@@ -103,6 +105,8 @@ Added:
 Changed:
 
 - `struct Cheat`
+- `code outside any item`
+- `impl Cheat`
 - `fn Cheat::new`
 - `fn run`
 
@@ -125,6 +129,7 @@ Changed:
 - `struct Enhancement`
 - `fn for_title`
 - `fn cheats`
+- `mod tests`
 - `fn tests::a_game_gets_the_enhancements_for_its_build`
 - `fn tests::every_listed_code_is_code`
 
@@ -164,10 +169,12 @@ Added:
 
 Changed:
 
+- `code outside any item`
 - `struct Config`
 - `fn <Config as Default>::default`
 - `struct Pacing`
 - `struct System`
+- `impl System`
 - `fn System::new`
 - `fn System::end_frame`
 - `fn System::pace`
@@ -185,6 +192,7 @@ Changed:
 
 - `fn load` (partly the feet mod)
 - `fn swap_recompiled` (partly the feet mod)
+- `code outside any item` (feet mod)
 - `fn map_code`
 - `fn tests::a_game_has_the_enhancements_for_its_build`
 
@@ -194,6 +202,7 @@ Changed:
 
 - `struct Memory`
 - `struct WriteLog`
+- `impl Memory`
 - `fn Memory::new`
 - `fn Memory::log_writes`
 - `fn Memory::stop_logging_writes`
@@ -241,6 +250,8 @@ Added:
 Changed:
 
 - `struct Library` (feet mod)
+- `code outside any item` (feet mod)
+- `impl Library` (feet mod)
 - `fn Library::new` (feet mod)
 - `fn Library::lookup` (feet mod)
 
@@ -254,7 +265,9 @@ Added:
 Changed:
 
 - `code outside any item`
+- `impl Layered`
 - `fn Layered::new`
+- `mod tests`
 
 ### `zakuro/crates/zakuro-fs/src/lib.rs`
 
@@ -265,8 +278,11 @@ Added:
 
 Changed:
 
+- `impl Dlc`
 - `fn Dlc::load`
+- `impl Title`
 - `fn Title::lay_mods`
+- `mod addon_tests`
 
 ### `zakuro/crates/zakuro-gpu/src/backend/gl.rs`
 
@@ -301,6 +317,7 @@ Added:
 
 Changed:
 
+- `code outside any item`
 - `enum ScreenLayout`
 - `fn ScreenLayout::size_f`
 - `fn layout`
@@ -333,6 +350,7 @@ Added:
 
 Changed:
 
+- `code outside any item`
 - `const JUMP`
 - `fn Interpolation::draw`
 - `mod tests`
@@ -358,6 +376,7 @@ Added:
 
 Changed:
 
+- `impl Gpu`
 - `fn Gpu::texture_copy`
 - `fn Gpu::draw`
 - `code outside any item`
@@ -373,6 +392,7 @@ Added:
 Changed:
 
 - `struct Pack`
+- `impl Pack`
 - `fn Pack::open`
 - `fn Pack::find`
 - `struct Config`
@@ -422,6 +442,7 @@ Added:
 
 Changed:
 
+- `code outside any item`
 - `struct Resources`
 - `fn TextureCache::decoded`
 - `fn bind_texture`
@@ -459,9 +480,11 @@ Added:
 Changed:
 
 - `struct Image`
+- `code outside any item`
 - `struct Copied`
 - `fn Filtering::picture`
 - `struct Hardware`
+- `impl Hardware`
 - `fn Hardware::with_device`
 - `fn Hardware::image_levels`
 - `fn Hardware::destroy_image`
@@ -497,6 +520,10 @@ Added:
 - `const REG_SCISSOR_MODE`
 - `const REG_SCISSOR_FROM`
 - `const REG_SCISSOR_TO`
+
+Changed:
+
+- `code outside any item`
 
 ### `zakuro/crates/zakuro-gpu/src/shader/jit.rs`
 
@@ -538,9 +565,11 @@ Added:
 Changed:
 
 - `struct Queue`
+- `code outside any item`
 - `impl Queue`
 - `fn Queue::next`
 - `struct Audio`
+- `impl Audio`
 - `fn Audio::open`
 - `fn tests::queue`
 
@@ -563,6 +592,7 @@ Added:
 Changed:
 
 - `const DEADZONE`
+- `impl Gamepads`
 
 ### `zakuro/crates/zakuro/src/gui.rs`
 
@@ -580,6 +610,8 @@ Added:
 Changed:
 
 - `fn Gui::new`
+- `code outside any item`
+- `mod tests`
 
 ### `zakuro/crates/zakuro/src/lib.rs`
 
@@ -587,6 +619,7 @@ Added:
 
 - `mod banners`
 - `mod console`
+- `mod downloads`
 - `mod feet` (feet mod)
 - `mod hdtext`
 - `mod lz`
@@ -608,7 +641,8 @@ Added:
 - `fn App::close_bottom_over_with_cancel`
 - `fn App::map_overview`
 - `fn App::toggle_bottom_over`
-- `fn App::build_mods`
+- `fn App::uninstall_mod`
+- `fn App::install_mod`
 - `fn App::poll_update`
 - `fn App::window_layout`
 - `fn App::bottom_over_frame`
@@ -621,6 +655,7 @@ Added:
 
 Changed:
 
+- `code outside any item`
 - `fn run_with`
 - `struct Running`
 - `fn Running::new`
@@ -628,6 +663,7 @@ Changed:
 - `struct App`
 - `fn <App as ApplicationHandler>::resumed`
 - `fn <App as ApplicationHandler>::window_event`
+- `impl App`
 - `fn App::config`
 - `fn App::play`
 - `fn App::key`
@@ -635,6 +671,7 @@ Changed:
 - `fn App::touch`
 - `fn App::apply_settings`
 - `fn App::apply_layout`
+- `fn App::recompile`
 - `fn App::poll_jobs`
 - `fn App::act`
 - `fn App::step`
@@ -656,7 +693,9 @@ Added:
 Changed:
 
 - `struct Game`
+- `code outside any item`
 - `struct Library`
+- `impl Library`
 - `fn Library::scan`
 - `fn scan`
 - `fn addon`
@@ -679,6 +718,7 @@ Removed:
 
 Changed:
 
+- `code outside any item`
 - `fn main`
 
 ### `zakuro/crates/zakuro/src/menus.rs`
@@ -686,6 +726,7 @@ Changed:
 Added:
 
 - `const STATE_SLOTS`
+- `struct DownloadOffer`
 - `enum Confirm`
 - `enum SettingsTab`
 - `const SETTINGS_TABS`
@@ -693,6 +734,7 @@ Added:
 - `fn Menus::game_card`
 - `fn Menus::keybinds_tab`
 - `fn Menus::controller_tab`
+- `fn Menus::download_offer`
 - `fn system_tab`
 - `fn cheat_lists`
 - `fn graphics_tab`
@@ -709,6 +751,7 @@ Added:
 
 Changed:
 
+- `code outside any item`
 - `enum Action`
 - `struct Menus`
 - `impl Menus`
@@ -718,6 +761,7 @@ Changed:
 - `fn Menus::settings`
 - `fn Menus::message`
 - `fn progress`
+- `mod tests`
 - `fn tests::the_settings_fit_a_short_screen`
 
 Its imports change too.
@@ -731,15 +775,19 @@ Added:
 - `impl ModStep`
 - `fn ModStep::folder_in`
 - `const MOD_STEPS` (feet mod)
-- `fn mod_steps`
-- `fn has_mod_steps`
-- `fn Job::build_mods_only`
-- `fn build_mods`
+- `fn ModStep::lacks_downloads`
+- `fn ModStep::installed`
+- `fn ModStep::downloads`
+- `fn ModStep::uninstall`
+- `fn Stage::doing`
+- `fn Job::install`
 - `fn tests::a_whole_build`
 
 Changed:
 
+- `code outside any item`
 - `enum Stage`
+- `impl Stage`
 - `fn Stage::fraction`
 - `struct Job`
 - `impl Job`
@@ -794,6 +842,7 @@ Changed:
 - `fn Fetcher::find`
 - `fn Fetcher::command`
 - `fn fetch`
+- `code outside any item`
 - `fn unpack`
 
 ## Changes inside 3dsrecomp

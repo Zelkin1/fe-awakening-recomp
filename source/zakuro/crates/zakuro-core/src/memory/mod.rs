@@ -99,6 +99,7 @@ pub struct Memory {
     /// while a loop is watched for changing nothing, what each byte the CPU
     /// wrote held before its first write, see crate::idle.
     write_log: Option<Box<WriteLog>>,
+    /// The write log of the last watch, kept so that the next watch reuses its allocation.
     spare_log: Option<Box<WriteLog>>,
 
     /// physical pages something keeps a copy of, the textures the GPU
@@ -295,12 +296,14 @@ impl Memory {
     /// starts noting what the CPU's writes write over, forgetting what was
     /// noted before.
     pub(crate) fn log_writes(&mut self) {
+        // A log that exists is emptied and reused, which saves an allocation each time a loop is watched.
         let mut log = self.write_log.take().or_else(|| self.spare_log.take()).unwrap_or_default();
         log.old.clear();
         log.overflowed = false;
         self.write_log = Some(log);
     }
 
+    /// Stops noting the writes of the CPU and keeps the log for the next time.
     pub(crate) fn stop_logging_writes(&mut self) {
         if let Some(log) = self.write_log.take() {
             self.spare_log = Some(log);

@@ -34,8 +34,11 @@ pub const REG_SHADER_OUTPUT_MAP: usize = 0x0050;
 pub const REG_SHADER_OUTPUT_MAP_END: usize = 0x0056;
 
 pub const REG_VIEWPORT_XY: usize = 0x0068;
+/// The mode of the scissor test.
 pub const REG_SCISSOR_MODE: usize = 0x0065;
+/// The first corner of the scissor rectangle.
 pub const REG_SCISSOR_FROM: usize = 0x0066;
+/// The last corner of the scissor rectangle.
 pub const REG_SCISSOR_TO: usize = 0x0067;
 
 pub const REG_TEXTURE_CONFIG: usize = 0x0080;

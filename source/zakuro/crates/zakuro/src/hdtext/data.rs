@@ -1,3 +1,7 @@
+//! The texts that the HD text draws, and the places in the pictures where they go.
+//! The tables are keyed by the language letter of the file names: F, G, I, S and U.
+
+/// The names of the places for the chapter titles, as a language letter, a chapter code and the text to draw.
 pub const PLACES: &[(char, &str, &str)] = &[
     ('F', "B009", "Cour du château de Plegia"),
     ('F', "B019", "Abords du chât. de Valm"),
@@ -67,13 +71,17 @@ pub const PLACES: &[(char, &str, &str)] = &[
     ('S', "BX016", "Hogar de las almas errantes"),
 ];
 
+/// The names of the chapters for the chapter titles, as a language letter, a chapter code and the text to draw.
 pub const NAMES: &[(char, &str, &str)] = &[
     ('F', "010", "Jour nouveau"),
     ('U', "X018", "The Dead King's Lament"),
 ];
 
+/// The keys of the banner texts, in the order of the texts of each language in `BANNER_TEXTS`.
+/// The mission banners carry the index of their texture, as in `Mission01.1`.
 pub const BANNER_KEYS: &[&str] = &["PlayerPhase", "EnemyPhase", "AllyPhase", "Classchange", "Levelup", "Mission01.1", "Mission01.2", "Mission02.1", "StageClear", "YouLose", "YouRetire", "YouWin", "GameOver"];
 
+/// The texts of the banners for each language, in the order of `BANNER_KEYS`.
 pub const BANNER_TEXTS: &[(char, &[&str])] = &[
     ('F', &["PHASE JOUEUR", "PHASE ENNEMIS", "PHASE ALLIÉS", "CHANGEMENT DE CLASSE !", "CHANGEMENT DE NIVEAU !", "Vaincre le boss", "VICTOIRE", "Décimer l'ennemi", "Terminé !", "Défaite !", "Abandon !", "Victoire !", "Game Over"]),
     ('G', &["SPIELERPHASE", "GEGNERPHASE", "VERBÜNDETENPHASE", "NEUE KLASSE!", "LEVEL UP!", "Boss besiegen", "SIEG", "Alle besiegen", "Abgeschlossen!", "Verloren...", "Aufgegeben!", "Gewonnen!", "Game Over"]),
@@ -82,6 +90,8 @@ pub const BANNER_TEXTS: &[(char, &[&str])] = &[
     ('U', &["PLAYER PHASE", "ENEMY PHASE", "ALLY PHASE", "CLASS CHANGE!", "LEVEL UP!", "Defeat commander", "VICTORY", "Rout the enemy", "STAGE COMPLETE!", "You Lose", "You Yield", "You Win!", "Game Over"]),
 ];
 
+/// The banners to redraw, as the name of the telop file, the index of the texture in the file and the kind of the banner.
+/// The kind is "plain", "glow" or "stone".
 pub const BANNER_SPECS: &[(&str, usize, &str)] = &[
     ("PlayerPhase", 1, "plain"),
     ("PlayerPhase", 3, "glow"),
@@ -104,16 +114,25 @@ pub const BANNER_SPECS: &[(&str, usize, &str)] = &[
     ("GameOver", 1, "plain"),
 ];
 
+/// A label in a picture of the status screens that is drawn again.
 pub struct Label {
+    /// The box of the label in the picture, as left, top, right and bottom in pixels.
     pub box_: [usize; 4],
+    /// The text to draw.
     pub text: &'static str,
+    /// The name of the group of the label, or empty. Labels of a group are drawn at the same scale.
     pub group: &'static str,
+    /// Whether the label is a button, which is drawn differently from a plain label.
     pub button: bool,
+    /// The colour of the letters of a button, "light" or "dark", or empty to find it from the picture.
     pub letters: &'static str,
+    /// Whether the label has a shine.
     pub shine: bool,
+    /// The name of the size group that sets the scale of the label, or empty to use the group.
     pub size: &'static str,
 }
 
+/// The labels of the status atlases, as a language letter, the offset of the texture in the file and the labels of that texture.
 pub const LABELS: &[(char, usize, &[Label])] = &[
     ('F', 0x20100, &[
         Label { box_: [192, 4, 221, 21], text: "Atq", group: "combat", button: false, letters: "", shine: false, size: "" },
@@ -312,8 +331,10 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
     ]),
 ];
 
+/// The "press any button" text of the title screen for each language.
 pub const PRESS_ANY_BUTTON: &[(char, &str)] = &[('F', "Appuyez sur un bouton"), ('G', "KNOPF DRÜCKEN"), ('I', "PREMI UN PULSANTE"), ('S', "PULSA UN BOTÓN"), ('U', "PRESS ANY BUTTON")];
 
+/// The eight texts of the main menu for each language, in the order of the boxes of the menu.
 pub const MAIN_MENU: &[(char, [&str; 8])] = &[
     ('F', ["Continuer", "Signet", "Nouvelle partie", "Classique", "Débutant", "Copier", "Effacer", "Extras"]),
     ('G', ["Fortsetzen", "Lesezeichen", "Neues Spiel", "Klassisch", "Anfänger", "Kopieren", "Löschen", "Extras"]),
@@ -322,8 +343,10 @@ pub const MAIN_MENU: &[(char, [&str; 8])] = &[
     ('U', ["Continue", "Bookmark", "New Game", "Classic", "Newcomer", "Copy", "Delete", "Extras"]),
 ];
 
+/// The copyright line of the title screen.
 pub const COPYRIGHT: &str = "©2012-2013 Nintendo / INTELLIGENT SYSTEMS";
 
+/// The abbreviations in the class names of the game, as a language letter, the short form and the full form that replaces it.
 pub const CLASS_SPELLINGS: &[(char, &str, &str)] = &[
     ('F', "Ch. ", "Chevalier "),
     ('I', "Cav. ", "Cavaliere "),
@@ -335,6 +358,7 @@ pub const CLASS_SPELLINGS: &[(char, &str, &str)] = &[
     ('S', "Sacerd. ", "Sacerdotisa "),
 ];
 
+/// The words of the three large buttons of the world map for each language: close, story and shop.
 pub const GMAP_WORDS: &[(char, [&str; 3])] = &[
     ('F', ["Fermer", "Histoire", "Magasin"]),
     ('G', ["Schl.", "STORY", "HÄNDLER"]),
@@ -343,6 +367,8 @@ pub const GMAP_WORDS: &[(char, [&str; 3])] = &[
     ('U', ["Close", "STORY", "SHOP"]),
 ];
 
+/// The five pill-shaped buttons of the world map for each language.
+/// The numbers are the horizontal positions in the picture where the pills start and end, which differ with the length of the words.
 pub const GMAP_PILLS: &[(char, [&str; 5], [usize; 8])] = &[
     ('F', ["Retour", "Halte", "Menu", "Examiner", "Atteindre objectif"], [144, 24, 56, 73, 122, 149, 250, 0]),
     ('G', ["Zurück", "Stopp", "Menü", "Überblick", "Zum Ziel gehen"], [142, 28, 61, 78, 135, 161, 250, 0]),
@@ -351,6 +377,7 @@ pub const GMAP_PILLS: &[(char, [&str; 5], [usize; 8])] = &[
     ('U', ["Back", "Halt", "Menu", "Survey", "Head to Objective"], [146, 28, 62, 82, 127, 154, 250, 0]),
 ];
 
+/// The horizontal positions of the button icons of the world map for each language, as pairs of left and right edges.
 pub const GMAP_ICONS: &[(char, [usize; 8])] = &[
     ('F', [9, 22, 59, 71, 125, 147, 131, 142]),
     ('G', [13, 26, 64, 76, 138, 160, 128, 139]),
@@ -359,6 +386,7 @@ pub const GMAP_ICONS: &[(char, [usize; 8])] = &[
     ('U', [13, 26, 68, 80, 130, 152, 131, 142]),
 ];
 
+/// The words of the chapter overview of the status screen for each language, indexed by the overview table of the words module.
 pub const OVERVIEW_WORDS: &[(char, [&str; 9])] = &[
     ('F', ["Victoire", "Tour", "NIV", "EXP", "PV", "Vaincre", "le boss", "Décimer", "l'ennemi"]),
     ('G', ["Sieg", "Zug", "Lv.", "Erf.", "KP", "Boss", "besiegen", "Alle", "besiegen"]),
@@ -367,8 +395,10 @@ pub const OVERVIEW_WORDS: &[(char, [&str; 9])] = &[
     ('U', ["Victory", "Turn", "LV", "EXP", "HP", "Defeat", "commander", "Rout the", "enemy"]),
 ];
 
+/// The word of the close button of the tutorials for each language.
 pub const TUTORIAL_WORDS: &[(char, &str)] = &[('F', "Fermer"), ('G', "Schließen"), ('I', "Chiudi"), ('S', "Cerrar"), ('U', "Close")];
 
+/// The words of the battle forecast and the help marks for each language, indexed by the forecast table of the words module.
 pub const FORECAST_WORDS: &[(char, [&str; 13])] = &[
     ('F', ["Précision", "PV", "Atq", "Prc", "Crit", "Rés", "INFO", "NOUV.", "FINI!", "MAX", "↑", "x2", "x4"]),
     ('G', ["Trf.-Ch.", "KP", "Agr.", "Trf.", "Krt.", "Res.", "Hilfe", "Neu!", "FERTIG!", "MAX", "+", "x2", "x4"]),
@@ -377,6 +407,7 @@ pub const FORECAST_WORDS: &[(char, [&str; 13])] = &[
     ('U', ["Hit Rate", "HP", "Atk", "Hit", "Crit", "Res", "HELP", "NEW!", "CLEAR!", "MAX", "UP", "x2", "x4"]),
 ];
 
+/// The words of the unit information screen for each language, indexed by the unit table of the words module.
 pub const UNIT_WORDS: &[(char, [&str; 10])] = &[
     ('F', ["Bases", "Carac.", "Combat", "Armes", "Techniques", "NIV", "Vous", "Aucun", "signal", "VS"]),
     ('G', ["Allgemein", "Werte", "Kampf", "Waffen", "Fähigkeiten", "Lv.", "Du", "Kein", "Signal", "Gegen"]),
@@ -385,6 +416,16 @@ pub const UNIT_WORDS: &[(char, [&str; 10])] = &[
     ('U', ["Basics", "Stats", "Combat", "Weapons", "Skills", "LV", "You", "No", "Signal", "VS"]),
 ];
 
+/// The six stat names around the radar chart for each language, indexed by the radar table of the words module.
+pub const RADAR_WORDS: &[(char, [&str; 6])] = &[
+    ('F', ["Frc", "Vit", "Déf", "Rés", "Tec", "Mag"]),
+    ('G', ["Stä.", "Ges.", "Ver.", "Res.", "Fäh.", "Mag."]),
+    ('I', ["Forz", "Vel", "Dif", "Res", "Abil", "Mag"]),
+    ('S', ["Fue", "Vel", "Def", "Res", "Hab", "Mag"]),
+    ('U', ["Str", "Spd", "Def", "Res", "Skill", "Mag"]),
+];
+
+/// The difficulty names and the short mode names on the cards of the file menu for each language, indexed by the card table of the words module.
 pub const CARD_WORDS: &[(char, [&str; 6])] = &[
     ('F', ["Normal", "Difficile", "Expert", "Dément", "DÉB", "CLA"]),
     ('G', ["Normal", "Schwer", "Extrem", "Extrem+", "ANF", "KLA"]),

@@ -1110,10 +1110,13 @@ pub(super) fn upside_down(registers: &[u32]) -> bool {
     registers[REG_FRAMEBUFFER_DIMENSIONS] & (1 << 24) == 0
 }
 
+/// The scissor rectangle as the left, top, right and bottom edges, the last two not included, when the draw is kept inside it. None when the scissor is off or keeps the draw out of the rectangle, which is not followed.
 fn scissor(registers: &[u32]) -> Option<[i32; 4]> {
+    // Each corner packs x in bits 0 to 9 and y in bits 16 to 25.
     let corner = |packed: u32| [(packed & 0x3FF) as i32, (packed >> 16 & 0x3FF) as i32];
     let [from_x, from_y] = corner(registers[REG_SCISSOR_FROM]);
     let [to_x, to_y] = corner(registers[REG_SCISSOR_TO]);
+    // The mode is in the low two bits. 3 keeps the draw inside the rectangle and 1 outside of it. The corners are both inside the rectangle, so the end gets 1 added.
     match registers[REG_SCISSOR_MODE] & 3 {
         3 => Some([from_x, from_y, to_x + 1, to_y + 1]),
         1 => {
@@ -1359,24 +1362,36 @@ fn to_screen(vertex: &Vertex, viewport: (f32, f32, f32, f32)) -> Option<Screen> 
     })
 }
 
+/// The most vertices of a draw that is looked at as a copy of a picture, a quad or two triangles.
 const BLIT_VERTICES: u32 = 6;
 
+/// The most vertices of a draw that is looked at as a marker.
 const MARKER_VERTICES: u32 = 64;
 
+/// A draw of the game to recognize, by the texture it reads and the place it covers on a screen.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Marker {
+    /// The number the marker is reported with.
     pub id: u32,
+    /// The format of the texture of the draw, in the low four bits of the register, or `UNTEXTURED` for a draw without a texture.
     pub format: u32,
+    /// The width of the texture in texels.
     pub width: u32,
+    /// The height of the texture in texels.
     pub height: u32,
+    /// The area of the screen the draw covers.
     pub place: Place,
+    /// Whether the draw goes to the bottom screen instead of the top one.
     pub bottom: bool,
 }
 
 impl Marker {
+    /// The format of a marker that matches a draw without a texture.
     pub const UNTEXTURED: u32 = u32::MAX;
 
+    /// Whether the draw reads a texture of the format and the size of the marker, or no texture when the marker wants none.
     fn matches_texture(&self, registers: &[u32]) -> bool {
+        // Bit 0 of the texture config enables the first texture unit.
         if registers[REG_TEXTURE_CONFIG] & 1 == 0 {
             return self.format == Self::UNTEXTURED;
         }
@@ -1384,39 +1399,52 @@ impl Marker {
         self.format == registers[REG_TEXTURE0_FORMAT] & 0xF && self.width == width && self.height == height
     }
 
+    /// Whether the viewport is that of the screen of the marker. The screens are held turned, 240 wide and 400 high for the top one and 320 high for the bottom one.
     fn targets(&self, (_, _, width, height): (f32, f32, f32, f32)) -> bool {
         let screen_height = if self.bottom { 320.0 } else { 400.0 };
         (width - 240.0).abs() <= 0.5 && (height - screen_height).abs() <= 0.5
     }
 }
 
+/// The ranges, as fractions of the screen, in which the corner and the size of the draw of a marker lie.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Place {
+    /// The range of the left edge.
     pub left: [f32; 2],
+    /// The range of the top edge.
     pub top: [f32; 2],
+    /// The range of the width.
     pub width: [f32; 2],
+    /// The range of the height.
     pub height: [f32; 2],
 }
 
 impl Place {
+    /// Whether the span, as the left, top, right and bottom edges, lies in these ranges.
     fn contains(&self, [left, top, right, bottom]: [f32; 4]) -> bool {
         let within = |value: f32, [from, to]: [f32; 2]| (from..=to).contains(&value);
         within(left, self.left) && within(top, self.top) && within(right - left, self.width) && within(bottom - top, self.height)
     }
 }
 
+/// The markers to look for and what was found of them.
 #[derive(Default)]
 pub(crate) struct MarkerWatch {
+    /// The markers to look for.
     pub(crate) markers: Vec<Marker>,
+    /// The ids of the markers drawn, each once.
     pub(crate) drawn: Vec<u32>,
+    /// The first span seen of each marker drawn, as the left, top, right and bottom edges in fractions of the screen.
     pub(crate) spans: Vec<(u32, [f32; 4])>,
 }
 
 impl MarkerWatch {
+    /// Whether a marker reads the texture the draw reads, which is cheap to know before the vertices are shaded.
     fn may_match(&self, registers: &[u32]) -> bool {
         self.markers.iter().any(|marker| marker.matches_texture(registers))
     }
 
+    /// Notes that a marker was drawn. Only the first draw of a marker counts until the lists are taken.
     fn record(&mut self, id: u32, span: [f32; 4]) {
         if !self.drawn.contains(&id) {
             self.drawn.push(id);
@@ -1427,40 +1455,50 @@ impl MarkerWatch {
     }
 }
 
+/// The width and the height of the first texture, which the register holds as height in the low 11 bits and width above bit 16.
 fn texture0_size(registers: &[u32]) -> (u32, u32) {
     let dimensions = registers[REG_TEXTURE0_DIMENSIONS];
     ((dimensions >> 16) & 0x7FF, dimensions & 0x7FF)
 }
 
+/// The box around the vertices as the left, top, right and bottom edges, in fractions of the screen as the player holds it. None when no vertex lands on the screen.
 fn screen_span(vertices: &[Vertex], viewport: (f32, f32, f32, f32)) -> Option<[f32; 4]> {
     let (x, y, width, height) = viewport;
     vertices.iter().filter_map(|vertex| to_screen(vertex, viewport)).fold(None, |span: Option<[f32; 4]>, screen| {
+        // The buffer of a screen is turned a quarter, so its y runs across the screen and its x down, both from the far side.
         let (across, down) = (1.0 - (screen.y - y) / height, 1.0 - (screen.x - x) / width);
         let [left, top, right, bottom] = span.unwrap_or([across, down, across, down]);
         Some([left.min(across), top.min(down), right.max(across), bottom.max(down)])
     })
 }
 
+/// The marker a draw is, with the span of the draw. The marker has to target the viewport, match the texture and cover the place, and the vertices have to be shaded.
 fn marker_drawn(registers: &[u32], markers: &[Marker], shaded: Option<&[Vertex]>, viewport: (f32, f32, f32, f32)) -> Option<(u32, [f32; 4])> {
+    // The span is only worked out when a marker passes the cheap checks.
     let mut candidates = markers.iter().filter(|marker| marker.targets(viewport) && marker.matches_texture(registers)).peekable();
     candidates.peek()?;
     let span = shaded.and_then(|vertices| screen_span(vertices, viewport))?;
     candidates.find(|marker| marker.place.contains(span)).map(|marker| (marker.id, span))
 }
 
+/// How far, in texels or pixels, a coordinate may be from a whole value or from a one to one mapping, and still count as one.
 const SNAP: f32 = 0.07;
 
+/// The rectangle of a texture, as the left, top, right and bottom texels, that a draw shows texel for pixel, straight or turned a quarter. None when the draw scales the texture, shows a part that does not start at a whole texel, or does not look like a plain copy.
 fn blit_rect(vertices: &[Vertex], viewport: (f32, f32, f32, f32), (width, height): (u32, u32)) -> Option<[u32; 4]> {
     let first_w = vertices.first()?.clip[3];
     let mut points = Vec::with_capacity(vertices.len());
     for vertex in vertices {
+        // A different w means a perspective, which is no plain copy.
         if (vertex.clip[3] - first_w).abs() > 1e-4 * first_w.abs().max(1.0) {
             return None;
         }
         let screen = to_screen(vertex, viewport)?;
         let [u, v] = vertex.texcoords[0];
+        // Each point pairs a position on the screen with a texel. The v of the PICA texture runs upward, so it is flipped.
         points.push(([screen.x, screen.y], [u * width as f32, (1.0 - v) * height as f32]));
     }
+    // Whether an axis of the texture moves one for one with an axis of the screen, in either direction.
     let follows = |texture_axis: usize, screen_axis: usize| {
         let (screen_start, texel_start) = (points[0].0[screen_axis], points[0].1[texture_axis]);
         [1.0f32, -1.0].iter().any(|direction| {
@@ -1472,6 +1510,7 @@ fn blit_rect(vertices: &[Vertex], viewport: (f32, f32, f32, f32), (width, height
     if !straight && !turned {
         return None;
     }
+    // The edges of the rectangle have to fall on whole texels.
     let texel_range = |axis: usize| points.iter().fold((f32::MAX, f32::MIN), |(low, high), (_, texel)| (low.min(texel[axis]), high.max(texel[axis])));
     let ((left, right), (top, bottom)) = (texel_range(0), texel_range(1));
     let whole_texel = |coordinate: f32, size: u32| {
@@ -1482,8 +1521,10 @@ fn blit_rect(vertices: &[Vertex], viewport: (f32, f32, f32, f32), (width, height
     (rect[2] > rect[0] && rect[3] > rect[1]).then_some(rect)
 }
 
+/// A copy of the texels in which the texel just outside each edge of the rectangle repeats the one just inside. With the repeat mode, the texel across the border of the texture also takes the texel of the edge, when the rectangle does not span the texture. Filtering then does not blend in texels that are not part of the picture.
 fn extend_edges(texels: &[[u8; 4]], (width, height): (u32, u32), [left, top, right, bottom]: [u32; 4], (wrap_s, wrap_t): (Wrap, Wrap)) -> Vec<[u8; 4]> {
     let mut extended = texels.to_vec();
+    // The column or row whose texel goes outside the start edge, and the one that goes outside the end edge. None when there is none.
     let before = |from: u32, to: u32, size: u32, wrap: Wrap| match from {
         0 if wrap == Wrap::Repeat && to + 1 < size => Some(size - 1),
         0 => None,
@@ -1505,6 +1546,7 @@ fn extend_edges(texels: &[[u8; 4]], (width, height): (u32, u32), [left, top, rig
             extended[index(column, row)] = extended[index(right - 1, row)];
         }
     }
+    // The rows go second and take in the new columns, so the corners are filled too.
     for column in (left..right).chain(column_before).chain(column_after) {
         if let Some(row) = row_before {
             extended[index(column, row)] = extended[index(column, top)];
@@ -1516,22 +1558,30 @@ fn extend_edges(texels: &[[u8; 4]], (width, height): (u32, u32), [left, top, rig
     extended
 }
 
+/// A texture with the edges of a rectangle of it extended.
 struct ExtendedPicture {
+    /// The texels it was made from, which tell whether it is still the same texture.
     source: Arc<[[u8; 4]]>,
+    /// The rectangle that was extended.
     rect: [u32; 4],
+    /// The texels with the edges extended.
     texels: Arc<[[u8; 4]]>,
 }
 
+/// The textures with extended edges made lately, so a picture drawn every frame is made once.
 #[derive(Default)]
 struct EdgeCache(Vec<ExtendedPicture>);
 
 impl EdgeCache {
+    /// The most pictures the cache keeps.
     const CAPACITY: usize = 32;
 
+    /// The texels of the texture with the edges of the rectangle extended, made or taken from the cache.
     fn extended(&mut self, texture: &BoundTexture, rect: [u32; 4]) -> Arc<[[u8; 4]]> {
         if let Some(picture) = self.0.iter().find(|picture| Arc::ptr_eq(&picture.source, &texture.texels) && picture.rect == rect) {
             return picture.texels.clone();
         }
+        // Pictures made from a texture that nothing else holds anymore are dropped, then the oldest one if the cache is still full.
         self.0.retain(|picture| Arc::strong_count(&picture.source) > 1);
         if self.0.len() >= Self::CAPACITY {
             self.0.remove(0);
@@ -1736,8 +1786,10 @@ pub struct Resources {
     /// where the last draw's varyings were in the output registers.
     #[cfg(feature = "vulkan")]
     semantics: LastSemantics,
+    /// The textures whose edges were extended for the draws that copy a picture.
     #[cfg(feature = "vulkan")]
     edge_cache: EdgeCache,
+    /// The markers of the game and what was found of them.
     pub(crate) marker_watch: MarkerWatch,
     /// the host GPU, when draws go to it rather than to the software path.
     #[cfg(feature = "vulkan")]
@@ -1964,6 +2016,7 @@ impl TextureCache {
                     let span = level.bytes..level.bytes + (level.width * level.height) as usize * tile / 64;
                     let (old, new) = (&decoded.bytes[span.clone()], &data[span]);
                     let tiles = old.chunks(tile).zip(new.chunks(tile)).enumerate();
+                    // Only the tiles whose bytes changed are decoded again, each from its new bytes.
                     for (index, (_, changed)) in tiles.filter(|(_, (old, new))| old != new) {
                         let columns = level.width / 8;
                         let (tile_x, tile_y) = (index as u32 % columns * 8, index as u32 / columns * 8);
@@ -1981,7 +2034,9 @@ impl TextureCache {
                 return (decoded.texels.clone(), decoded.replacement.clone());
             }
         }
+        // The texels of every level go in one zeroed slice, sized from the end of the last level, and the decode fills it.
         let total = texture_levels(format, width, height, levels).last().map_or(0, |last| last.texels + (last.width * last.height) as usize);
+        // SAFETY: all zero bytes are a valid texel, so the zeroed slice is initialized.
         let mut texels: Arc<[[u8; 4]]> = unsafe { Arc::new_zeroed_slice(total).assume_init() };
         let slots = Arc::get_mut(&mut texels).expect("a texture no one else holds yet");
         let sizes: Vec<(usize, u32, u32)> = texture_levels(format, width, height, levels).map(|level| (level.bytes, level.width, level.height)).collect();
@@ -2207,11 +2262,13 @@ fn bind_texture<M: GpuMemory>(
 
     let addr = memory.translate(address);
     log::trace!("texture unit {unit}: 0x{address:08X} -> 0x{addr:08X}, {width}x{height} {format:?}");
+    // A buffer drawn into counts its levels like any other texture.
     let levels = level_count(registers, base, width, height);
     let size = texture_bytes(format, width, height, levels);
 
     let key = (addr, format, width, height, levels);
     let (texels, replacement) = match (drawn, cache.checked(key, size as u32)) {
+        // Only a buffer with a single level is left to the GPU.
         (Some(_), _) if !past && levels == 1 => (Arc::default(), None),
         (_, Some(found)) => found,
         (_, None) => match cache.unchanged(key, size as u32, memory) {
@@ -3081,6 +3138,7 @@ pub fn draw<M: GpuMemory>(
     // the GPU decodes the arrays itself when it shades the draw, from the
     // first vertex the draw uses to the last
     #[cfg(feature = "vulkan")]
+    // The vertices are shaded on the CPU when the draw may be a copy of a picture at a larger scale or a marker, which have to look at the positions.
     let needs_cpu_vertices = (vertex_count <= BLIT_VERTICES
         && registers[REG_TEXTURE_CONFIG] & 1 != 0
         && resources.hardware.as_ref().is_some_and(|hardware| hardware.scale() > 1))
@@ -3308,6 +3366,7 @@ fn assemble(topology: u32, count: usize) -> Vec<(usize, usize, usize)> {
     }
 }
 
+/// The shaded vertices of a draw, made on the CPU when they are not yet, and none when the draw has a geometry shader that is not handled here.
 fn cpu_shaded_vertices(registers: &[u32], vertices: Vertices) -> Option<Vec<Vertex>> {
     match vertices {
         Vertices::Unshaded { vertex_shader, geometry_shader, inputs, order } if registers[REG_GEOSTAGE_CONFIG] & 0x3 != 2 => {
@@ -3339,6 +3398,7 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
     let viewport_top = (viewport_y + viewport_height).round() as i32;
     let (buffer_width, buffer_height) = buffer_size(registers, viewport);
     let (target_width, target_height) = (buffer_width, buffer_height);
+    // Drawing stays inside the viewport and then inside the scissor rectangle, and a draw with nothing left is dropped.
     let (mut left, mut right) = ((viewport_x.round() as i32).max(0), viewport_right.min(buffer_width as i32));
     let (mut bottom, mut top) = ((viewport_y.round() as i32).max(0), viewport_top.min(buffer_height as i32));
     if let Some([from_x, from_y, to_x, to_y]) = scissor(registers) {
@@ -3410,6 +3470,7 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
     };
     #[cfg(not(feature = "vulkan"))]
     let (upscaled, interpolated_pass) = (false, false);
+    // A copy of a picture is only looked for above the scale of the console, with a quad or two triangles that are not projected and read a texture. A marker is not looked for in the twin pass.
     let may_be_blit = upscaled && vertex_count as u32 <= BLIT_VERTICES && !projected(registers) && textures[0].is_some();
     let may_be_marker = !interpolated_pass && vertex_count as u32 <= MARKER_VERTICES && resources.marker_watch.may_match(registers);
     let cpu_vertices = if may_be_blit || may_be_marker { cpu_shaded_vertices(registers, vertices) } else { None };
@@ -3420,6 +3481,7 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
     }
     #[cfg(feature = "vulkan")]
     if let (true, Some(vertices)) = (may_be_blit, &cpu_vertices) {
+        // Only a linear texture the CPU holds, with no replacement from a pack, gets its edges extended.
         let texture = textures[0].as_mut().filter(|texture| texture.linear && texture.drawn.is_none() && texture.replacement.is_none());
         if let Some(texture) = texture {
             if let Some(rect) = blit_rect(vertices, viewport, (texture.width, texture.height)) {
@@ -3599,6 +3661,7 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
 
     if log::log_enabled!(log::Level::Trace) {
         let first_screen = shaded.first().and_then(|v| to_screen(v, viewport));
+        // The box around the vertices in pixels of the buffer, for the trace.
         let span = shaded.iter().filter_map(|v| to_screen(v, viewport)).fold(None, |span: Option<[f32; 4]>, point| {
             let [min_x, min_y, max_x, max_y] = span.unwrap_or([point.x, point.y, point.x, point.y]);
             Some([min_x.min(point.x), min_y.min(point.y), max_x.max(point.x), max_y.max(point.y)])
@@ -3655,6 +3718,7 @@ mod tests {
         [&vertex.clip[..], &vertex.color, texcoords, &vertex.quaternion, &vertex.view, &[vertex.texcoord0_w]].concat().iter().map(|v| v.to_bits()).collect()
     }
 
+    /// A vertex at a position in pixels of a viewport of this size, with the given w and texture coordinates.
     fn placed_at((x, y): (f32, f32), (width, height): (f32, f32), w: f32, uv: [f32; 2]) -> Vertex {
         let clip = [(x / width * 2.0 - 1.0) * w, (y / height * 2.0 - 1.0) * w, 0.0, w];
         Vertex { clip, color: [1.0; 4], texcoords: [uv, [0.0; 2], [0.0; 2]], quaternion: [0.0; 4], view: [0.0; 3], texcoord0_w: 1.0 }

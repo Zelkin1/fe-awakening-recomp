@@ -196,6 +196,7 @@ impl Dlc {
         Ok(Dlc { image, title_id: cia.title_id, version: cia.version, contents: cia.contents })
     }
 
+    /// Checks that the NCCH at the offset is readable, so that a broken or encrypted DLC is refused on load.
     fn check_readable(data: &[u8], offset: u64) -> Result<(), FsError> {
         let ncch_data = data.get(offset as usize..).ok_or(FsError::Truncated { offset: offset as usize, len: data.len() })?;
         let ncch = NcchHeader::parse(ncch_data)?;
@@ -203,6 +204,7 @@ impl Dlc {
             return Err(FsError::Encrypted(ncch.crypto_method()));
         }
         if ncch.has_romfs() {
+            // A RomFS that fails to parse in an NCCH that is not flagged as decrypted is reported as encrypted.
             RomFs::parse(data, offset + ncch.romfs_offset).map_err(|error| match ncch.is_decrypted() {
                 true => FsError::UnreadableRomFs(error.to_string()),
                 false => FsError::Encrypted(ncch.crypto_method()),
@@ -324,6 +326,7 @@ impl Title {
         &self.image.data()[start..start + ExHeader::HASHED_SIZE]
     }
 
+    /// Lays the mods in the directories over the RomFS, in order, and returns what they changed when they changed anything.
     pub fn lay_mods(&mut self, dirs: &[&Path]) -> Result<Option<layered::Changes>, FsError> {
         let Some(romfs) = &self.romfs else {
             return Ok(None);
@@ -444,9 +447,11 @@ mod addon_tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    /// A DLC whose NCCH is not flagged as encrypted, but whose RomFS is scrambled, is refused.
     #[test]
     fn dlc_encrypted_inside_is_refused() {
         let mut content = ncch(DLC, None, &[("quests/1.bin", b"one")]);
+        // Offset 0x18F of the NCCH header holds the flags of the content, and zero clears them.
         content[0x18F] = 0;
         let path = write("dlc-unflagged", "dlc.cia", &cia(DLC, 1, &[(0, Some(&content))]));
         assert!(Dlc::load(&path).unwrap().romfs(0).is_some());

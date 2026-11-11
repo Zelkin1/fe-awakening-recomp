@@ -369,6 +369,7 @@ pub struct PadButtons {
 impl Default for PadButtons {
     fn default() -> Self {
         PadButtons {
+            // A and B sit where the labels of a controller put them, so A is the south button.
             a: Button::South,
             b: Button::East,
             x: Button::North,
@@ -382,6 +383,7 @@ impl Default for PadButtons {
             left: Button::DPadLeft,
             right: Button::DPadRight,
             zl: Button::LeftTrigger2,
+            // The right trigger belongs to BOTTOM_OVER_BUTTON.
             zr: Button::RightThumb,
         }
     }
@@ -433,7 +435,9 @@ impl PadButtons {
 #[serde(default)]
 pub struct Settings {
     pub games: Option<PathBuf>,
+    /// The game file the user chose to play, used when no games folder is set.
     pub game_file: Option<PathBuf>,
+    /// The update file the user chose for the game file.
     pub update_file: Option<PathBuf>,
     /// the console's system language, which titles pick their localised
     /// text and files by.
@@ -475,6 +479,7 @@ pub struct Settings {
     pub volume: f32,
     pub mute: bool,
     pub show_fps: bool,
+    /// Whether the game starts in fullscreen.
     pub fullscreen: bool,
     /// a picture behind the library.
     pub background: Option<PathBuf>,
@@ -482,9 +487,12 @@ pub struct Settings {
     pub background_opacity: f32,
     pub keys: Keys,
     pub pad: PadButtons,
+    /// The key that puts the bottom screen over the top screen.
     pub bottom_over_key: KeyCode,
+    /// The controller button that puts the bottom screen over the top screen.
     pub bottom_over_button: Button,
     pub enhancements: std::collections::BTreeMap<String, Vec<String>>,
+    /// The chosen values of the enhancements that take a number, by title id and then by name of the enhancement.
     pub enhancement_values: std::collections::BTreeMap<String, std::collections::BTreeMap<String, u16>>,
     /// what the console's cameras see, and the picture when it is one.
     #[serde(deserialize_with = "or_default")]
@@ -499,25 +507,35 @@ pub struct Settings {
     pub room_address: String,
     pub room_name: String,
     pub room_port: u16,
+    /// Whether the console window shows.
     pub show_console: bool,
+    /// Whether the original display is on, which is the screen setup of the console.
     pub original: bool,
+    /// The display settings from before the original display was turned on, restored when it is turned off.
     pub kept: Option<Kept>,
+    /// How the battle interface of the game looks.
     #[serde(deserialize_with = "or_default")]
     pub battle_ui: BattleUi,
 }
 
+/// The looks of the battle interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BattleUi {
+    /// The panels of the original game.
     #[default]
     Panels,
+    /// Banners in the style of Fire Emblem: Three Houses.
     Banners,
+    /// No battle interface.
     Off,
 }
 
 impl BattleUi {
+    /// Every choice, in the order of the menu.
     pub const ALL: [BattleUi; 3] = [BattleUi::Panels, BattleUi::Banners, BattleUi::Off];
 
+    /// The text of the choice in the menu.
     pub fn name(self) -> &'static str {
         match self {
             BattleUi::Panels => "Vanilla style",
@@ -527,18 +545,26 @@ impl BattleUi {
     }
 }
 
+/// The display settings that the original display changes. They are saved so they can come back.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Kept {
+    /// The arrangement of the screens.
     pub layout: Screens,
+    /// The shape of the top screen.
     pub top_shape: TopShape,
+    /// Whether frames are interpolated.
     pub frame_interpolation: bool,
+    /// The resolution multiplier.
     pub resolution: u32,
+    /// The filter that scales the picture.
     pub filter: Filter,
 }
 
+/// The display settings of the original display: stacked screens in the shape of the console, native resolution and no smoothing.
 const ORIGINAL_DISPLAY: Kept = Kept { layout: Screens::Stacked, top_shape: TopShape::Console, frame_interpolation: false, resolution: 1, filter: Filter::Pixels };
 
 impl Kept {
+    /// Copies the display settings out of the settings.
     fn of(settings: &Settings) -> Kept {
         Kept {
             layout: settings.layout,
@@ -549,6 +575,7 @@ impl Kept {
         }
     }
 
+    /// Writes the display settings into the settings.
     fn apply_to(&self, settings: &mut Settings) {
         settings.layout = self.layout;
         settings.top_shape = self.top_shape;
@@ -558,10 +585,13 @@ impl Kept {
     }
 }
 
+/// The default key that puts the bottom screen over the top screen.
 pub const BOTTOM_OVER_KEY: KeyCode = KeyCode::KeyE;
+/// The default controller button that puts the bottom screen over the top screen. No button of the console uses it.
 pub const BOTTOM_OVER_BUTTON: Button = Button::RightTrigger2;
 
 impl Settings {
+    /// Turns the original display on or off. Turning it on saves the current display settings and replaces them, and turning it off restores the saved ones.
     pub fn set_original(&mut self, on: bool) {
         if on == self.original {
             return;
@@ -576,8 +606,10 @@ impl Settings {
     }
 }
 
+/// Returns the enhancements of Fire Emblem Awakening, all turned on, in the shape of the `enhancements` setting.
 fn all_enhancements_on() -> std::collections::BTreeMap<String, Vec<String>> {
     let awakening = zakuro_core::game_ui::FIRE_EMBLEM_AWAKENING;
+    // The enhancements are listed for the first revision of the game.
     let names = zakuro_core::enhancements::for_title(awakening, "rev0").into_iter().map(|enhancement| enhancement.name).collect();
     [(format!("{awakening:016X}"), names)].into_iter().collect()
 }
@@ -599,6 +631,7 @@ impl Default for Settings {
             layout: Screens::Stacked,
             filter: Filter::Smooth,
             integer_scale: false,
+            // The widescreen shapes need a widescreen code, which is among the enhancements that are on by default.
             top_shape: TopShape::Wide16x9,
             stereo: Stereo3d::Off,
             depth_3d: 50,
@@ -671,6 +704,7 @@ impl Settings {
             }),
             Err(_) => Settings::default(),
         };
+        // These three are always forced, whatever the saved file says.
         settings.hardware_rasterizer = true;
         settings.recompiled = true;
         settings.integer_scale = false;

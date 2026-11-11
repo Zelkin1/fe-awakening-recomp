@@ -213,8 +213,14 @@ fn main() {
         let (at, file) = spec.split_once(':')?;
         Some((at.parse().ok()?, file.to_owned()))
     });
+    // ZAKURO_FIND=frame:hex searches the mapped memory at that frame for the
+    // 32-bit word and prints the addresses where it is found
     let find_at = frame_and_value("ZAKURO_FIND", |value| u32::from_str_radix(value.trim_start_matches("0x"), 16).ok());
+    // ZAKURO_DUMP_MEM=frame:file writes all mapped memory to the file at that
+    // frame, each mapping as its base, its size and its bytes
     let dump_memory_at = frame_and_value("ZAKURO_DUMP_MEM", |file| Some(file.to_owned()));
+    // ZAKURO_RESOLUTION_AT=frame:scale changes the resolution at that frame
+    // and prints how long it took
     let resolution_at = frame_and_value("ZAKURO_RESOLUTION_AT", |scale| scale.parse::<u32>().ok());
     let mut frame = first;
     while frame < frames {
@@ -236,10 +242,12 @@ fn main() {
         if let Some((_, value)) = find_at.filter(|(at, _)| *at == frame) {
             let mut found = Vec::new();
             for (base, bytes) in mapped_memory(&mut system) {
+                // The words are read at every fourth byte of each mapping, as the memory of the 3DS is little-endian.
                 let words = bytes.chunks_exact(4).map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]]));
                 found.extend(words.enumerate().filter(|&(_, word)| word == value).map(|(index, _)| base + index as u32 * 4));
             }
             println!("frame {frame}: 0x{value:08X} at {} places", found.len());
+            // Only the first 256 addresses are printed, eight to a line.
             for chunk in found.chunks(8).take(32) {
                 println!("  {}", chunk.iter().map(|address| format!("{address:08X}")).collect::<Vec<_>>().join(" "));
             }
@@ -363,6 +371,7 @@ fn main() {
         if wav.is_some() {
             audio.extend(system.take_audio());
         }
+        // ZAKURO_NATIVE_BOTTOM=1 also saves the bottom screen at its native 320 by 240 size with the screens
         let native = std::env::var_os("ZAKURO_NATIVE_BOTTOM").is_some().then(|| system.bottom_picture()).flatten();
         if dump_at.contains(&executed) {
             if let Some(picture) = native {
@@ -630,13 +639,17 @@ const SCREENS: [(zakuro_common::Screen, &str); 2] = [
     (zakuro_common::Screen::Bottom, "bottom"),
 ];
 
+/// Reads an environment variable of the form `frame:value`, with the value parsed by `parse_value`.
+/// Returns `None` when the variable is not set or does not parse.
 fn frame_and_value<T>(variable: &str, parse_value: impl Fn(&str) -> Option<T>) -> Option<(u64, T)> {
     let spec = std::env::var(variable).ok()?;
     let (frame, value) = spec.split_once(':')?;
     Some((frame.parse().ok()?, parse_value(value)?))
 }
 
+/// Reads every mapping of the memory of the game, as its base address and its bytes.
 fn mapped_memory(system: &mut zakuro_core::System) -> Vec<(u32, Vec<u8>)> {
+    // The ranges are collected first, as reading the bytes needs the memory mutably.
     let ranges: Vec<(u32, u32)> = system.memory.mappings().map(|mapping| (mapping.base, mapping.size)).collect();
     ranges
         .into_iter()
@@ -648,6 +661,7 @@ fn mapped_memory(system: &mut zakuro_core::System) -> Vec<(u32, Vec<u8>)> {
         .collect()
 }
 
+/// Prints the counts of the pictures, the screens that show at the frame, and the positions of the banners of a battle.
 fn print_scenes(system: &zakuro_core::System, frame: u64) {
     let pictures = system.pictures();
     println!("frame {frame}: top screen pictures so far, {} the title's, {} in between", pictures.from_game, pictures.interpolated);
@@ -668,6 +682,7 @@ fn print_scenes(system: &zakuro_core::System, frame: u64) {
     }
     for (id, [left, top, ..]) in system.marker_spans() {
         if id == zakuro_core::LEFT_BANNER || id == zakuro_core::RIGHT_BANNER {
+            // The span is in fractions of the screen, which are turned into pixels of the picture of the bottom screen.
             println!("frame {frame}: banner {id} at {:.1} {:.1}", left * 320.0, top * 240.0);
         }
     }

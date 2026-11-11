@@ -102,6 +102,7 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
     }
     let build = crate::enhancements::build(&title);
     let on = system.config.enhancements_on(title.program_id());
+    // The values of the settings are those saved for this title, if any.
     let values = system.config.enhancement_values.get(&title.program_id()).cloned().unwrap_or_default();
     let enhancements = crate::enhancements::cheats(title.program_id(), &build, &on, &values);
     if !enhancements.is_empty() {
@@ -200,6 +201,7 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
         }
     }
 
+    // The hooks of the game are added to the library of recompiled code.
     if let Some(library) = system.recompiled.as_mut() {
         add_game_hooks(library, title.program_id(), &build);
     }
@@ -214,6 +216,7 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
             Err(error) => log::warn!("{error}, drawing in software"),
         }
     }
+    // A game with a description of its screens has its markers handed to the GPU, which looks for them in the draws.
     system.game_ui = crate::game_ui::for_game(title.program_id());
     if let Some(game_ui) = system.game_ui {
         system.gpu.set_markers(game_ui.markers.to_vec());
@@ -225,6 +228,7 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
         }
     }
     if let Some(data_dir) = system.config.mods_dir().filter(|_| system.config.texture_packs) {
+        // Each mod folder can hold a texture pack of its own, and the packs are opened together.
         let dirs: Vec<std::path::PathBuf> = crate::mods::folders(data_dir, title.program_id()).into_iter().map(|folder| folder.join("textures")).collect();
         if !on_gpu {
             for dir in dirs.iter().filter(|dir| std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())) {
@@ -278,7 +282,9 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
     Ok(())
 }
 
+/// Adds the hooks of the project to the recompiled library, for the games and builds they were made for.
 fn add_game_hooks(library: &mut crate::recompiled::Library, program_id: u64, build: &str) {
+    // The addresses of the foot hook are those of revision 0 of Fire Emblem Awakening.
     if program_id == crate::game_ui::FIRE_EMBLEM_AWAKENING && build == "rev0" {
         library.hook(crate::feet::SKINNING_PRODUCT, crate::feet::keep_feet_on_the_ground);
     }
@@ -585,6 +591,7 @@ mod tests {
         let system = load(&game, Config::default()).unwrap();
         assert!(!system.cheats.iter().find(|cheat| cheat.builtin).unwrap().enabled);
 
+        // An enhancement turned on for every game applies to this game, and the one that this game has no code for is left out.
         let enhancements = [(crate::ANY_GAME, vec!["60 FPS".to_owned(), "16:9".to_owned()])].into_iter().collect();
         let system = load(&game, Config { enhancements, ..Config::default() }).unwrap();
         let builtin: Vec<_> = system.cheats.iter().filter(|cheat| cheat.builtin).collect();

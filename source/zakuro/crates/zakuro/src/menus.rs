@@ -14,6 +14,7 @@ use crate::gamepad::button_name;
 use crate::theme;
 use crate::settings::{BattleUi, Filter, Keys, Language, PadButtons, Renderer, Screens, Settings, Stereo3d, TopShape};
 
+/// The number of slots offered for saving and loading states.
 pub const STATE_SLOTS: usize = 5;
 
 /// what the user asked for.
@@ -22,8 +23,13 @@ pub enum Action {
     Play(PathBuf),
     /// recompile the library's game at this index.
     Recompile(usize),
-    BuildMods(usize),
+    /// Install the mod at this index. The flag tells whether the downloads it needs are already agreed to.
+    InstallMod(usize, bool),
+    /// Remove the files of the mod at this index.
+    UninstallMod(usize),
+    /// Turn the mod at this index on or off.
     ModEnabled(usize, bool),
+    /// Look for a newer launcher, or install the one found.
     Update,
     /// download a compiler, then recompile the library's game at this
     /// index with it.
@@ -31,8 +37,11 @@ pub enum Action {
     /// show the mods folder of the game with this program id.
     Mods(u64),
     CancelRecompile(u64),
+    /// Pick the file of the game.
     ChooseGame,
+    /// Pick the DLC file of the game.
     ChooseUpdate,
+    /// Remove the chosen DLC file.
     ForgetUpdate,
     /// save the game's state to the slot chosen, or load it from there.
     SaveState,
@@ -58,6 +67,7 @@ pub enum Action {
     Keyboard(String, usize),
     /// turn the running game's cheat at this index on or off.
     Cheat(usize, bool),
+    /// Set the value of the cheat at this index.
     CheatValue(usize, u16),
     /// add a cheat, its name and its code, to the running game.
     AddCheat(String, String),
@@ -65,6 +75,12 @@ pub enum Action {
     ReloadCheats,
     /// show the cheats folder.
     CheatsFolder,
+}
+
+/// The question of whether to download the files a mod needs.
+pub struct DownloadOffer {
+    /// The index of the mod step that needs the downloads.
+    pub step: usize,
 }
 
 #[derive(Default)]
@@ -76,6 +92,7 @@ pub struct Menus {
     cheat_name: String,
     cheat_code: String,
     pub settings_open: bool,
+    /// The tab of the settings that is shown.
     pub settings_tab: SettingsTab,
     /// the binding waiting for a key, by its place in Keys::all_mut.
     pub rebinding: Option<usize>,
@@ -102,21 +119,30 @@ pub struct Menus {
     /// the library's game to recompile once the player agrees to download a
     /// compiler for it.
     pub compiler_offer: Option<usize>,
+    /// The download question to show, when a mod needs files.
+    pub download_offer: Option<DownloadOffer>,
+    /// The state of the update button in the library, or none when it is hidden.
     pub update: Option<UpdateButton>,
+    /// The mods of the game and their states, for the Mods tab.
     pub mods: Vec<ModSwitch>,
+    /// The choice waiting for a confirmation in the menu over the game.
     pub(crate) confirm: Option<Confirm>,
     icons: HashMap<PathBuf, egui::TextureHandle>,
     background: Background,
 }
 
+/// A choice of the menu over the game that asks for a confirmation first.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Confirm {
     Reset,
     Quit,
+    /// Save the state to this slot.
     Save(u8),
+    /// Load the state from this slot.
     Load(u8),
 }
 
+/// The tabs of the settings window.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub enum SettingsTab {
     #[default]
@@ -128,19 +154,29 @@ pub enum SettingsTab {
     Mods,
 }
 
+/// The tabs of the settings in the order they are shown, with their labels.
 const SETTINGS_TABS: [(SettingsTab, &str); 6] = [
     (SettingsTab::System, "System"),
     (SettingsTab::Graphics, "Graphics"),
+    (SettingsTab::Mods, "Mods"),
     (SettingsTab::Sound, "Sound"),
     (SettingsTab::Keybinds, "Keybinds"),
     (SettingsTab::Controller, "Controller"),
-    (SettingsTab::Mods, "Mods"),
 ];
 
+/// A mod of the game, as the Mods tab shows it.
 pub struct ModSwitch {
     pub label: &'static str,
+    /// The program id of the game the mod belongs to.
+    pub program_id: u64,
+    /// A description of the mod, shown as hover text.
     pub about: &'static str,
+    /// Whether the mod is turned on.
     pub on: bool,
+    /// Whether the files of the mod are installed.
+    pub installed: bool,
+    /// The fraction done and the current step, while the mod is being built.
+    pub progress: Option<(f32, &'static str)>,
 }
 
 /// the room the player is in, as the multiplayer window shows it.
@@ -249,6 +285,7 @@ impl Menus {
         if library.changed {
             self.icons.clear();
         }
+        // The bar has the title on the left and the update button on the right.
         egui::Panel::top("library bar").frame(theme::band_frame()).show(ui, |ui| {
             egui::containers::Sides::new().height(32.0).show(
                 ui,
@@ -286,10 +323,12 @@ impl Menus {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::BACKDROP_DARK).inner_margin(16)).show(ui, |ui| {
             if let Some((texture, size)) = background {
                 let area = ui.clip_rect();
+                // The opacity of the background is applied through the alpha of the tint.
                 let alpha = (settings.background_opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
                 ui.painter().image(texture, area, cover(area.size(), size), Color32::from_white_alpha(alpha));
             }
             if settings.game_file.is_none() && settings.games.is_none() {
+                // Without a game file the library shows a welcome card a third of the way down.
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() / 3.0);
                     ui.set_max_width(360.0);
@@ -331,6 +370,7 @@ impl Menus {
             }
             let room = ui.available_height();
             egui::ScrollArea::vertical().show(ui, |ui| {
+                // A single game is placed a third of the way down, like the welcome card.
                 if let [game] = library.games.as_slice() {
                     let job = jobs.iter().find(|job| job.program_id == game.program_id);
                     ui.add_space(((room - card_height(job)) / 3.0).max(0.0));
@@ -345,8 +385,11 @@ impl Menus {
         actions
     }
 
+    /// Draws the card of a game in the library: its icon, its state, the commands and the progress of its recompile job.
     fn game_card(&mut self, ui: &mut egui::Ui, index: usize, game: &Game, job: Option<&Job>, actions: &mut Vec<Action>) {
+        // The settings are opened after the card, because the card borrows the interface.
         let mut open_settings = false;
+        // The card is centered, and it is drawn in a child interface so that its frame can fill the width.
         let width = ui.available_width().min(CARD_WIDTH);
         let left = ui.cursor().left() + (ui.available_width() - width) / 2.0;
         let room = egui::Rect::from_min_size(egui::pos2(left, ui.cursor().top()), egui::vec2(width, ui.available_height()));
@@ -397,6 +440,7 @@ impl Menus {
                             ui.label(RichText::new("DLC").size(15.0).color(dlc));
                         });
                         ui.add_space(8.0);
+                        // The commands take half the card, but never less than 220 points.
                         ui.set_max_width((ui.available_width() / 2.0).max(220.0));
                         theme::commands(ui, |ui| {
                             if theme::primary_command(ui, "\u{25B6}", "Play").clicked() {
@@ -406,35 +450,15 @@ impl Menus {
                         ui.add_space(10.0);
                         theme::commands(ui, |ui| {
                             if !job.is_some_and(|job| !job.stage().finished()) {
-                                let builds = crate::recompile::has_mod_steps(game.program_id);
                                 let compiler = "It takes 10 to 20 minutes and needs a C compiler, gcc or clang, or Zig, which Zakuro offers to download when the computer has neither.";
-                                let (label, hover) = match (!builds, game.recompiled) {
-                                    (true, false) => ("Recompile", format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler}")),
-                                    (true, true) => ("Recompile again", format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler}")),
-                                    (false, recompiled) => (
-                                        if recompiled { "Recompile" } else { "Build" },
-                                        format!("Build everything the game needs from your own copy of it, its code turned into native code with 3dsrecomp, which makes it run faster. {compiler}"),
-                                    ),
-                                };
+                                let label = if game.recompiled { "Recompile again" } else { "Recompile" };
+                                let hover = format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler} The mods are in Settings, Mods.");
                                 if theme::command(ui, "\u{2692}", label, true).on_hover_text(hover).clicked() {
                                     actions.push(Action::Recompile(index));
-                                }
-                                if builds
-                                    && theme::command(ui, "\u{2728}", "Build mods", true)
-                                        .on_hover_text("Build only the mods from your copy of the game, in a few seconds, without converting the game's code again. They show from the next time the game starts.")
-                                        .clicked()
-                                {
-                                    actions.push(Action::BuildMods(index));
                                 }
                             }
                             if theme::command(ui, "\u{2699}", "Settings", true).clicked() {
                                 open_settings = true;
-                            }
-                            if theme::command(ui, "\u{1F4C2}", "Mods", true)
-                                .on_hover_text("Open the game's mods folder. Files put in its romfs folder replace the game's, the way Luma3DS and Citra take mods, and a texture pack made for Citra or Azahar goes in its textures folder.")
-                                .clicked()
-                            {
-                                actions.push(Action::Mods(game.program_id));
                             }
                             if theme::command(ui, "\u{1F6AA}", "Exit", true).clicked() {
                                 actions.push(Action::Quit);
@@ -447,6 +471,7 @@ impl Menus {
                         let job = job.unwrap();
                         ui.add_space(14.0);
                         ui.horizontal(|ui| {
+                            // The bar takes all the room left by the Cancel button.
                             let cancel = Vec2::new(110.0, 32.0);
                             let width = ui.available_width() - cancel.x - ui.spacing().item_spacing.x;
                             progress(ui, job, width, 32.0);
@@ -463,6 +488,7 @@ impl Menus {
                 }
             });
         });
+        // The child interface does not move the cursor, so it is moved past the card here.
         ui.advance_cursor_after_rect(card.min_rect());
         if open_settings {
             self.settings_open = true;
@@ -545,6 +571,7 @@ impl Menus {
                         }
                     });
                     ui.add_space(8.0);
+                    // The hover text that tells what a slot holds.
                     let describe = |slot: usize| match saved.get(slot - 1).cloned().flatten() {
                         Some(when) => format!("Slot {slot}, {when}."),
                         None => format!("Slot {slot} is empty."),
@@ -553,6 +580,7 @@ impl Menus {
                         theme::slot_row(ui, row, |ui| {
                             for slot in 1..=STATE_SLOTS {
                                 let filled = saved.get(slot - 1).is_some_and(Option::is_some);
+                                // An empty slot can be saved to, but not loaded from.
                                 let enabled = filled || action == Action::SaveState;
                                 let hint = format!("{} {keys} uses the outlined slot while playing.", describe(slot));
                                 let response = theme::slot(ui, &slot.to_string(), filled, enabled, self.slot as usize == slot).on_hover_text(hint);
@@ -585,6 +613,7 @@ impl Menus {
                     });
                 });
             });
+        // A confirmation modal for the choice of the menu that needs one.
         if let Some(confirm) = self.confirm {
             let (title, text, icon, label, action, slot) = match confirm {
                 Confirm::Reset => ("Reset the game?".to_owned(), "It starts over, and what wasn't saved is lost.".to_owned(), "\u{27F3}", "Reset", Action::Reset, None),
@@ -617,6 +646,7 @@ impl Menus {
                     theme::commands(ui, |ui| {
                         let cancel = theme::command(ui, "\u{2716}", "Cancel", true);
                         let chosen = theme::command(ui, icon, label, true);
+                        // Focus starts on Cancel, so that Enter does not confirm by accident.
                         if !cancel.has_focus() && !chosen.has_focus() {
                             cancel.request_focus();
                         }
@@ -805,6 +835,7 @@ impl Menus {
         // dragged to any size that fits
         let room = ctx.content_rect().height() - 16.0;
         if open {
+            // The Close button of the header sets this to false.
             let mut kept = true;
             theme::window("settings")
                 .default_size([560.0, room.min(640.0)])
@@ -815,6 +846,7 @@ impl Menus {
                 theme::header(ui, "Settings", Some(&mut kept));
                 theme::tabs(ui, &mut self.settings_tab, &SETTINGS_TABS);
                 let tab = self.settings_tab;
+                // The scroll area leaves room for the header and the tabs, and each tab keeps its own scroll position.
                 egui::ScrollArea::vertical().id_salt(tab).max_height(room - 80.0).show(ui, |ui| {
                     ui.set_min_height((room - 80.0).min(520.0));
                     theme::body(ui, |ui| match tab {
@@ -842,12 +874,15 @@ impl Menus {
         actions
     }
 
+    /// The Keybinds tab of the settings.
+    /// The bindings are listed two to a row, and a click on a key waits for the next key press.
     fn keybinds_tab(&mut self, ui: &mut egui::Ui, settings: &mut Settings) {
         theme::commands(ui, |ui| {
             let mut keys = settings.keys.all_mut();
             for (pair, bindings) in keys.chunks_mut(2).enumerate() {
                 theme::row(ui, |ui| {
                     for (offset, (name, key)) in bindings.iter_mut().enumerate() {
+                        // The place of the binding in `Keys::all_mut`.
                         let i = pair * 2 + offset;
                         theme::cell(ui, 120.0, name);
                         let text = if self.rebinding == Some(i) { "press a key…".to_owned() } else { key_name(**key) };
@@ -878,12 +913,15 @@ impl Menus {
         });
     }
 
+    /// The Controller tab of the settings.
+    /// It works like the Keybinds tab, but a click on a button waits for the next button press of the controller.
     fn controller_tab(&mut self, ui: &mut egui::Ui, settings: &mut Settings) {
         theme::commands(ui, |ui| {
             let mut buttons = settings.pad.all_mut();
             for (pair, bindings) in buttons.chunks_mut(2).enumerate() {
                 theme::row(ui, |ui| {
                     for (offset, (name, button)) in bindings.iter_mut().enumerate() {
+                        // The place of the binding in `PadButtons::all_mut`.
                         let i = pair * 2 + offset;
                         theme::cell(ui, 120.0, name);
                         let text = if self.rebinding_pad == Some(i) { "press a button…" } else { button_name(**button) };
@@ -986,6 +1024,43 @@ impl Menus {
         action
     }
 
+    /// Asks whether to download the files a mod needs, before it is installed.
+    /// Returns the install action when the player agrees, and closes the offer in every case.
+    pub fn download_offer(&mut self, ctx: &egui::Context) -> Option<Action> {
+        let index = self.download_offer.as_ref()?.step;
+        let step = crate::recompile::MOD_STEPS.get(index)?;
+        let size = step.needs.iter().map(|need| need.download.size_text()).collect::<Vec<_>>().join(" and ");
+        let modal = egui::Modal::new(egui::Id::new("downloads")).frame(theme::frame()).show(ctx, |ui| {
+            ui.set_width(420.0);
+            theme::header(ui, &format!("Download for the {} mod?", step.label), None);
+            theme::menu_body(ui, |ui| {
+                for need in step.needs {
+                    ui.label(RichText::new(need.why).size(15.0));
+                    ui.add_space(4.0);
+                    theme::hint(ui, &format!("The {} mod needs {}: {}, downloaded once from the pages of their authors.", step.label, need.what, need.download.size_text()));
+                    ui.add_space(8.0);
+                }
+                theme::hint(ui, &format!("Without it, the {} mod isn't installed.", step.label));
+                ui.add_space(6.0);
+                theme::commands(ui, |ui| {
+                    let refuse = theme::command(ui, "\u{2716}", "Don't install", true);
+                    let download = theme::command(ui, "\u{2193}", &format!("Download, {size}"), true);
+                    // Focus starts on the download so that Enter accepts the offer.
+                    if !refuse.has_focus() && !download.has_focus() {
+                        download.request_focus();
+                    }
+                    (refuse.clicked(), download.clicked())
+                })
+            })
+        });
+        let (refuse, download) = modal.inner;
+        if download || refuse || modal.should_close() {
+            self.download_offer = None;
+        }
+        download.then_some(Action::InstallMod(index, true))
+    }
+
+    /// Shows the message to the user in a modal, with a button to copy the report that goes with it.
     pub fn message(&mut self, ctx: &egui::Context) {
         let Some(text) = self.message.clone() else { return };
         let report = self.report.as_ref().filter(|(about, _)| *about == text).map(|(_, report)| report.clone());
@@ -1012,7 +1087,9 @@ impl Menus {
     }
 }
 
+/// The System tab of the settings: the game and DLC files, the language and the console window.
 fn system_tab(ui: &mut egui::Ui, settings: &mut Settings, actions: &mut Vec<Action>) {
+    // The name of a chosen file without its folder.
     let name = |file: &Option<std::path::PathBuf>| {
         file.as_ref().and_then(|file| file.file_name()).map(|name| name.to_string_lossy().into_owned())
     };
@@ -1061,7 +1138,10 @@ fn system_tab(ui: &mut egui::Ui, settings: &mut Settings, actions: &mut Vec<Acti
     theme::hint(ui, "A new language takes effect after a reset, or the next time the game starts.");
 }
 
+/// Draws the cheats in two lists: the built in ones, then the codes.
+/// Each cheat is a tuple of its name, whether it is on, its notes, whether it is built in, and its adjustable value if it has one.
 fn cheat_lists(ui: &mut egui::Ui, cheats: &[(String, bool, String, bool, Option<ModSetting>)], actions: &mut Vec<Action>) {
+    // Draws a checkbox for a cheat, with its notes as the hover text.
     let toggle = |ui: &mut egui::Ui, index: usize, name: &str, enabled: bool, notes: &str, actions: &mut Vec<Action>| {
         let mut on = enabled;
         let mut response = ui.checkbox(&mut on, name);
@@ -1072,12 +1152,14 @@ fn cheat_lists(ui: &mut egui::Ui, cheats: &[(String, bool, String, bool, Option<
             actions.push(Action::Cheat(index, on));
         }
     };
+    // The changes of values are collected here and sent after the lists, because the toggle closure borrows the actions.
     let mut values = Vec::new();
     if cheats.iter().any(|cheat| cheat.3) {
         theme::section(ui, "Built in");
         theme::commands(ui, |ui| {
             for (index, (name, enabled, _, _, setting)) in cheats.iter().enumerate().filter(|(_, cheat)| cheat.3) {
                 theme::row(ui, |ui| toggle(ui, index, name, *enabled, "", actions));
+                // The slider shows only while the cheat is on, indented under it.
                 if let (Some(setting), true) = (setting, *enabled) {
                     theme::row(ui, |ui| {
                         ui.add_space(24.0);
@@ -1107,6 +1189,8 @@ fn cheat_lists(ui: &mut egui::Ui, cheats: &[(String, bool, String, bool, Option<
     actions.extend(values);
 }
 
+/// The Graphics tab of the settings.
+/// Original mode switches off the options that would change the picture of the console.
 fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     let mut original = settings.original;
     theme::commands(ui, |ui| {
@@ -1121,7 +1205,9 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         });
     });
     ui.add_space(8.0);
+    // Options that Original mode locks are disabled when `free` is false.
     let free = !settings.original;
+    // Frame interpolation works only with the Vulkan presenter.
     let interpolates = settings.renderer == Renderer::Vulkan;
     theme::commands(ui, |ui| {
         theme::row(ui, |ui| {
@@ -1203,6 +1289,7 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         });
     });
     ui.add_space(8.0);
+    // The depth and the eye swap matter only when 3D is on.
     let stereo = settings.stereo != Stereo3d::Off;
     theme::commands(ui, |ui| {
         theme::row(ui, |ui| {
@@ -1232,20 +1319,66 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     theme::hint(ui, "Resolution changes apply right away. A change of presenter applies the next time Zakuro starts.");
 }
 
+/// The Mods tab of the settings: one entry per mod, in the state it is in.
+/// A mod that is being built shows its progress, an installed mod shows its switch, and a missing mod offers to install.
 fn mods_tab(ui: &mut egui::Ui, mods: &[ModSwitch], actions: &mut Vec<Action>) {
-    theme::commands(ui, |ui| {
-        for (index, switch) in mods.iter().enumerate() {
-            theme::row(ui, |ui| {
-                let mut on = switch.on;
-                if ui.checkbox(&mut on, switch.label).on_hover_text(switch.about).changed() {
-                    actions.push(Action::ModEnabled(index, on));
+    for (index, switch) in mods.iter().enumerate() {
+        match (switch.progress, switch.installed) {
+            (Some((fraction, doing)), _) => {
+                ui.horizontal(|ui| {
+                    // The bar takes the room left by the Cancel button, up to a limit.
+                    let cancel = Vec2::new(110.0, 30.0);
+                    let width = (ui.available_width() - cancel.x - ui.spacing().item_spacing.x).min(420.0);
+                    theme::progress(ui, fraction, &format!("{:.0}%", fraction * 100.0), width, 30.0);
+                    if ui.add(egui::Button::new(RichText::new("Cancel").size(15.0)).min_size(cancel)).clicked() {
+                        actions.push(Action::CancelRecompile(switch.program_id));
+                    }
+                });
+                if !doing.is_empty() {
+                    theme::hint(ui, doing);
                 }
-            });
+            }
+            (None, true) => {
+                theme::commands(ui, |ui| {
+                    theme::row(ui, |ui| {
+                        let mut on = switch.on;
+                        if ui.checkbox(&mut on, switch.label).on_hover_text(switch.about).changed() {
+                            actions.push(Action::ModEnabled(index, on));
+                        }
+                        if ui.button("Rebuild mod").on_hover_text(format!("Build the {} mod again from your copy of the game.", switch.label)).clicked() {
+                            actions.push(Action::InstallMod(index, false));
+                        }
+                        if ui.button("Uninstall").on_hover_text(format!("Remove the {} mod's files. Install it again any time.", switch.label)).clicked() {
+                            actions.push(Action::UninstallMod(index));
+                        }
+                    });
+                });
+            }
+            (None, false) => {
+                theme::commands(ui, |ui| {
+                    if theme::command(ui, "\u{2193}", &format!("Install the {} mod", switch.label), true).on_hover_text(switch.about).clicked() {
+                        actions.push(Action::InstallMod(index, false));
+                    }
+                });
+            }
         }
-    });
-    ui.label(RichText::new("A mod turned on or off shows so from the next time the game starts.").weak());
+        ui.add_space(6.0);
+    }
+    // Every mod belongs to the same game, so the first one gives the program id of the folder.
+    if let Some(switch) = mods.first() {
+        ui.add_space(6.0);
+        theme::commands(ui, |ui| {
+            if theme::command(ui, "\u{1F4C2}", "Open mods folder", true)
+                .on_hover_text("Open the game's mods folder. Files put in its romfs folder replace the game's, the way Luma3DS and Citra take mods, and a texture pack made for Citra or Azahar goes in its textures folder.")
+                .clicked()
+            {
+                actions.push(Action::Mods(switch.program_id));
+            }
+        });
+    }
 }
 
+/// The Sound tab of the settings: volume and mute.
 fn sound_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     theme::commands(ui, |ui| {
         theme::row(ui, |ui| {
@@ -1269,23 +1402,29 @@ pub fn corner(ctx: &egui::Context, text: &str) {
         });
 }
 
+/// The side of the icon of a game on its card.
 const ICON: f32 = 150.0;
 
+/// The widest a game card gets.
 const CARD_WIDTH: f32 = 720.0;
 
+/// Estimates the height of a game card, so that a single card can be placed a third of the way down the library.
+/// The terms add up the header, the body margins, the status line, the Play command, the other commands and the line below them.
 fn card_height(job: Option<&Job>) -> f32 {
+    // The line under the commands is a progress bar while a job runs, or the error of a failed job.
     let below = match job.map(Job::stage) {
         Some(stage) if !stage.finished() => 46.0,
         Some(Stage::Failed(_)) => 30.0,
         _ => 0.0,
     };
-    34.0 + 26.0 + 30.0 + 42.0 + 10.0 + 5.0 * 32.0 + below + 10.0
+    34.0 + 26.0 + 30.0 + 42.0 + 10.0 + 4.0 * 32.0 + below + 10.0
 }
 
+/// Draws the progress bar of a recompile job, with the current step and the time elapsed as its text.
 fn progress(ui: &mut egui::Ui, job: &Job, width: f32, height: f32) {
     let stage = job.stage();
     let text = match &stage {
-        Stage::Mods { .. } => "Preparing the game's files".to_owned(),
+        Stage::Mods { .. } => "Preparing the mod".to_owned(),
         Stage::Downloading(arrived) => format!("Downloading the compiler, {:.0}%", arrived * 100.0),
         Stage::Generating => "Converting the game's code to C".to_owned(),
         Stage::Compiling { done, total } => format!("Compiling, {done} of {total} files"),
@@ -1298,16 +1437,25 @@ fn progress(ui: &mut egui::Ui, job: &Job, width: f32, height: f32) {
     theme::progress(ui, stage.fraction(), &format!("{text}, {minutes}:{seconds:02}"), width, height);
 }
 
+/// The place used in `rebinding` and `rebinding_pad` for the binding of the bottom screen over the top one.
+/// It is outside the places of `Keys::all_mut` and `PadButtons::all_mut`.
 pub const BOTTOM_OVER: usize = usize::MAX;
 
+/// The state of the update button in the bar of the library.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateButton {
+    /// No newer launcher is known, and the button looks for one.
     Idle,
+    /// A newer launcher exists, and the button installs it.
     Available,
+    /// The update is being installed, with the fraction done.
     Installing(f32),
 }
 
+/// Formats the frame rate for the corner of the screen.
+/// `own` is the frames per second the game draws, and `between` is the generated frames per second added in between.
 fn frame_rate((own, between): (f32, f32)) -> String {
+    // Below half a frame per second the generated frames are not worth showing.
     if between >= 0.5 {
         format!("{own:.0}/{:.0} FPS", own + between)
     } else {
@@ -1315,11 +1463,16 @@ fn frame_rate((own, between): (f32, f32)) -> String {
     }
 }
 
+/// A cheat of the game that has a value to adjust with a slider.
 pub struct ModSetting {
     pub name: String,
+    /// The lowest value the slider allows.
     pub min: u16,
+    /// The highest value the slider allows.
     pub max: u16,
+    /// The value the cheat has now.
     pub value: u16,
+    /// The text shown after the value, such as a percent sign.
     pub unit: String,
 }
 
@@ -1381,6 +1534,7 @@ mod tests {
         assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
     }
 
+    /// The generated frames are added to the frames the game draws.
     #[test]
     fn the_frame_rate_counts_the_pictures_shown() {
         assert_eq!(frame_rate((60.0, 0.0)), "60 FPS", "nothing in between");

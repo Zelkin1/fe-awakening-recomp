@@ -17,36 +17,82 @@ pub enum Toolchain {
     Download(PathBuf),
 }
 
-pub type ModBuilder = fn(rom: &Path, data_dir: &Path, progress: &(dyn Fn(usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String>;
+/// A function that builds the files of a mod step. It receives the game file, the data folder, a progress callback and a cancel flag. The progress callback receives what is being done, the parts done and the parts in total. It returns a short report of what was built.
+pub type ModBuilder = fn(rom: &Path, data_dir: &Path, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String>;
 
+/// One installable part of the mods of a game, such as the HD text.
 pub struct ModStep {
+    /// The short name of the step.
     pub name: &'static str,
+    /// The text that tells the user what is being installed.
     pub label: &'static str,
+    /// A longer description of what the step does.
     pub about: &'static str,
+    /// The folder of the step inside the mods folder of the game.
     pub folder: &'static str,
+    /// The title id of the game the step belongs to.
     pub program_id: u64,
+    /// The downloads the step needs, which the user is told about before they start.
+    pub needs: &'static [crate::downloads::Need],
+    /// The downloads the step needs that are fetched without asking.
+    pub quietly: &'static [crate::downloads::Download],
+    /// The function that builds the files of the step.
     pub build: ModBuilder,
 }
 
 impl ModStep {
+    /// Returns the folder of the step inside the mods folder of the game in the data folder.
     pub fn folder_in(&self, data_dir: &Path) -> PathBuf {
         zakuro_core::mods::dir(data_dir, self.program_id).join(self.folder)
     }
 }
 
+/// Every mod step that the launcher can install.
 pub const MOD_STEPS: &[ModStep] = &[crate::feet::STEP, crate::hdtext::STEP];
 
-fn mod_steps(program_id: u64) -> impl Iterator<Item = &'static ModStep> {
-    MOD_STEPS.iter().filter(move |step| step.program_id == program_id)
-}
 
-pub fn has_mod_steps(program_id: u64) -> bool {
-    mod_steps(program_id).next().is_some()
+impl ModStep {
+    /// Returns true when a download that the user is told about is missing. Returns false when the tools folder is unknown.
+    pub fn lacks_downloads(&self, data_dir: &Path) -> bool {
+        crate::zig::tools_dir(Some(data_dir)).is_some_and(|tools| self.needs.iter().any(|need| !need.download.present(&tools)))
+    }
+
+    /// Returns true when the folder of the step holds anything but the entry named "disabled".
+    pub fn installed(&self, data_dir: &Path) -> bool {
+        std::fs::read_dir(self.folder_in(data_dir)).is_ok_and(|entries| entries.flatten().any(|entry| entry.file_name() != "disabled"))
+    }
+
+    /// Returns every download of the step, the ones the user is told about and the quiet ones.
+    fn downloads(&self) -> impl Iterator<Item = &'static crate::downloads::Download> {
+        let needs: &'static [crate::downloads::Need] = self.needs;
+        needs.iter().map(|need| &need.download).chain(self.quietly)
+    }
+
+    /// Removes the folder of the step and the downloads of the step. A download that another installed step also uses stays.
+    pub fn uninstall(&self, data_dir: &Path) -> Result<(), String> {
+        let folder = self.folder_in(data_dir);
+        std::fs::remove_dir_all(&folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+        let Some(tools) = crate::zig::tools_dir(Some(data_dir)) else { return Ok(()) };
+        for download in self.downloads() {
+            // Two steps can share a download folder.
+            if MOD_STEPS.iter().any(|other| other.name != self.name && other.installed(data_dir) && other.downloads().any(|theirs| theirs.folder == download.folder)) {
+                continue;
+            }
+            let path = download.path(&tools);
+            // A download that is not there already is not an error.
+            match std::fs::remove_dir_all(&path) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(format!("{}: {error}", path.display())),
+                _ => {}
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stage {
-    Mods { done: usize, total: usize },
+    /// Building the mods, with what is being done now and how many parts are done of the total.
+    Mods { doing: &'static str, done: usize, total: usize },
     /// fetching the compiler, how much of it has arrived, 0 to 1.
     Downloading(f32),
     /// finding the code and writing it as C.
@@ -63,10 +109,18 @@ impl Stage {
         matches!(self, Stage::Done | Stage::Failed(_))
     }
 
+    /// What the mods build is doing now, or an empty text in any other stage.
+    pub fn doing(&self) -> &'static str {
+        match self {
+            Stage::Mods { doing, .. } => doing,
+            _ => "",
+        }
+    }
+
     /// how far along it is, 0 to 1, going by the part that takes longest.
     pub fn fraction(&self) -> f32 {
         match self {
-            Stage::Mods { done, total } => 0.05 * *done as f32 / (*total).max(1) as f32,
+            Stage::Mods { done, total, .. } => *done as f32 / (*total).max(1) as f32,
             Stage::Downloading(arrived) => *arrived,
             Stage::Generating => 0.05,
             Stage::Compiling { done, total } => 0.05 + 0.9 * *done as f32 / (*total).max(1) as f32,
@@ -97,19 +151,19 @@ pub struct Job {
     pub name: String,
     /// the user was told how it ended.
     pub announced: bool,
-    pub mods_only: bool,
+    /// The label of the mod step this job installs, or none when it recompiles a game.
+    pub installing: Option<&'static str>,
     started: Instant,
     state: Arc<Mutex<State>>,
     cancel: Arc<AtomicBool>,
 }
 
 impl Job {
+    /// Starts recompiling the game at the path of the rom on a thread. The toolchain says whether the compiler is ready or must be downloaded first.
     pub fn start(rom: &Path, update: Option<&Path>, program_id: u64, name: &str, data_dir: Option<&Path>, toolchain: Toolchain) -> Job {
-        let steps: Vec<&'static ModStep> = if data_dir.is_some() { mod_steps(program_id).collect() } else { Vec::new() };
-        let first = match (steps.first(), &toolchain) {
-            (Some(_), _) => Stage::Mods { done: 0, total: 0 },
-            (None, Toolchain::Download(_)) => Stage::Downloading(0.0),
-            (None, Toolchain::Ready(_)) => Stage::Generating,
+        let first = match &toolchain {
+            Toolchain::Download(_) => Stage::Downloading(0.0),
+            Toolchain::Ready(_) => Stage::Generating,
         };
         let state = Arc::new(Mutex::new(State { stage: first, finished_at: None }));
         let cancel = Arc::new(AtomicBool::new(false));
@@ -121,15 +175,6 @@ impl Job {
                     state.stage = stage;
                 }
             };
-            if let Some(data_dir) = data_dir.as_deref() {
-                if !build_mods(&steps, &rom, data_dir, &set, &stop) {
-                    if let Ok(mut state) = progress.lock() {
-                        state.stage = Stage::Failed("cancelled".to_owned());
-                        state.finished_at = Some(Instant::now());
-                    }
-                    return;
-                }
-            }
             if !matches!(toolchain, Toolchain::Download(_)) {
                 set(Stage::Generating);
             }
@@ -164,43 +209,49 @@ impl Job {
                 state.finished_at = Some(Instant::now());
             }
         });
-        Job { program_id, name: name.to_owned(), announced: false, mods_only: false, started: Instant::now(), state, cancel }
+        Job { program_id, name: name.to_owned(), announced: false, installing: None, started: Instant::now(), state, cancel }
     }
 
-    pub fn build_mods_only(rom: &Path, program_id: u64, name: &str, data_dir: &Path) -> Job {
-        let steps: Vec<&'static ModStep> = mod_steps(program_id).collect();
-        let state = Arc::new(Mutex::new(State { stage: Stage::Mods { done: 0, total: 0 }, finished_at: None }));
+    /// Starts building a mod step for the game at the path of the rom on a thread.
+    pub fn install(rom: &Path, name: &str, data_dir: &Path, step: &'static ModStep) -> Job {
+        let state = Arc::new(Mutex::new(State { stage: Stage::Mods { doing: "", done: 0, total: 0 }, finished_at: None }));
         let cancel = Arc::new(AtomicBool::new(false));
         let (progress, stop, rom, data_dir) = (state.clone(), cancel.clone(), rom.to_owned(), data_dir.to_owned());
+        // Whether the step was absent before, which decides if a cancelled build leaves its folder behind.
+        let fresh = !step.installed(&data_dir);
         std::thread::spawn(move || {
             let set = |stage: Stage| {
                 if let Ok(mut state) = progress.lock() {
                     state.stage = stage;
                 }
             };
-            let mut outcome = Stage::Done;
-            for step in &steps {
-                let told = |done: usize, total: usize| set(Stage::Mods { done, total });
-                match (step.build)(&rom, &data_dir, &told, &stop) {
-                    Ok(made) => log::info!("built {}: {made}", step.name),
-                    Err(_) if stop.load(Ordering::Relaxed) => outcome = Stage::Failed("cancelled".to_owned()),
-                    Err(error) => outcome = Stage::Failed(error),
+            let told = |doing: &'static str, done: usize, total: usize| set(Stage::Mods { doing, done, total });
+            let outcome = match (step.build)(&rom, &data_dir, &told, &stop) {
+                Ok(made) => {
+                    log::info!("built {}: {made}", step.name);
+                    Stage::Done
                 }
-                if outcome != Stage::Done {
-                    break;
+                Err(_) if stop.load(Ordering::Relaxed) => {
+                    // A half-built new step is removed, but an installed step is kept as it was.
+                    if fresh {
+                        let _ = std::fs::remove_dir_all(step.folder_in(&data_dir));
+                    }
+                    Stage::Failed("cancelled".to_owned())
                 }
-            }
+                Err(error) => Stage::Failed(error),
+            };
             if let Ok(mut state) = progress.lock() {
                 state.stage = outcome;
                 state.finished_at = Some(Instant::now());
             }
         });
-        Job { program_id, name: name.to_owned(), announced: false, mods_only: true, started: Instant::now(), state, cancel }
+        Job { program_id: step.program_id, name: name.to_owned(), announced: false, installing: Some(step.label), started: Instant::now(), state, cancel }
     }
 
     pub fn stage(&self) -> Stage {
         self.state.lock().map(|state| state.stage.clone()).unwrap_or(Stage::Failed("lost track".to_owned()))
     }
+
 
     /// how long it has run, or ran.
     pub fn elapsed(&self) -> Duration {
@@ -213,18 +264,6 @@ impl Job {
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
-}
-
-fn build_mods(steps: &[&ModStep], rom: &Path, data_dir: &Path, set_stage: &(dyn Fn(Stage) + Sync), cancel: &AtomicBool) -> bool {
-    for step in steps {
-        let progress = |done: usize, total: usize| set_stage(Stage::Mods { done, total });
-        match (step.build)(rom, data_dir, &progress, cancel) {
-            Ok(made) => log::info!("built {}: {made}", step.name),
-            Err(_) if cancel.load(Ordering::Relaxed) => return false,
-            Err(error) => log::warn!("{} could not be built, {error}", step.name),
-        }
-    }
-    true
 }
 
 /// recompiles the game at rom, its code and its modules the way its update

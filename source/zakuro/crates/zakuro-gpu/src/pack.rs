@@ -28,7 +28,9 @@ pub enum Hashing {
 /// a texture pack, its pictures by the hash of the texture each replaces.
 pub struct Pack {
     hashing: Hashing,
+    /// Whether the pack is also searched with the other hashing, which holds when pack.json does not state one.
     either: bool,
+    /// The packs after this one, searched when this one has no picture.
     more: Vec<Pack>,
     materials: HashMap<u64, Arc<Material>>,
 }
@@ -75,6 +77,7 @@ const MAX_SIZE: u32 = 8192;
 
 
 impl Pack {
+    /// The packs in these folders as one, the first one that opens leading and the others behind it. None when no folder holds a picture.
     pub fn open_all(dirs: &[PathBuf]) -> Option<Pack> {
         let mut packs = dirs.iter().filter_map(|dir| Pack::open(dir));
         let mut first = packs.next()?;
@@ -151,6 +154,7 @@ impl Pack {
             Hashing::Bytes => Hashing::Rows,
             Hashing::Rows => Hashing::Bytes,
         };
+        // A pack that states its hashing is trusted, and one that does not is tried with both. The packs behind it come last.
         let tried = if self.either { [Some(self.hashing), Some(other)] } else { [Some(self.hashing), None] };
         tried
             .into_iter()
@@ -243,6 +247,7 @@ fn readers() -> &'static rayon::ThreadPool {
 #[derive(Debug, PartialEq)]
 struct Config {
     hashing: Hashing,
+    /// Whether pack.json states use_new_hash. When it does not, the hashing is only a guess.
     stated: bool,
     /// whether the PNGs are stored with their top row first, as dumped,
     /// pack.json's flip_png_files.
@@ -293,6 +298,7 @@ impl Config {
                 }
             }
         }
+        // Only a boolean counts as a statement, so a missing or odd value leaves both hashings open.
         let stated = json["options"]["use_new_hash"].is_boolean();
         Ok(Config { hashing, stated, upright: option("flip_png_files", true), mapped })
     }

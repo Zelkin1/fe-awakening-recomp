@@ -99,6 +99,7 @@ impl Gui {
     }
 }
 
+/// The id of the texture that holds the picture of the bottom screen.
 pub const BOTTOM_SCREEN: TextureId = TextureId::User(0);
 
 /// egui's two kinds of texture in one space of ids.
@@ -109,6 +110,7 @@ fn texture(id: TextureId) -> u64 {
     }
 }
 
+/// Creates an egui context with the fonts of the system, the bold face of the theme and the theme itself.
 pub fn context() -> egui::Context {
     let ctx = egui::Context::default();
     let mut fonts = fonts(system_fonts());
@@ -202,10 +204,14 @@ mod tests {
         assert_eq!(texture(BOTTOM_SCREEN), zakuro_gpu::BOTTOM_SCREEN_TEXTURE);
     }
 
+    /// Draws the interface that `run` builds into a picture of the given size, without extra textures.
     fn paint(ctx: &egui::Context, size: [u32; 2], pointer: Option<[f32; 2]>, run: impl FnMut(&mut egui::Ui)) -> image::RgbaImage {
         paint_with(ctx, size, pointer, Vec::new(), run)
     }
 
+    /// Draws the interface that `run` builds into a picture of the given size, with a small software rasterizer.
+    ///
+    /// The pointer is a position in pixels of the picture, and the own textures are available besides the textures that egui makes.
     fn paint_with(ctx: &egui::Context, size: [u32; 2], pointer: Option<[f32; 2]>, own: Vec<(TextureId, egui::ColorImage)>, mut run: impl FnMut(&mut egui::Ui)) -> image::RgbaImage {
         use egui::epaint::{ClippedPrimitive, Primitive};
         use std::collections::HashMap;
@@ -217,6 +223,7 @@ mod tests {
             events: pointer.map(|[x, y]| egui::Event::PointerMoved(egui::pos2(x, y) / zoom)).into_iter().collect(),
             ..Default::default()
         };
+        /// Applies the texture changes of a frame to the textures that are kept.
         fn take(textures: &mut HashMap<egui::TextureId, egui::ColorImage>, set: &mut egui::TexturesDelta) {
             for (id, deltas) in std::mem::take(&mut set.set) {
                 for delta in deltas {
@@ -238,6 +245,7 @@ mod tests {
             }
         }
         let mut textures: HashMap<egui::TextureId, egui::ColorImage> = own.into_iter().collect();
+        // Run the interface three times so that the layout and the font textures settle before the last frame is drawn.
         let mut output = ctx.run_ui(input(), &mut run);
         for _ in 0..2 {
             take(&mut textures, &mut output.textures_delta);
@@ -247,10 +255,12 @@ mod tests {
         let ppp = output.pixels_per_point;
         let primitives: Vec<ClippedPrimitive> = ctx.tessellate(output.shapes, ppp);
         let (width, height) = (size[0] as usize, size[1] as usize);
+        // The picture starts as a dark brown background.
         let mut out = vec![[0x20u8, 0x18, 0x10, 255]; width * height];
         for ClippedPrimitive { clip_rect, primitive } in primitives {
             let Primitive::Mesh(mesh) = primitive else { continue };
             let Some(texture) = textures.get(&mesh.texture_id) else { continue };
+            // Reads the texture at a coordinate with bilinear filtering.
             let sample = |u: f32, v: f32| -> [f32; 4] {
                 let x = (u * texture.size[0] as f32 - 0.5).clamp(0.0, texture.size[0] as f32 - 1.0);
                 let y = (v * texture.size[1] as f32 - 0.5).clamp(0.0, texture.size[1] as f32 - 1.0);
@@ -279,6 +289,7 @@ mod tests {
                         if px < clip[0] || px >= clip[2] || py < clip[1] || py >= clip[3] {
                             continue;
                         }
+                        // The barycentric weights of the pixel inside the triangle.
                         let w0 = ((pb.0 - px) * (pc.1 - py) - (pb.1 - py) * (pc.0 - px)) / area;
                         let w1 = ((pc.0 - px) * (pa.1 - py) - (pc.1 - py) * (pa.0 - px)) / area;
                         let w2 = 1.0 - w0 - w1;
@@ -293,6 +304,7 @@ mod tests {
                         let texel = sample(u, v);
                         let src: [f32; 4] = std::array::from_fn(|i| color[i] * texel[i] / 255.0);
                         let dst = &mut out[y * width + x];
+                        // The colors are premultiplied, so the new color is added to what remains of the old one.
                         let keep = 1.0 - src[3] / 255.0;
                         for i in 0..4 {
                             dst[i] = (src[i] + dst[i] as f32 * keep).round().clamp(0.0, 255.0) as u8;
@@ -304,6 +316,7 @@ mod tests {
         image::RgbaImage::from_raw(size[0], size[1], out.into_iter().flatten().collect()).unwrap()
     }
 
+    /// Saves pictures of the pause menu, the settings, the download offer, the progress bars and the cheats into the snapshot folder.
     #[test]
     #[ignore = "draws pictures to look at, ZAKURO_SNAPSHOT=folder cargo test -p zakuro snapshot -- --ignored"]
     fn snapshot_the_menus() {
@@ -338,7 +351,7 @@ mod tests {
             let mut menus = crate::menus::Menus::default();
             menus.settings_open = true;
             menus.settings_tab = tab;
-            menus.mods = crate::recompile::MOD_STEPS.iter().enumerate().map(|(index, step)| crate::menus::ModSwitch { label: step.label, about: step.about, on: index == 0 }).collect();
+            menus.mods = crate::recompile::MOD_STEPS.iter().enumerate().map(|(index, step)| crate::menus::ModSwitch { label: step.label, program_id: step.program_id, about: step.about, on: index == 0, installed: index == 0, progress: (index == 1).then_some((0.4, crate::hdtext::CLEANING)) }).collect();
             let mut settings = crate::settings::Settings::default();
             settings.set_original(original);
             let window = paint(&ctx, [1280, 1100], pointer, |ui| {
@@ -346,6 +359,20 @@ mod tests {
             });
             window.save(folder.join(name)).unwrap();
         }
+        let ctx = crate::gui::context();
+        let mut menus = crate::menus::Menus::default();
+        menus.download_offer = Some(crate::menus::DownloadOffer { step: 1 });
+        let offer = paint(&ctx, [1280, 960], None, |ui| {
+            menus.download_offer(ui.ctx());
+        });
+        offer.save(folder.join("download-offer.png")).unwrap();
+        let ctx = crate::gui::context();
+        let bars = paint(&ctx, [660, 160], None, |ui| {
+            for fraction in [0.02, 0.5, 1.0] {
+                crate::theme::progress(ui, fraction, "Preparing the game's files, 0:12", 640.0, 32.0);
+            }
+        });
+        bars.save(folder.join("progress.png")).unwrap();
         let speed = crate::menus::ModSetting { name: "Speed".into(), min: 100, max: 400, value: 200, unit: "%".into() };
         let cheats = [
             ("16:9".to_owned(), true, String::new(), true, None),
@@ -363,6 +390,7 @@ mod tests {
         window.save(folder.join("cheats.png")).unwrap();
     }
 
+    /// Saves a picture of the library with one game into the snapshot folder.
     #[test]
     #[ignore = "draws pictures to look at, ZAKURO_SNAPSHOT=folder cargo test -p zakuro snapshot -- --ignored"]
     fn snapshot_the_library() {
@@ -390,6 +418,9 @@ mod tests {
         picture.save(folder.join("library.png")).unwrap();
     }
 
+    /// Saves pictures of the battle panels, the banners and the buttons over two captured screens of a battle.
+    ///
+    /// It also saves each text of the banners, enlarged eight times, to check how it was drawn.
     #[test]
     #[ignore = "draws pictures to look at, ZAKURO_SNAPSHOT=folder ZAKURO_BATTLE=folder cargo test -p zakuro snapshot -- --ignored"]
     fn snapshot_the_battle_panels() {
@@ -451,6 +482,7 @@ mod tests {
             });
             picture.save(folder.join(name)).unwrap();
         }
+        /// Returns the six texts of one side of the banners.
         fn side(s: &crate::banners::Side) -> [&crate::banners::Text; 6] {
             [&s.name, &s.hp, &s.weapon, &s.values[0], &s.values[1], &s.values[2]]
         }

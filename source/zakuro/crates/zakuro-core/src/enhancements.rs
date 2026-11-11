@@ -8,6 +8,7 @@ use crate::cheats::{Cheat, CheatSetting};
 
 const LIST: &str = include_str!("enhancements.txt");
 
+/// The place that a code is credited to when the list names no other one.
 const DEFAULT_SOURCE: &str = "the 60 FPS thread on GBAtemp";
 
 /// one enhancement for a game.
@@ -17,21 +18,32 @@ pub struct Enhancement {
     pub author: String,
     /// what a player should know before turning it on, empty if nothing.
     pub note: String,
+    /// The place the code comes from, named in its credit.
     pub source: String,
+    /// The lines of the code, which may hold the placeholders `{x/100}` and `{100/x}` for the value of the setting.
     pub lines: Vec<String>,
+    /// The number that a player can change, when the enhancement has one.
     pub setting: Option<Setting>,
 }
 
+/// A number that a player can change for an enhancement, within a range.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Setting {
+    /// The name shown to the player.
     pub name: String,
+    /// The lowest value.
     pub min: u16,
+    /// The highest value.
     pub max: u16,
+    /// The value used until the player picks another one.
     pub default: u16,
+    /// The unit shown after the value, such as a percent sign. It can be empty.
     pub unit: String,
 }
 
 impl Setting {
+    /// Reads a line of the list that declares a setting, in the form `~Name min..max = default unit`.
+    /// Returns `None` when the line does not have that form.
     fn parse(line: &str) -> Option<Setting> {
         let (declaration, default_and_unit) = line.strip_prefix('~')?.split_once('=')?;
         let (name, range) = declaration.trim().rsplit_once(' ')?;
@@ -43,8 +55,11 @@ impl Setting {
     }
 }
 
+/// The lines of a code with the placeholders filled in for the value of the setting.
+/// `{x/100}` becomes the value divided by 100 and `{100/x}` becomes 100 divided by the value, each as the hexadecimal bits of a 32-bit float.
 pub(crate) fn code_with_value(lines: &[String], value: u16) -> Vec<String> {
     let float = |number: f32| format!("{:08X}", number.to_bits());
+    // The value is never taken as zero, so the inverse stays finite.
     let (fraction, inverse) = (float(value as f32 / 100.0), float(100.0 / value.max(1) as f32));
     lines.iter().map(|line| line.replace("{x/100}", &fraction).replace("{100/x}", &inverse)).collect()
 }
@@ -76,11 +91,13 @@ pub fn for_title(program_id: u64, build: &str) -> Vec<Enhancement> {
                     name: name.trim().to_owned(),
                     author: fields.next().unwrap_or_default().to_owned(),
                     note: fields.next().unwrap_or_default().to_owned(),
+                    // The fourth field names the source, and an empty one falls back to the default.
                     source: fields.next().filter(|source| !source.is_empty()).unwrap_or(DEFAULT_SOURCE).to_owned(),
                     lines: Vec::new(),
                     setting: None,
                 });
             }
+        // A line that declares a setting belongs to the enhancement that came last.
         } else if let Some(setting) = Setting::parse(line).filter(|_| game && taking) {
             if let Some(enhancement) = found.last_mut() {
                 enhancement.setting = Some(setting);
@@ -94,14 +111,18 @@ pub fn for_title(program_id: u64, build: &str) -> Vec<Enhancement> {
     found
 }
 
+/// The enhancements of the game as cheats of their own, the ones named in `on` turned on.
+/// The values of the settings come from `values` by the name of the enhancement, and these cheats go nowhere near the cheat file of the player.
 pub fn cheats(program_id: u64, build: &str, on: &[String], values: &BTreeMap<String, u16>) -> Vec<Cheat> {
     for_title(program_id, build).into_iter().map(|enhancement| cheat_for(enhancement, on, values)).collect()
 }
 
+/// Turns one enhancement into a built-in cheat with its notes, its credit and the value of its setting.
 fn cheat_for(enhancement: Enhancement, on: &[String], values: &BTreeMap<String, u16>) -> Cheat {
     let credit = format!("Code by {}, from {}.", enhancement.author, enhancement.source);
     let notes = [enhancement.note, credit].into_iter().filter(|line| !line.is_empty()).collect();
     let setting = enhancement.setting.map(|setting| {
+        // A stored value outside the range is pulled back into it.
         let value = values.get(&enhancement.name).copied().unwrap_or(setting.default).clamp(setting.min, setting.max);
         CheatSetting::new(setting, value, enhancement.lines.clone())
     });
@@ -139,6 +160,7 @@ mod tests {
         assert_eq!(fps.source, DEFAULT_SOURCE, "the thread, when the list names no other place");
     }
 
+    /// The enhancements of Fire Emblem Awakening carry their credit, their addresses and their setting.
     #[test]
     fn a_code_says_where_it_came_from() {
         let enhancements = for_title(0x0004_0000_0009_F100, "rev0");
@@ -184,6 +206,7 @@ mod tests {
 
     }
 
+    /// Setting a new value rebuilds the lines of the code, clamps the value to the range, and does nothing for a cheat without a setting.
     #[test]
     fn a_new_value_rebuilds_the_code() {
         let mut faster = cheats(0x0004_0000_0009_F100, "rev0", &[], &Default::default()).remove(2);
@@ -194,6 +217,7 @@ mod tests {
         assert_eq!(wide.set_value(150), None, "16:9 has no setting");
     }
 
+    /// Every code line of the list is valid once the placeholders are filled in.
     #[test]
     fn every_listed_code_is_code() {
         let code = LIST.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with(['#', '=', '~']) && !line.contains('|'));

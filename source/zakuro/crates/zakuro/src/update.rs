@@ -1,3 +1,5 @@
+//! Self-update of the launcher. This module asks GitHub for the latest release, downloads the zip of the release and replaces the files of the launcher.
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicBool;
@@ -6,30 +8,46 @@ use std::sync::{Arc, Mutex};
 
 use crate::zig::{fetch, windowless, Fetcher};
 
-pub const RELEASE: &str = "v1.0.11";
+/// The tag of the release this build belongs to.
+pub const RELEASE: &str = "v1.0.12";
+/// The GitHub API address that describes the latest release.
 const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
+/// The end of the file name of the release asset that holds the launcher for Windows.
 const ASSET_SUFFIX: &str = "-windows-x64.zip";
+/// The folder next to the launcher where an update is downloaded and unpacked.
 const STAGING: &str = "update";
+/// A file that ships in the folder of a release, used to recognise an installed launcher.
 const LICENSES: &str = "THIRD_PARTY_LICENSES.txt";
+/// The file name of the launcher program.
 const LAUNCHER: &str = "zakuro.exe";
 
+/// A release on GitHub that can be installed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Release {
+    /// The version tag, for example "v1.0.11".
     tag: String,
+    /// The file name of the zip asset.
     name: String,
+    /// The address the zip asset is downloaded from.
     url: String,
+    /// The size of the zip asset in bytes.
     size: u64,
 }
 
+/// An installation that runs on a background thread.
 pub struct Installing {
+    /// The fraction of the download that has arrived, from 0 to 1.
     pub progress: Arc<Mutex<f32>>,
+    /// Receives the path of the new launcher when the installation succeeds, or the reason it failed.
     pub done: Receiver<Result<PathBuf, String>>,
 }
 
+/// Returns true when the launcher runs from a folder of a release, so it can replace itself.
 pub fn installable() -> bool {
     launcher_folder().is_some_and(|folder| folder.join(LICENSES).is_file())
 }
 
+/// Removes the leftovers of an earlier update: the old launcher and the staging folder.
 pub fn tidy() {
     let Ok(exe) = std::env::current_exe() else { return };
     let _ = std::fs::remove_file(exe.with_extension("exe.old"));
@@ -38,6 +56,7 @@ pub fn tidy() {
     }
 }
 
+/// Asks GitHub for the latest release on a thread. The receiver gets the release when it is newer than this build, and nothing otherwise.
 pub fn check_in_background() -> Receiver<Option<Release>> {
     let (send, receive) = channel();
     std::thread::spawn(move || {
@@ -46,6 +65,7 @@ pub fn check_in_background() -> Receiver<Option<Release>> {
     receive
 }
 
+/// Starts the installation of a release on a thread and returns the handles to follow it.
 pub fn install_in_background(release: Release) -> Installing {
     let progress = Arc::new(Mutex::new(0.0));
     let (send, done) = channel();
@@ -61,20 +81,24 @@ pub fn install_in_background(release: Release) -> Installing {
     Installing { progress, done }
 }
 
+/// Starts the launcher at the given path with the same arguments as this run, then ends this process.
 pub fn restart(exe: &Path) -> std::io::Result<()> {
     Command::new(exe).args(std::env::args_os().skip(1)).spawn()?;
     std::process::exit(0);
 }
 
+/// Returns the folder that holds the running launcher.
 fn launcher_folder() -> Option<PathBuf> {
     std::env::current_exe().ok()?.parent().map(Path::to_owned)
 }
 
+/// Downloads the description of the latest release and reads it. Returns nothing when the request or the reading fails.
 fn latest() -> Option<Release> {
     let output = Fetcher::find()?.command(LATEST, None, 30).stderr(Stdio::null()).output().ok()?;
     output.status.success().then(|| parse(&output.stdout)).flatten()
 }
 
+/// Reads the JSON of a GitHub release and picks the Windows zip asset. Returns nothing when the release has no such asset.
 fn parse(json: &[u8]) -> Option<Release> {
     let release: serde_json::Value = serde_json::from_slice(json).ok()?;
     let asset = release["assets"].as_array()?.iter().find(|asset| asset["name"].as_str().is_some_and(|name| name.ends_with(ASSET_SUFFIX)))?;
@@ -86,15 +110,18 @@ fn parse(json: &[u8]) -> Option<Release> {
     })
 }
 
+/// Splits a tag such as "v1.0.11" into major, minor and patch numbers. Returns nothing when the tag has another shape.
 fn version(tag: &str) -> Option<(u32, u32, u32)> {
     let mut parts = tag.trim_start_matches('v').split('.').map(|part| part.parse().ok());
     Some((parts.next()??, parts.next()??, parts.next()??))
 }
 
+/// Returns true when the first tag is a later version than the second. A tag that is not a version is never newer.
 fn is_newer(tag: &str, current: &str) -> bool {
     matches!((version(tag), version(current)), (Some(latest), Some(current)) if latest > current)
 }
 
+/// Downloads and unpacks a release, then replaces the files of the launcher. Returns the path of the new launcher.
 fn install(release: &Release, progress: &dyn Fn(f32)) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let folder = exe.parent().ok_or("Zakuro can't tell which folder it runs from")?.to_owned();
@@ -114,19 +141,23 @@ fn install(release: &Release, progress: &dyn Fn(f32)) -> Result<PathBuf, String>
     if !unpacked.success() {
         return Err("the download could not be unpacked".to_owned());
     }
+    // The zip unpacks into a folder named like the asset without its suffix.
     let files = staging.join(release.name.trim_end_matches(ASSET_SUFFIX));
     if !files.join(LAUNCHER).is_file() {
         return Err(format!("the download has no {LAUNCHER}"));
     }
+    // Windows allows renaming a running program but not overwriting it, so the old launcher moves aside first.
     let old = exe.with_extension("exe.old");
     let _ = std::fs::remove_file(&old);
     std::fs::rename(&exe, &old).map_err(|error| format!("{}: {error}", exe.display()))?;
+    // When copying fails, the old launcher moves back.
     replace_files(&files, &folder, &exe).inspect_err(|_| {
         let _ = std::fs::rename(&old, &exe);
     })?;
     Ok(exe)
 }
 
+/// Copies every file of the unpacked release into the folder of the launcher. The new launcher goes to the path of the running one.
 fn replace_files(from: &Path, folder: &Path, exe: &Path) -> Result<(), String> {
     let entries = std::fs::read_dir(from).map_err(|error| format!("{}: {error}", from.display()))?;
     for entry in entries.flatten() {

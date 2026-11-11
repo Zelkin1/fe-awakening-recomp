@@ -1,31 +1,52 @@
 diff --git a/crates/zakuro-core/src/feet.rs b/crates/zakuro-core/src/feet.rs
 new file mode 100644
-index 0000000..8c0b964
+index 0000000..2a51b02
 --- /dev/null
 +++ b/crates/zakuro-core/src/feet.rs
-@@ -0,0 +1,212 @@
+@@ -0,0 +1,262 @@
++//! Keeps the feet of a model on the floor.
++//!
++//! A hook on the skinning product of the game checks the bone of a foot and, when the foot sinks into the floor, turns it about the ankle until it rests on the floor.
++//! Only bones whose inverse bind data carries the `FEET` tag are touched.
++
 +use recomp_abi::Context;
 +use zakuro_cpu::Bus;
 +
 +use crate::memory::Memory;
 +use crate::recompiled::AfterHook;
 +
++/// The address of the function of the game that multiplies a world matrix by an inverse bind matrix to give a skinning matrix.
 +pub const SKINNING_PRODUCT: u32 = 0x0030_6964;
++/// The return address inside the skinning loop of the game, which tells that the call comes from that loop.
 +const SKINNING_LOOP_RETURN: u32 = 0x0026_07CC;
 +
++/// The marker that a foot bone carries in its inverse bind data.
 +const FOOT_TAG: u32 = u32::from_le_bytes(*b"FEET");
++/// The offset of the marker from the start of the inverse bind data, which is right after the three foot points of 12 bytes each.
 +const FOOT_TAG_OFFSET: u32 = 36;
++/// The distance from the start of the bone record to its inverse bind data.
 +const INVERSE_BIND_OFFSET: u32 = 0xA4;
++/// The offset of the index of the bone inside the bone record.
 +const BONE_INDEX_OFFSET: u32 = 0x8;
++/// The offset of the index of the parent bone inside the bone record.
 +const PARENT_INDEX_OFFSET: u32 = 0xC;
++/// The size of a 3x4 matrix of floats.
 +const MATRIX_BYTES: u32 = 48;
++/// The number of halvings used to search the angle at which the toe touches the floor.
 +const BISECTION_STEPS: usize = 24;
 +
++/// A 3x4 affine matrix with three rows and the translation in the last column.
 +type Matrix = [[f32; 4]; 3];
++/// A point or a direction in three dimensions.
 +type Vector = [f32; 3];
 +
++/// The hook on the skinning product.
++/// It replaces the skinning matrix of a tagged foot bone with one that is turned about the ankle so that the foot does not sink into the floor.
++/// Any other call runs the original function.
 +pub fn keep_feet_on_the_ground(memory: &mut Memory, ctx: &mut Context) -> AfterHook {
++    // The arguments are the output skinning matrix, the world matrix and the inverse bind data.
 +    let (skinning_matrix, world_matrix, inverse_bind) = (ctx.r[0], ctx.r[1], ctx.r[2]);
++    // Only the call from the skinning loop is handled, and only for a bone that carries the tag.
 +    if ctx.r[14] != SKINNING_LOOP_RETURN || memory.read32(inverse_bind.wrapping_add(FOOT_TAG_OFFSET)) != FOOT_TAG {
 +        return AfterHook::RunOriginal;
 +    }
@@ -35,9 +56,11 @@ index 0000000..8c0b964
 +    if parent >= bone {
 +        return AfterHook::RunOriginal;
 +    }
++    // The matrices of the bones are stored one after the other, so the skinning matrix of the parent and the world matrix of the first bone are found by stepping back from the current ones.
 +    let shin = read_matrix(memory, skinning_matrix.wrapping_sub((bone - parent) * MATRIX_BYTES));
 +    let model = read_matrix(memory, world_matrix.wrapping_sub(bone * MATRIX_BYTES));
 +    let [ankle, toe, heel] = read_foot_points(memory, inverse_bind).map(|point| apply(&shin, point));
++    // The second column of the model matrix is taken as the up direction, and the fourth as the floor.
 +    let up = normalize(column(&model, 1));
 +    let floor = column(&model, 3);
 +    let foot = match turn_onto_floor(ankle, toe, heel, up, floor) {
@@ -48,6 +71,7 @@ index 0000000..8c0b964
 +    AfterHook::ReturnToCaller
 +}
 +
++/// Reads the ankle, toe and heel points of the foot, nine floats at the start of the inverse bind data.
 +fn read_foot_points(memory: &mut Memory, inverse_bind: u32) -> [Vector; 3] {
 +    let mut points = [[0.0; 3]; 3];
 +    for (point_index, point) in points.iter_mut().enumerate() {
@@ -58,18 +82,23 @@ index 0000000..8c0b964
 +    points
 +}
 +
++/// Finds the axis and the angle that turn the foot about the ankle so that it no longer sinks into the floor.
++/// Returns `None` when the toe and the heel are already above the floor, or when the sole is parallel to the up direction.
 +fn turn_onto_floor(ankle: Vector, toe: Vector, heel: Vector, up: Vector, floor: Vector) -> Option<(Vector, f32)> {
++    // The height of a point above the floor along the up direction.
 +    let height = |point: Vector| dot(up, sub(point, floor));
 +    if height(toe) >= 0.0 && height(heel) >= 0.0 {
 +        return None;
 +    }
 +    let sole = sub(toe, heel);
 +    let across = cross(up, sole);
++    // A sole that points straight up or down has no usable turning axis.
 +    if dot(across, across) < 1e-12 {
 +        return None;
 +    }
 +    let axis = normalize(across);
 +    let rise = dot(up, sole);
++    // The angle at which the sole is perpendicular to the up direction, which lays the foot flat.
 +    let angle_to_flat = (rise / dot(sole, sole).sqrt()).clamp(-1.0, 1.0).asin();
 +    if rise >= 0.0 {
 +        return Some((axis, angle_to_flat));
@@ -78,6 +107,7 @@ index 0000000..8c0b964
 +    if toe_height_at(angle_to_flat) <= 0.0 {
 +        return Some((axis, angle_to_flat));
 +    }
++    // The toe is the low point and laying the foot flat would leave it above the floor, so the angle is searched at which the toe touches the floor.
 +    let (mut toe_under_floor, mut toe_over_floor) = (0.0, angle_to_flat);
 +    for _ in 0..BISECTION_STEPS {
 +        let middle = (toe_under_floor + toe_over_floor) / 2.0;
@@ -90,8 +120,10 @@ index 0000000..8c0b964
 +    Some((axis, toe_over_floor))
 +}
 +
++/// Turns a matrix about an axis through the pivot point.
 +fn turned_about(matrix: &Matrix, axis: Vector, angle: f32, pivot: Vector) -> Matrix {
 +    let mut turned = [[0.0; 4]; 3];
++    // The three columns of the rotation part are turned, and the translation is turned about the pivot.
 +    for column_index in 0..3 {
 +        let turned_column = rotate(column(matrix, column_index), axis, angle);
 +        for row in 0..3 {
@@ -105,6 +137,7 @@ index 0000000..8c0b964
 +    turned
 +}
 +
++/// Rotates a vector about a unit axis by an angle in radians, with the formula of Rodrigues.
 +fn rotate(vector: Vector, axis: Vector, angle: f32) -> Vector {
 +    let (sin, cos) = angle.sin_cos();
 +    let across = cross(axis, vector);
@@ -112,10 +145,12 @@ index 0000000..8c0b964
 +    [0, 1, 2].map(|i| vector[i] * cos + across[i] * sin + axis[i] * along)
 +}
 +
++/// One column of a matrix.
 +fn column(matrix: &Matrix, index: usize) -> Vector {
 +    [matrix[0][index], matrix[1][index], matrix[2][index]]
 +}
 +
++/// Reads a 3x4 matrix of twelve floats from the memory of the game, row by row.
 +fn read_matrix(memory: &mut Memory, address: u32) -> Matrix {
 +    let mut matrix = [[0.0; 4]; 3];
 +    for (i, value) in matrix.as_flattened_mut().iter_mut().enumerate() {
@@ -124,32 +159,39 @@ index 0000000..8c0b964
 +    matrix
 +}
 +
++/// Writes a 3x4 matrix of twelve floats to the memory of the game, row by row.
 +fn write_matrix(memory: &mut Memory, address: u32, matrix: &Matrix) {
 +    for (i, value) in matrix.as_flattened().iter().enumerate() {
 +        memory.write32(address + 4 * i as u32, value.to_bits());
 +    }
 +}
 +
++/// Transforms a point by a matrix.
 +fn apply(matrix: &Matrix, point: Vector) -> Vector {
 +    [0, 1, 2].map(|i| matrix[i][0] * point[0] + matrix[i][1] * point[1] + matrix[i][2] * point[2] + matrix[i][3])
 +}
 +
++/// The sum of two vectors.
 +fn add(a: Vector, b: Vector) -> Vector {
 +    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 +}
 +
++/// The difference of two vectors.
 +fn sub(a: Vector, b: Vector) -> Vector {
 +    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 +}
 +
++/// The dot product of two vectors.
 +fn dot(a: Vector, b: Vector) -> f32 {
 +    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 +}
 +
++/// The cross product of two vectors.
 +fn cross(a: Vector, b: Vector) -> Vector {
 +    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 +}
 +
++/// The vector scaled to length one, or the vector itself when its length is zero.
 +fn normalize(vector: Vector) -> Vector {
 +    let length = dot(vector, vector).sqrt();
 +    if length == 0.0 {
@@ -162,9 +204,12 @@ index 0000000..8c0b964
 +mod tests {
 +    use super::*;
 +
++    /// The up direction of the tests.
 +    const UP: Vector = [0.0, 1.0, 0.0];
++    /// A point on the floor of the tests.
 +    const FLOOR: Vector = [0.0, 0.0, 0.0];
 +
++    /// Places a foot with the ankle at the height, leans it by the angle in degrees, and returns the toe and the heel after the correction.
 +    fn stand(lean: f32, height: f32) -> (Vector, Vector) {
 +        let (sin, cos) = lean.to_radians().sin_cos();
 +        let ankle = [0.0, height, 0.0];
@@ -176,6 +221,7 @@ index 0000000..8c0b964
 +        }
 +    }
 +
++    /// A foot above the floor is left as it is.
 +    #[test]
 +    fn a_foot_off_the_floor_keeps_its_angle_to_the_shin() {
 +        let (toe, heel) = stand(15.0, 2.0);
@@ -184,6 +230,7 @@ index 0000000..8c0b964
 +        assert!((toe[1] - (2.0 - 0.8 * 15f32.to_radians().cos() - 1.5 * sin)).abs() < 1e-5, "{toe:?}");
 +    }
 +
++    /// A toe that sinks into the floor is lifted until it touches it.
 +    #[test]
 +    fn a_toe_that_would_dig_in_comes_up_to_the_floor() {
 +        let (toe, heel) = stand(15.0, 0.9);
@@ -191,6 +238,7 @@ index 0000000..8c0b964
 +        assert!(heel[1] > toe[1], "the heel off the floor, {heel:?}");
 +    }
 +
++    /// A heel that sinks into the floor lays the foot flat.
 +    #[test]
 +    fn a_heel_that_would_dig_in_lays_the_foot_flat() {
 +        let (toe, heel) = stand(-15.0, 0.85);
@@ -198,6 +246,7 @@ index 0000000..8c0b964
 +        assert!(heel[1] > -0.1 && heel[1] < 0.1, "on the floor, {heel:?}");
 +    }
 +
++    /// A foot whose ankle is too low is still laid flat.
 +    #[test]
 +    fn a_foot_on_the_floor_lies_flat() {
 +        let (toe, heel) = stand(15.0, 0.7);
@@ -205,6 +254,7 @@ index 0000000..8c0b964
 +        assert!(toe[1] < 0.0, "under the floor still, the ankle being too low");
 +    }
 +
++    /// The turned matrix keeps the ankle in place and swings the toe about it.
 +    #[test]
 +    fn the_turned_matrix_moves_the_foot_about_the_ankle() {
 +        let m = [[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 2.0], [0.0, 0.0, 1.0, 3.0]];
@@ -217,7 +267,7 @@ index 0000000..8c0b964
 +    }
 +}
 diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
-index 6a630cb..2e279c7 100644
+index 194854c..d721bc6 100644
 --- a/crates/zakuro-core/src/lib.rs
 +++ b/crates/zakuro-core/src/lib.rs
 @@ -4,6 +4,7 @@
@@ -229,13 +279,14 @@ index 6a630cb..2e279c7 100644
  pub mod cro;
  pub mod download_play;
 diff --git a/crates/zakuro-core/src/loader.rs b/crates/zakuro-core/src/loader.rs
-index d934f31..643f9d9 100644
+index bd7a846..a3c9193 100644
 --- a/crates/zakuro-core/src/loader.rs
 +++ b/crates/zakuro-core/src/loader.rs
-@@ -200,6 +200,10 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
+@@ -201,6 +201,11 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
          }
      }
  
++    // The hooks of the game are added to the library of recompiled code.
 +    if let Some(library) = system.recompiled.as_mut() {
 +        add_game_hooks(library, title.program_id(), &build);
 +    }
@@ -243,7 +294,7 @@ index d934f31..643f9d9 100644
      let mut on_gpu = false;
      if system.config.hardware_renderer {
          match system.gpu.enable_hardware_renderer(system.config.resolution, system.config.device.clone(), Some(title.program_id())) {
-@@ -269,10 +273,17 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
+@@ -272,10 +277,19 @@ pub fn swap_recompiled(system: &mut System, path: &std::path::Path) -> Result<()
          library.place(&module.name, module.base, &mut system.memory);
      }
      system.hints = Some(crate::hints::Hints::new(path, text));
@@ -252,7 +303,9 @@ index d934f31..643f9d9 100644
      Ok(())
  }
  
++/// Adds the hooks of the project to the recompiled library, for the games and builds they were made for.
 +fn add_game_hooks(library: &mut crate::recompiled::Library, program_id: u64, build: &str) {
++    // The addresses of the foot hook are those of revision 0 of Fire Emblem Awakening.
 +    if program_id == crate::game_ui::FIRE_EMBLEM_AWAKENING && build == "rev0" {
 +        library.hook(crate::feet::SKINNING_PRODUCT, crate::feet::keep_feet_on_the_ground);
 +    }
@@ -262,32 +315,41 @@ index d934f31..643f9d9 100644
  fn exheader_text(title: &Title) -> std::ops::Range<u32> {
      let text = &title.exheader.text;
 diff --git a/crates/zakuro-core/src/recompiled.rs b/crates/zakuro-core/src/recompiled.rs
-index 830127f..a392846 100644
+index 830127f..1e251d1 100644
 --- a/crates/zakuro-core/src/recompiled.rs
 +++ b/crates/zakuro-core/src/recompiled.rs
-@@ -29,6 +29,15 @@ pub struct Library {
+@@ -29,6 +29,21 @@ pub struct Library {
      /// picks. a jump through a register looks its target up, which is a
      /// search through every function otherwise.
      found: Box<[Found]>,
++    /// The functions of the game that are replaced or wrapped by a hook, by address.
 +    hooks: Vec<(u32, Hook)>,
 +}
 +
++/// A function that runs in place of the start of a function of the game.
++/// It gets the memory and the registers, and says what to do next.
 +pub type Hook = fn(&mut Memory, &mut Context) -> AfterHook;
 +
++/// What happens after a hook has run.
 +#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 +pub enum AfterHook {
++    /// The original function of the game runs next.
 +    RunOriginal,
++    /// The original function is skipped and the call returns to its caller.
 +    ReturnToCaller,
  }
  
  /// a slot of Library::found, an address and the code found for it.
-@@ -119,6 +128,29 @@ unsafe extern "C" fn lookup(ctx: *mut Context, address: u32) -> Option<Code> {
+@@ -119,6 +134,34 @@ unsafe extern "C" fn lookup(ctx: *mut Context, address: u32) -> Option<Code> {
      unsafe { machine(ctx).library.lookup(address) }
  }
  
++/// The entry for every hooked address in place of its recompiled code.
++/// It runs the hook, then either returns to the caller or continues with the original function.
 +unsafe extern "C" fn hooked(ctx: *mut Context) {
 +    unsafe {
 +        let machine = machine(ctx);
++        // The program counter holds the address that was jumped to.
 +        let address = (*ctx).r[15];
 +        let hook = machine.library.hooks.iter().find(|(at, _)| *at == address).map(|&(_, hook)| hook);
 +        if hook.is_some_and(|hook| hook(machine.memory, &mut *ctx) == AfterHook::ReturnToCaller) {
@@ -301,8 +363,10 @@ index 830127f..a392846 100644
 +    }
 +}
 +
++/// Returns from the current function the way `bx lr` does.
 +fn return_to_caller(ctx: &mut Context) {
 +    let return_address = ctx.r[14];
++    // The lowest bit of the link register tells that the caller runs in Thumb mode, and the address is aligned for the mode.
 +    let thumb = return_address & 1 != 0;
 +    ctx.thumb = thumb as u8;
 +    ctx.r[15] = return_address & if thumb { !1 } else { !3 };
@@ -311,7 +375,7 @@ index 830127f..a392846 100644
  static HOST: Host = Host { read8, read16, read32, write8, write16, write32, interpret, lookup };
  
  fn load(ctx: &Context, cpu: &mut Cpu) {
-@@ -159,7 +191,13 @@ impl Library {
+@@ -159,7 +202,15 @@ impl Library {
      }
  
      fn new(code: recomp_abi::Library) -> Library {
@@ -319,18 +383,21 @@ index 830127f..a392846 100644
 +        Library { code, fallbacks: Cell::new(0), found: Library::nothing_found(), hooks: Vec::new() }
 +    }
 +
++    /// Hooks the function at the address, replacing a hook that is already there.
 +    pub fn hook(&mut self, address: u32, hook: Hook) {
 +        self.hooks.retain(|(at, _)| *at != address);
 +        self.hooks.push((address, hook));
++        // The cache of looked up code may hold the address, so it is emptied.
 +        self.found = Library::nothing_found();
      }
  
      /// every slot of found empty, an address no code starts at in each.
-@@ -196,7 +234,10 @@ impl Library {
+@@ -196,7 +247,11 @@ impl Library {
          match slot.get() {
              (seen, code) if seen == address => code,
              _ => {
 -                let code = self.code.lookup(address);
++                // A hooked address runs through `hooked`, which calls the hook first.
 +                let code = match self.hooks.iter().any(|(at, _)| *at == address) {
 +                    true => Some(hooked as Code),
 +                    false => self.code.lookup(address),
@@ -340,54 +407,70 @@ index 830127f..a392846 100644
              }
 diff --git a/crates/zakuro/src/feet/foot.rs b/crates/zakuro/src/feet/foot.rs
 new file mode 100644
-index 0000000..03050ee
+index 0000000..fea31fa
 --- /dev/null
 +++ b/crates/zakuro/src/feet/foot.rs
-@@ -0,0 +1,1123 @@
+@@ -0,0 +1,1392 @@
++
++//! Builds the feet for one body model.
++//! The legs of the body are measured, a foot is shaped for each leg, and the texture coordinates of the feet are taken from the texture of the body.
++//! The bones, the vertices and the triangles of the feet are then written into a copy of the CGFX file of the model.
++//! In the coordinates of the model, y is up, z runs from the back to the front, and x is sideways.
 +
 +use std::collections::{BTreeMap, BTreeSet, HashMap};
 +
 +use super::formats::{self, Blob, Image};
 +use super::model::{self, Attr, FLOAT};
 +
++/// A point or a vector with the three coordinates x, y and z.
 +type V3 = [f64; 3];
 +
++/// Adds two vectors.
 +fn add(a: V3, b: V3) -> V3 {
 +    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 +}
 +
++/// Subtracts the second vector from the first.
 +fn sub(a: V3, b: V3) -> V3 {
 +    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 +}
 +
++/// Multiplies a vector by a number.
 +fn mul(a: V3, s: f64) -> V3 {
 +    [a[0] * s, a[1] * s, a[2] * s]
 +}
 +
++/// Returns the dot product of two vectors.
 +fn dot(a: V3, b: V3) -> f64 {
 +    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 +}
 +
++/// Returns the cross product of two vectors.
 +fn cross(a: V3, b: V3) -> V3 {
 +    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 +}
 +
++/// Returns the length of a vector.
 +fn norm(a: V3) -> f64 {
 +    dot(a, a).sqrt()
 +}
 +
++/// Returns the lowest and the highest corner of the box around a set of points.
 +fn bounds(points: impl Iterator<Item = V3>) -> (V3, V3) {
 +    points.fold(([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]), |(lo, hi), p| {
 +        ([lo[0].min(p[0]), lo[1].min(p[1]), lo[2].min(p[2])], [hi[0].max(p[0]), hi[1].max(p[1]), hi[2].max(p[2])])
 +    })
 +}
 +
++/// Returns the median of the values. The values are sorted in place.
 +fn median(values: &mut [f64]) -> f64 {
 +    values.sort_by(f64::total_cmp);
 +    let n = values.len();
 +    if n % 2 == 1 { values[n / 2] } else { (values[n / 2 - 1] + values[n / 2]) / 2.0 }
 +}
 +
++/// Returns a percentile of the values, from 0 to 100, with a linear blend between the two nearest values.
++/// The values are sorted in place.
 +fn percentile(values: &mut [f64], q: f64) -> f64 {
 +    values.sort_by(f64::total_cmp);
 +    let at = (values.len() - 1) as f64 * q / 100.0;
@@ -398,30 +481,55 @@ index 0000000..03050ee
 +    }
 +}
 +
++/// How far the heel sits behind the back of the shin, as a share of the length of the foot.
 +const HEEL: f64 = 0.03;
++/// The length of the foot for each unit of depth of the shin.
 +const LENGTH_PER_DEPTH: f64 = 2.35;
++/// The least and the most length of the foot, as shares of the height of the knee.
 +const LENGTH: (f64, f64) = (0.42, 0.60);
++/// The least length of the part of the foot in front of the shin, as a share of the length of the foot.
 +const AHEAD_LEAST: f64 = 0.40;
++/// The band of the shin that is cut to find its shaft, as shares of the height of the knee.
 +const BAND: (f64, f64) = (0.234, 0.338);
++/// The share of the weight of a vertex that the bones of the shin must hold for the vertex to belong to the leg.
 +const OWN: f64 = 0.85;
++/// The height that counts as the end of the leg, as a share of the height of the knee.
 +const END: f64 = 0.12;
++/// The share of the height of the ankle above which vertices of the leg count for the front and the back of the shin.
 +const SHOWN: f64 = 0.85;
++/// The widest the foot may be, as a share of the height of the knee.
 +const WIDEST: f64 = 0.21;
++/// The most that a texture coordinate is moved by the random jitter, in texels.
 +const NOISE: f64 = 1.5;
++/// The share of the height of the ankle below which vertices of the leg are the end of the leg.
 +const LOW: f64 = 0.25;
++/// The height that the end of the leg is tucked to, as a share of the height of the ankle.
 +const TUCK: f64 = 0.40;
++/// The distance that the contact points of a foot sit below the bottom of the foot.
 +const LIFT: f64 = 0.01;
++/// The flag bits that are set in the new bones of the feet.
 +const SKINNED: u32 = 0x240;
++/// The position of the inverse bind matrix inside the record of a bone.
 +const INVERSE_BIND: usize = 0xA4;
++/// The four bytes that are written into the inverse bind matrix of a new foot bone.
 +const TAG: &[u8; 4] = b"FEET";
 +
++/// The shape of a foot, as cross sections along the foot.
 +pub struct Style {
++    /// The name of the style.
 +    pub name: &'static str,
++    /// The sections from the heel to the front of the shin.
++    /// Each section is the place along the part, the width, the top, the sole, the bottom and the shoulder.
++    /// The place is a share of the length of the part, the width is a share of the half width of the shin, and the three heights are shares of the height of the ankle.
++    /// The shoulder is the share of the width that is left at the top.
 +    behind: &'static [[f64; 6]],
++    /// The sections from the front of the shin to the toe, in the same form as the sections behind.
 +    ahead: &'static [[f64; 6]],
++    /// The angle in degrees up to which neighbouring faces are shaded as one smooth surface.
 +    smooth: f64,
 +}
 +
++/// The three styles of feet.
 +const STYLES: [Style; 3] = [
 +    Style {
 +        name: "shoe",
@@ -443,9 +551,13 @@ index 0000000..03050ee
 +    },
 +];
 +
++/// The class names of the bodies that get sabatons, which are the armored feet.
 +const SABATONS: [&str; 13] = ["karm", "gene", "kgre", "kgri", "kpal", "kdar", "kdr1", "kdr2", "lod2", "snyp", "war2", "ksoc", "merc"];
++/// The class names of the bodies that get sandals.
 +const SANDALS: [&str; 5] = ["dmag", "sorc", "lagz", "baba", "swd2"];
 +
++/// Picks the style of the feet from the path of a body model.
++/// The class of the body is the third part of the name, as in `b/uBody_M_kgre_9.m.lz`, and every other class gets shoes.
 +pub fn style_of(path: &str) -> &'static Style {
 +    let class = path.split('_').nth(2).unwrap_or("");
 +    let name = if SABATONS.contains(&class) {
@@ -458,65 +570,92 @@ index 0000000..03050ee
 +    STYLES.iter().find(|style| style.name == name).unwrap()
 +}
 +
++/// The two materials of a foot, which take their colors from two different places of the texture.
 +#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 +enum Material {
++    /// The bottom of the foot.
 +    Sole,
++    /// The rest of the foot.
 +    Upper,
 +}
 +
++/// The edges of a ring of the foot that belong to the sole, as indices of the points of the ring.
 +const SOLE_EDGES: [usize; 3] = [0, 1, 5];
 +
++/// A small random number generator with a fixed start, so that the same body always gets the same jitter.
 +struct Noise(u64);
 +
 +impl Noise {
++    /// Starts the generator at its fixed state.
 +    fn new() -> Noise {
 +        Noise(0x9E37_79B9_7F4A_7C15)
 +    }
 +
++    /// Returns the next number, from minus `NOISE` to `NOISE`.
 +    fn next(&mut self) -> f64 {
++        // One step of the xorshift64 generator.
 +        let mut s = self.0;
 +        s ^= s << 13;
 +        s ^= s >> 7;
 +        s ^= s << 17;
 +        self.0 = s;
++        // The top 53 bits make a number from 0 to 1, which is then stretched to the range of minus one to one.
 +        ((s >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) * NOISE
 +    }
 +}
 +
++/// A rectangle of texels in the texture.
 +#[derive(Clone, Copy, Debug, PartialEq)]
 +struct Rect {
++    /// The column of the left edge.
 +    x: usize,
++    /// The row of the top edge.
 +    y: usize,
++    /// The width in texels.
 +    w: usize,
++    /// The height in texels.
 +    h: usize,
 +}
 +
++/// A candidate rectangle of the texture with its measured colors.
 +struct Found {
++    /// The column of the left edge.
 +    x: usize,
++    /// The row of the top edge.
 +    y: usize,
++    /// The mean color of the rectangle.
 +    colour: [f64; 3],
++    /// The standard deviation of the brightness inside the rectangle, which is low for a plain rectangle.
 +    spread: f64,
 +}
 +
++/// Returns the largest difference between two colors in any one channel.
 +fn farthest(a: [f64; 3], b: [f64; 3]) -> f64 {
 +    (a[0] - b[0]).abs().max((a[1] - b[1]).abs()).max((a[2] - b[2]).abs())
 +}
 +
++/// Tells whether a color looks like skin, which is warm with red above green above blue.
 +fn skin(c: [f64; 3]) -> bool {
 +    let warm = (c[0] - c[2]) / (c[0] + 1.0);
 +    c[0] >= c[1] && c[1] >= c[2] && warm > 0.12 && warm < 0.55 && c[0] > 70.0
 +}
 +
++/// Returns the position of the candidate with the lowest key.
++/// Each item is a key with a column and a row, and ties are broken by the column and then by the row, so that the choice is always the same.
 +fn least(keys: impl Iterator<Item = (f64, usize, usize)>) -> Option<(usize, usize)> {
 +    keys.min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2))).map(|(_, x, y)| (x, y))
 +}
 +
++/// A summed area table, which gives the sum of the values in any rectangle of a grid with four reads.
 +struct Sums {
++    /// The width of the grid.
 +    wide: usize,
++    /// The running sums, with one extra row and column of zeros at the top and the left.
 +    table: Vec<f64>,
 +}
 +
 +impl Sums {
++    /// Builds the table for a grid of the given size, where `value` gives the value of each cell.
 +    fn new(wide: usize, high: usize, value: impl Fn(usize, usize) -> f64) -> Sums {
 +        let mut table = vec![0.0; (wide + 1) * (high + 1)];
 +        for y in 0..high {
@@ -529,26 +668,36 @@ index 0000000..03050ee
 +        Sums { wide, table }
 +    }
 +
++    /// Returns the sum of the values in a rectangle.
 +    fn sum(&self, x: usize, y: usize, w: usize, h: usize) -> f64 {
 +        let at = |x: usize, y: usize| self.table[y * (self.wide + 1) + x];
 +        at(x + w, y + h) - at(x, y + h) - at(x + w, y) + at(x, y)
 +    }
 +}
 +
++/// The texture of a body with a mask of the texels that the shins use, and tables for measuring rectangles of it.
 +struct Texels<'a> {
++    /// The texture.
 +    tex: &'a Image,
++    /// Tells for each texel whether the shins use it.
 +    mask: Vec<bool>,
++    /// The number of masked texels.
 +    inside: Sums,
++    /// The values of the red, green and blue channels.
 +    colour: [Sums; 3],
++    /// The brightness.
 +    lum: Sums,
++    /// The square of the brightness, which gives the spread together with the brightness.
 +    lum2: Sums,
 +}
 +
++/// Returns the brightness of a color with the usual luma weights.
 +fn lum(c: [f64; 3]) -> f64 {
 +    c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114
 +}
 +
 +impl<'a> Texels<'a> {
++    /// Builds the tables for a texture and the mask of its texels that the shins use.
 +    fn new(tex: &'a Image, mask: Vec<bool>) -> Texels<'a> {
 +        let (w, h) = (tex.width, tex.height);
 +        let channel = |c: usize| Sums::new(w, h, |x, y| tex.at(x, y)[c]);
@@ -562,8 +711,11 @@ index 0000000..03050ee
 +        }
 +    }
 +
++    /// Finds a plain rectangle of the texture that lies fully inside the mask.
++    /// The sizes are tried in order. For each size, every position is measured and `pick` chooses one of them, and the first size with a pick wins.
 +    fn plain(&self, sizes: &[(usize, usize)], pick: &dyn Fn(&[Found], (usize, usize)) -> Option<(usize, usize)>) -> Result<Rect, String> {
 +        let wide = self.tex.width;
++        // The rows and the columns that the mask covers, as a first and a last.
 +        let (mut rows, mut columns) = ((usize::MAX, 0), (usize::MAX, 0));
 +        for (i, _) in self.mask.iter().enumerate().filter(|(_, &m)| m) {
 +            let (x, y) = (i % wide, i / wide);
@@ -577,6 +729,7 @@ index 0000000..03050ee
 +            let mut found = Vec::new();
 +            for y in rows.0.max(1)..rows.1.saturating_sub(h) {
 +                for x in columns.0.max(1)..columns.1.saturating_sub(w) {
++                    // The rectangle and a border of one texel around it must be inside the mask.
 +                    if self.inside.sum(x - 1, y - 1, w + 2, h + 2) < ((w + 2) * (h + 2)) as f64 - 0.5 {
 +                        continue;
 +                    }
@@ -594,11 +747,14 @@ index 0000000..03050ee
 +        Err("no plain rectangle on the shins".into())
 +    }
 +
++    /// Returns the mean color of a rectangle.
 +    fn mean(&self, r: Rect) -> [f64; 3] {
 +        let n = (r.w * r.h) as f64;
 +        [0, 1, 2].map(|c| self.colour[c].sum(r.x, r.y, r.w, r.h) / n)
 +    }
 +
++    /// Measures how much a rectangle is striped.
++    /// It returns the largest distance from the mean color of the rectangle to the mean color of any single column or row.
 +    fn stripe(&self, x: usize, y: usize, (w, h): (usize, usize)) -> f64 {
 +        let whole = self.mean(Rect { x, y, w, h });
 +        let columns = (x..x + w).map(|cx| [0, 1, 2].map(|c| (y..y + h).map(|ry| self.tex.at(cx, ry)[c]).sum::<f64>() / h as f64));
@@ -607,6 +763,8 @@ index 0000000..03050ee
 +    }
 +}
 +
++/// Makes a pick for `Texels::plain` that looks for a rectangle of the given color.
++/// Among the rectangles within 16 of the color it takes the plainest. When there is none, it takes the one with the lowest mix of distance and spread.
 +fn near(colour: [f64; 3]) -> impl Fn(&[Found], (usize, usize)) -> Option<(usize, usize)> {
 +    move |found, _| {
 +        let close: Vec<_> = found.iter().filter(|f| farthest(f.colour, colour) < 16.0).map(|f| (f.spread, f.x, f.y)).collect();
@@ -617,73 +775,122 @@ index 0000000..03050ee
 +    }
 +}
 +
++/// A pick for `Texels::plain` that takes the darkest rectangle among the plain ones.
 +fn darkest(found: &[Found], _: (usize, usize)) -> Option<(usize, usize)> {
 +    least(found.iter().filter(|f| f.spread < 3.0).map(|f| (f.colour.iter().sum::<f64>() / 3.0, f.x, f.y)))
 +}
 +
++/// The places of the texture that the materials of the feet take their colors from.
 +struct Patch {
++    /// The rectangle of each material.
 +    rects: [(Material, Rect); 2],
++    /// The width of the texture in texels.
 +    wide: usize,
++    /// The height of the texture in texels.
 +    high: usize,
++    /// The number of texels for each unit of length of the shins.
 +    density: f64,
 +}
 +
++/// The measurements of one leg.
 +struct Frame {
++    /// Tells for each vertex of the body whether it belongs to the leg.
 +    on_leg: Vec<bool>,
++    /// The points where one cut through the shin meets its triangles.
 +    outline: Vec<V3>,
++    /// The x of the center of the shin.
 +    cx: f64,
++    /// The z of the center of the shin.
 +    cz: f64,
++    /// The half width of the shin.
 +    half: f64,
++    /// The depth of the shin from the back to the front.
 +    depth: f64,
++    /// The height of the ankle.
 +    ankle: f64,
++    /// The height of the knee.
 +    height: f64,
++    /// The z of the back of the shin.
 +    back: f64,
++    /// The z of the front of the shin.
 +    front: f64,
 +}
 +
++/// The volume of a foot, which is used to pull the vertices of the leg inside it.
 +struct Fit {
++    /// The x of the center of the foot.
 +    cx: f64,
++    /// The z of the center of the shin, which is the origin of the places along the foot.
 +    cz: f64,
++    /// The place of each section along the foot, from the back to the front.
 +    along: Vec<f64>,
++    /// The width, the top, the sole, the bottom and the shoulder of each section.
 +    sections: Vec<[f64; 5]>,
 +}
 +
++/// A foot that is built for one leg.
 +struct Foot {
++    /// The positions of the vertices.
 +    verts: Vec<V3>,
++    /// The normals of the vertices.
 +    normals: Vec<V3>,
++    /// The texture coordinates of the vertices.
 +    uvs: Vec<[f64; 2]>,
++    /// The triangles as indices into the vertices.
 +    tris: Vec<[usize; 3]>,
++    /// The three points that are written into the new foot bone, which are the ankle, the toe and the heel.
 +    contact: [V3; 3],
++    /// The volume of the foot.
 +    fit: Fit,
 +}
 +
++/// The model of a body as it is read from its file.
 +struct Body<'a> {
++    /// The bytes of the file.
 +    b: Blob<'a>,
++    /// The positions of the vertices.
 +    pos: Vec<V3>,
++    /// The texture coordinates of the vertices, when there are any.
 +    uv: Option<Vec<[f64; 2]>>,
++    /// The weights of the bones of each vertex.
 +    weights: Vec<Vec<f64>>,
++    /// The bones of each vertex as indices of the skeleton, or minus one for none.
 +    joint: Vec<Vec<i64>>,
++    /// The bone with the highest weight of each vertex.
 +    main: Vec<i64>,
++    /// The bones of the skeleton as an index and a name.
 +    names: Vec<(i64, String)>,
++    /// The position of the record of each bone by its name.
 +    records: HashMap<String, usize>,
++    /// All triangles of the body as indices into the vertices.
 +    triangles: Vec<[usize; 3]>,
 +}
 +
++/// A slanted edge of a triangle, for filling triangles into a mask.
 +struct Edge {
++    /// The x of the start point.
 +    x0: i64,
++    /// The y of the start point.
 +    y0: i64,
++    /// The change of x for each step of y.
 +    dx: f32,
++    /// The lowest y of the edge.
 +    top: i64,
++    /// The highest y of the edge.
 +    bottom: i64,
 +}
 +
 +impl Edge {
++    /// Returns the x of the edge at the given y.
 +    fn x(&self, y: i64) -> f32 {
 +        (y - self.y0) as f32 * self.dx + self.x0 as f32
 +    }
 +}
 +
++/// Fills a triangle into a mask of texels, with the same rounding rules as the polygon fill of the Pillow library.
++/// The points are in texels, and the parts of the triangle outside the mask are cut off.
 +fn fill(mask: &mut [bool], wide: usize, high: usize, points: [(f64, f64); 3]) {
++    // The rounding of the left and the right end of a span differs, so that the edges of neighbouring triangles do not overlap.
 +    let round_up = |v: f32| {
 +        let v = v as f64;
 +        (if v >= 0.0 { (v + 0.5).floor() } else { -(v.abs() + 0.5).floor() }) as i64
@@ -693,6 +900,7 @@ index 0000000..03050ee
 +        (if v >= 0.0 { (v - 0.5).ceil() } else { -(v.abs() - 0.5).ceil() }) as i64
 +    };
 +    let (wide_i, high_i) = (wide as i64, high as i64);
++    // Sets the texels of one horizontal span, from x0 to x1 inclusive.
 +    let mut hline = |x0: i64, y: i64, x1: i64| {
 +        if y < 0 || y >= high_i || x1 < 0 || x0 >= wide_i {
 +            return;
@@ -701,6 +909,7 @@ index 0000000..03050ee
 +            mask[y as usize * wide + x as usize] = true;
 +        }
 +    };
++    // The corners are cut to whole texels. Flat edges are drawn at once, and the slanted edges are kept for the scan below.
 +    let corners = points.map(|(x, y)| (x as i64, y as i64));
 +    let (mut top, mut bottom) = (high_i - 1, 0);
 +    let mut slanted = Vec::new();
@@ -717,6 +926,7 @@ index 0000000..03050ee
 +            slanted.push(Edge { x0, y0, dx: (x1 - x0) as f32 / (y1 - y0) as f32, top: lo, bottom: hi });
 +        }
 +    }
++    // Each row is scanned from the top to the bottom. The crossings of the slanted edges with the row are collected, and every pair of them is a span.
 +    let (top, bottom) = (top.max(0), bottom.min(high_i));
 +    for y in top..=bottom {
 +        let mut xs: Vec<f32> = Vec::with_capacity(2 * slanted.len());
@@ -726,6 +936,7 @@ index 0000000..03050ee
 +            }
 +            let x = edge.x(y);
 +            xs.push(x);
++            // The lower end of an edge is counted twice, except on the last row, so that a corner is handled like a crossing.
 +            if y == edge.bottom && y < bottom {
 +                xs.push(x);
 +            } else if edge.dx != 0.0 && x.round() == x {
@@ -756,19 +967,25 @@ index 0000000..03050ee
 +}
 +
 +impl Body<'_> {
++    /// Returns the indices of the bones with the wanted names.
 +    fn joints(&self, wanted: &[String]) -> Vec<i64> {
 +        self.names.iter().filter(|(_, name)| wanted.contains(name)).map(|(joint, _)| *joint).collect()
 +    }
 +
++    /// Returns the height of the knee of a leg, `l` or `r`.
++    /// It is worked out from the inverse bind matrix of the shin bone, which is a matrix of three rows and four columns.
 +    fn knee(&self, leg: char) -> Result<f64, String> {
 +        let at = *self.records.get(&format!("{leg}_leg2")).ok_or("no shin")? + INVERSE_BIND;
 +        let m = |r: usize, c: usize| self.b.f32(at + 4 * (4 * r + c));
 +        Ok(-(0..3).map(|r| m(r, 1) * m(r, 3)).sum::<f64>())
 +    }
 +
++    /// Measures one leg of the body.
++    /// The shin is cut at several heights to find its center, its width and its depth, and the ankle is placed near the lowest cut.
 +    fn frame(&self, leg: char) -> Result<Frame, String> {
 +        let bones = self.joints(&[format!("{leg}_leg2"), format!("{leg}_leg3")]);
 +        let n = self.pos.len();
++        // A vertex belongs to the leg when the bones of the shin are its main bone and hold most of its weight.
 +        let mut on_leg: Vec<bool> = (0..n)
 +            .map(|i| {
 +                let own: f64 = self.joint[i].iter().zip(&self.weights[i]).filter(|(j, _)| bones.contains(j)).map(|(_, w)| w).sum();
@@ -777,6 +994,7 @@ index 0000000..03050ee
 +            .collect();
 +        let height = self.knee(leg)?;
 +        let (lo, hi) = (BAND.0 * height, BAND.1 * height);
++        // The vertices at the end of the leg give a box in x and z. Vertices outside that box, grown by half of its size, are dropped from the leg.
 +        let end: Vec<usize> = (0..n).filter(|&i| on_leg[i] && self.pos[i][1] < END * height).collect();
 +        if end.len() >= 3 {
 +            let (first, last) = bounds(end.iter().map(|&i| self.pos[i]));
@@ -787,6 +1005,7 @@ index 0000000..03050ee
 +            }
 +        }
 +        let tris: Vec<[usize; 3]> = self.triangles.iter().copied().filter(|t| t.iter().all(|&i| on_leg[i])).collect();
++        // The points where the edges of the triangles of the leg cross a horizontal plane at height y.
 +        let crossings = |y: f64| {
 +            let mut found = Vec::new();
 +            for (i, j) in [(0, 1), (1, 2), (2, 0)] {
@@ -799,9 +1018,11 @@ index 0000000..03050ee
 +            }
 +            found
 +        };
++        // Seven cuts that are evenly spaced from the bottom to the top. Cuts with fewer than four crossings are dropped.
 +        let sections = |bottom: f64, top: f64| -> Vec<Vec<V3>> {
 +            (0..7).map(|k| if k == 6 { top } else { bottom + (top - bottom) / 6.0 * k as f64 }).map(crossings).filter(|cut| cut.len() >= 4).collect()
 +        };
++        // When the band holds no shaft, as with a robe, the range below the band is cut instead.
 +        let (mut cuts, mut robed) = (sections(lo, hi), false);
 +        if cuts.len() < 2 {
 +            (cuts, robed) = (sections(END * height, lo), true);
@@ -809,23 +1030,29 @@ index 0000000..03050ee
 +        if cuts.len() < 2 {
 +            return Err(format!("the {leg} shin has no shaft between {:.2} and {hi:.2}", END * height));
 +        }
++        // The box of the shin is the median of the boxes of the cuts, which keeps single odd cuts from skewing it.
 +        let extents: Vec<(V3, V3)> = cuts.iter().map(|cut| bounds(cut.iter().copied())).collect();
 +        let first: V3 = [0, 1, 2].map(|c| median(&mut extents.iter().map(|e| e.0[c]).collect::<Vec<_>>()));
 +        let last: V3 = [0, 1, 2].map(|c| median(&mut extents.iter().map(|e| e.1[c]).collect::<Vec<_>>()));
 +        let (cx, cz) = ((first[0] + last[0]) / 2.0, (first[2] + last[2]) / 2.0);
 +        let (half, depth) = ((last[0] - first[0]) / 2.0, last[2] - first[2]);
++        // The ankle sits at 90 percent of the height of the lowest cut, or of the highest cut for a robe.
 +        let heights = cuts.iter().map(|cut| cut[0][1]);
 +        let ankle = 0.9 * if robed { heights.fold(f64::NEG_INFINITY, f64::max) } else { heights.fold(f64::INFINITY, f64::min) };
++        // The back and the front of the shin reach to the 5th and the 95th percentile of the z of the leg vertices above the ankle, when the cuts are narrower.
 +        let mut shown: Vec<f64> =
 +            (0..n).filter(|&i| on_leg[i] && self.pos[i][1] > SHOWN * ankle && self.pos[i][1] < hi).map(|i| self.pos[i][2]).collect();
 +        let (back, front) = match shown.len() >= 4 {
 +            true => (first[2].min(percentile(&mut shown, 5.0)), last[2].max(percentile(&mut shown, 95.0))),
 +            false => (first[2], last[2]),
 +        };
++        // The foot is a little narrower than the shin, and never wider than `WIDEST`.
 +        let half = (half * 0.95).min(WIDEST * height / 2.0);
 +        Ok(Frame { on_leg, outline: cuts.swap_remove(0), cx, cz, half, depth, ankle, height, back, front })
 +    }
 +
++    /// Makes a mask of the texels that the chosen triangles cover in the texture.
++    /// The v axis of the texture coordinates runs upward, so it is flipped to rows.
 +    fn texels<'t>(&self, chosen: impl Iterator<Item = &'t [usize; 3]>, wide: usize, high: usize) -> Vec<bool> {
 +        let uv = self.uv.as_ref().unwrap();
 +        let mut mask = vec![false; wide * high];
@@ -835,11 +1062,14 @@ index 0000000..03050ee
 +        mask
 +    }
 +
++    /// Chooses the rectangles of the texture that give the feet their colors.
++    /// One rectangle is for the upper of the foot and one is for the sole, and both are looked for among the texels of the shins.
 +    fn materials(&self, tex: &Image, frames: &[Frame; 2], style: &Style) -> Result<Patch, String> {
 +        let uv = self.uv.as_ref().ok_or("no texture coordinates")?;
 +        let (wide, high) = (tex.width, tex.height);
 +        let shins = self.joints(&["l_leg2", "l_leg3", "r_leg2", "r_leg3"].map(String::from));
 +        let tris: Vec<[usize; 3]> = self.triangles.iter().copied().filter(|t| t.iter().all(|&i| shins.contains(&self.main[i]))).collect();
++        // The density is the number of texels for each unit of length, from the ratio of the area of the triangles in the texture to their area in space.
 +        let (mut area3, mut area2) = (0.0, 0.0);
 +        for t in &tris {
 +            let p = t.map(|i| self.pos[i]);
@@ -852,6 +1082,7 @@ index 0000000..03050ee
 +        let mask = self.texels(tris.iter(), wide, high);
 +        let ankle = frames[0].ankle.min(frames[1].ankle);
 +        let middle = |t: &[usize; 3]| t.iter().map(|&i| self.pos[i][1]).sum::<f64>() / 3.0;
++        // The texels of the lowest part of the shins show what the body wears on its feet. They are taken from the triangles around the ankle, or from any triangle below it.
 +        let mut lowest = self.texels(tris.iter().filter(|t| middle(t) > 0.35 * ankle && middle(t) < 1.1 * ankle), wide, high);
 +        if !lowest.contains(&true) {
 +            lowest = self.texels(tris.iter().filter(|t| t.iter().any(|&i| self.pos[i][1] < ankle)), wide, high);
@@ -863,11 +1094,14 @@ index 0000000..03050ee
 +        if low_texels.is_empty() {
 +            return Err("no texels on the shins".into());
 +        }
++        // The usual color is the median color of those texels.
 +        let usual = [0, 1, 2].map(|c| median(&mut low_texels.iter().map(|t| t[c]).collect::<Vec<_>>()));
 +        let texels = Texels::new(tex, mask);
++        // The sizes of the rectangles in texels, from the largest to the smallest. The small ones are for the sole.
 +        let large = [(32, 14), (28, 12), (24, 12), (20, 10), (16, 8)];
 +        let small = [(24, 10), (16, 8), (12, 6)];
 +        let more = |sizes: &[(usize, usize)]| [sizes, &[(12, 6), (8, 4)]].concat();
++        // A pick that looks for a flat rectangle of the color without stripes. It takes the last of the flattest candidates in the order of the sort.
 +        let grained = |colour: [f64; 3]| {
 +            let texels = &texels;
 +            move |found: &[Found], size: (usize, usize)| {
@@ -877,8 +1111,10 @@ index 0000000..03050ee
 +                close.iter().rev().find(|c| c.0 <= flattest + 2.5 && texels.stripe(c.1, c.2, size) < 4.0).map(|c| (c.1, c.2))
 +            }
 +        };
++        // The upper of the foot first tries the grained pick with extra small sizes, and then falls back to the nearest color.
 +        let upper = |colour: [f64; 3], sizes: &[(usize, usize)]| texels.plain(&more(sizes), &grained(colour)).or_else(|_| texels.plain(sizes, &near(colour)));
 +        let rects = if style.name == "sandal" {
++            // A sandal shows the bare foot when at least 30 percent of the low texels look like skin.
 +            let bare = low_texels.iter().filter(|&&c| skin(c)).count() as f64 / low_texels.len() as f64;
 +            let bare_foot = |found: &[Found], _: (usize, usize)| {
 +                least(found.iter().filter(|f| skin(f.colour) && f.spread < 6.0).map(|f| (farthest(f.colour, usual) + f.spread, f.x, f.y)))
@@ -895,8 +1131,11 @@ index 0000000..03050ee
 +        Ok(Patch { rects, wide, high, density })
 +    }
 +
++    /// Builds the foot for one leg.
++    /// The foot is a row of rings that are placed along z, and the rings are joined by quads. The texture coordinates come from the patch, or from the boot of the body when there is no texture.
 +    fn foot(&self, frame: &Frame, style: &Style, patch: Option<&Patch>) -> Result<Foot, String> {
 +        let Frame { cx, cz, half, depth, ankle, height, back, .. } = *frame;
++        // The places of the heel, the front of the shin and the toe, relative to the center of the shin.
 +        let length = (LENGTH_PER_DEPTH * depth).clamp(LENGTH.0 * height, LENGTH.1 * height);
 +        let heel = back - cz - HEEL * length;
 +        let front = (frame.front - cz).max(heel + 0.2 * length);
@@ -904,6 +1143,7 @@ index 0000000..03050ee
 +        let sections: Vec<[f64; 6]> = style.behind.iter().chain(style.ahead).copied().collect();
 +        let along: Vec<f64> =
 +            style.behind.iter().map(|s| heel + s[0] * length).chain(style.ahead.iter().map(|s| front + s[0] * (toe - front))).collect();
++        // The six points of one ring in x and y. They run from the bottom left, over the right side and the top, to the left side.
 +        let outline = |half: f64, top: f64, sole: f64, bottom: f64, shoulder: f64| {
 +            [(cx - half, bottom), (cx + half, bottom), (cx + half, sole), (cx + shoulder * half, top), (cx - shoulder * half, top), (cx - half, sole)]
 +        };
@@ -912,6 +1152,7 @@ index 0000000..03050ee
 +            .zip(&sections)
 +            .flat_map(|(&z, s)| outline(half * s[1], s[2] * ankle, s[3] * ankle, s[4] * ankle, s[5]).map(|(x, y)| [x, y, cz + z]))
 +            .collect();
++        // The contact points are the ankle, the bottom at the toe and the bottom at the heel.
 +        let rings = sections.len();
 +        let contact = [
 +            [cx, ankle, cz],
@@ -923,6 +1164,7 @@ index 0000000..03050ee
 +        let (verts, normals, materials, corners) = smoothed_vertices(&points, &tris, &made_of, &normal, style.smooth);
 +        let uvs = match patch {
 +            Some(patch) => {
++                // The outward direction in x depends on which side of the body the foot is on.
 +                let bounds = FootBounds {
 +                    outward: [if cx >= 0.0 { 1.0 } else { -1.0 }, 1.0, 1.0],
 +                    length: along[rings - 1] - along[0],
@@ -938,6 +1180,8 @@ index 0000000..03050ee
 +        Ok(Foot { verts, normals, uvs, tris: corners, contact, fit })
 +    }
 +
++    /// Takes texture coordinates for the vertices of a foot from the nearest vertex of the boot of the body.
++    /// The boot is the vertices of the leg below a height of 1.4.
 +    fn boot_uvs(&self, frame: &Frame, verts: &[V3]) -> Result<Vec<[f64; 2]>, String> {
 +        let uv = self.uv.as_ref().ok_or("no texture coordinates")?;
 +        let boot: Vec<usize> = (0..self.pos.len()).filter(|&i| frame.on_leg[i] && self.pos[i][1] < 1.4).collect();
@@ -949,24 +1193,37 @@ index 0000000..03050ee
 +    }
 +}
 +
++/// The number of points in one ring of a foot.
 +const RING_POINTS: usize = 6;
 +
++/// How the outward side of a face is found.
 +enum Outward {
++    /// Outward is away from this point.
 +    FromPoint(V3),
++    /// Outward is along the z axis, in the direction of the sign of the number.
 +    AlongZ(f64),
 +}
 +
++/// The size of a foot and the direction of its sides, for placing the texture on it.
 +struct FootBounds {
++    /// The sign of each axis that points away from the body, which mirrors the foot of one side.
 +    outward: V3,
++    /// The length of the foot along z.
 +    length: f64,
++    /// The width of the foot along x.
 +    width: f64,
++    /// The height of the foot along y.
 +    tall: f64,
 +}
 +
++/// Builds the faces of a foot from its rings.
++/// Each face is a quad of four point indices with a material and a way to find its outward side.
++/// Neighbouring rings are joined by six quads, and the two end rings are closed by two quads each.
 +fn foot_faces(points: &[V3], rings: usize) -> Vec<([usize; 4], Material, Outward)> {
 +    let n = RING_POINTS;
 +    let mut faces: Vec<([usize; 4], Material, Outward)> = Vec::new();
 +    for r in 0..rings - 1 {
++        // The middle of the two rings, which is inside the foot, tells which side of a quad is outward.
 +        let middle = mul(points[r * n..(r + 2) * n].iter().fold([0.0; 3], |sum, &p| add(sum, p)), 1.0 / (2 * n) as f64);
 +        for k in 0..n {
 +            let (a, b) = (r * n + k, r * n + (k + 1) % n);
@@ -974,6 +1231,7 @@ index 0000000..03050ee
 +            faces.push(([a, b, b + n, a + n], material, Outward::FromPoint(middle)));
 +        }
 +    }
++    // The first ring is closed facing backward, and the last ring is closed facing forward.
 +    for (base, out) in [(0, -1.0), ((rings - 1) * n, 1.0)] {
 +        for (quad, material) in [([0, 1, 2, 5], Material::Sole), ([5, 2, 3, 4], Material::Upper)] {
 +            faces.push((quad.map(|i| base + i), material, Outward::AlongZ(out)));
@@ -982,6 +1240,8 @@ index 0000000..03050ee
 +    faces
 +}
 +
++/// Splits the quads into triangles and turns each triangle so that it faces outward.
++/// It returns the triangles, the material of each triangle and the unit normal of each triangle.
 +fn oriented_triangles(points: &[V3], faces: &[([usize; 4], Material, Outward)]) -> (Vec<[usize; 3]>, Vec<Material>, Vec<V3>) {
 +    let (mut tris, mut made_of, mut normal) = (Vec::new(), Vec::new(), Vec::new());
 +    for ([a, b, c, d], material, out) in faces {
@@ -992,6 +1252,7 @@ index 0000000..03050ee
 +                Outward::FromPoint(middle) => sub(mul(add(add(p[0], p[1]), p[2]), 1.0 / 3.0), *middle),
 +                Outward::AlongZ(o) => [0.0, 0.0, *o],
 +            };
++            // A triangle that faces inward gets two of its corners swapped, which flips its winding and its normal.
 +            let tri = if dot(facing, outward) < 0.0 {
 +                facing = mul(facing, -1.0);
 +                [tri[0], tri[2], tri[1]]
@@ -1006,6 +1267,10 @@ index 0000000..03050ee
 +    (tris, made_of, normal)
 +}
 +
++/// Makes the final vertices of a foot with smooth normals.
++/// A corner of a triangle takes the sum of the normals of the triangles at the same point that bend away by no more than the smooth angle.
++/// Corners at one point share a vertex only when their material and normal match, so sharp edges stay sharp.
++/// It returns the positions, the normals, the materials and the triangles as indices of the new vertices.
 +fn smoothed_vertices(points: &[V3], tris: &[[usize; 3]], made_of: &[Material], normal: &[V3], smooth_degrees: f64) -> (Vec<V3>, Vec<V3>, Vec<Material>, Vec<[usize; 3]>) {
 +    let least_cos = smooth_degrees.to_radians().cos();
 +    let (mut verts, mut normals, mut materials, mut corners) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
@@ -1015,6 +1280,7 @@ index 0000000..03050ee
 +        for (c, &point) in tri.iter().enumerate() {
 +            let sum = (0..tris.len()).filter(|&g| tris[g].contains(&point) && dot(normal[g], normal[t]) >= least_cos).fold([0.0; 3], |sum, g| add(sum, normal[g]));
 +            let vertex_normal = mul(sum, 1.0 / norm(sum));
++            // The normal is rounded to four decimals for the key, so that equal normals match despite tiny float differences.
 +            let key = (point, made_of[t], vertex_normal.map(|v| (v * 1e4).round_ties_even() as i64));
 +            new[c] = *made.entry(key).or_insert_with(|| {
 +                verts.push(points[point]);
@@ -1028,6 +1294,8 @@ index 0000000..03050ee
 +    (verts, normals, materials, corners)
 +}
 +
++/// Gives the vertices of a foot texture coordinates inside the rectangle of their material.
++/// Each vertex is projected flat along the axis that its normal points to most, and the result is jittered a little so that the plain rectangle does not look flat.
 +fn patch_uvs(patch: &Patch, verts: &[V3], normals: &[V3], materials: &[Material], bounds: &FootBounds, middle: V3) -> Vec<[f64; 2]> {
 +    let FootBounds { outward, length, width, tall } = *bounds;
 +    let mut noise = Noise::new();
@@ -1035,13 +1303,16 @@ index 0000000..03050ee
 +    let mut uvs = vec![[0.0; 2]; verts.len()];
 +    for &(material, Rect { x, y, w, h }) in &patch.rects {
 +        let (x0, y0, w, h) = (x as f64, y as f64, w as f64, h as f64);
++        // The scale in texels per unit is the density of the body, but small enough that the foot fits into the rectangle.
 +        let scale = patch.density.min((w - 1.0) / length.max(width)).min((h - 1.0) / width.max(tall));
 +        for i in (0..verts.len()).filter(|&i| materials[i] == material) {
++            // The facing is the axis of the largest part of the normal. It picks which two axes of the vertex become u and v.
 +            let a = normals[i].map(f64::abs);
 +            let facing = if a[0] >= a[1] && a[0] >= a[2] { 0 } else if a[1] >= a[2] { 1 } else { 2 };
 +            let (u_axis, v_axis) = [(2, 1), (2, 0), (0, 1)][facing];
 +            let tx = x0 + w / 2.0 + (verts[i][u_axis] - middle[u_axis]) * outward[u_axis] * scale;
 +            let ty = y0 + h / 2.0 + (verts[i][v_axis] - middle[v_axis]) * outward[v_axis] * scale;
++            // The jittered point stays one texel inside the rectangle, so that it does not blend with the colors around the rectangle.
 +            let tx = (tx + jitter[i][0]).clamp(x0 + 1.0, x0 + w - 1.0);
 +            let ty = (ty + jitter[i][1]).clamp(y0 + 1.0, y0 + h - 1.0);
 +            uvs[i] = [tx / patch.wide as f64, 1.0 - ty / patch.high as f64];
@@ -1050,8 +1321,11 @@ index 0000000..03050ee
 +    uvs
 +}
 +
++/// Moves a point into the volume of a foot, with a margin to the surface.
++/// It returns nothing for a point that lies above the top of the foot there.
 +fn inside(q: V3, fit: &Fit, margin: f64) -> Option<V3> {
 +    let along = &fit.along;
++    // The sections around the place of the point are blended into one section.
 +    let z = (q[2] - fit.cz).clamp(along[0] + margin, along[along.len() - 1] - margin);
 +    let k = along.iter().position(|&a| a >= z).unwrap_or(along.len()).clamp(1, along.len() - 1);
 +    let t = (z - along[k - 1]) / (along[k] - along[k - 1]);
@@ -1060,28 +1334,36 @@ index 0000000..03050ee
 +        return None;
 +    }
 +    let y = q[1].max(sole + margin);
++    // The width shrinks from the sole to the top, down to the share of the shoulder, and the point is kept within 90 percent of it.
 +    let width = if y <= sole { w } else { w - (1.0 - shoulder) * w * (y - sole) / (top - sole) };
 +    Some([fit.cx + (q[0] - fit.cx).clamp(-0.9 * width, 0.9 * width), y, fit.cz + z])
 +}
 +
++/// Writes a little endian u32.
 +fn put_u32(raw: &mut [u8], at: usize, value: u32) {
 +    raw[at..at + 4].copy_from_slice(&value.to_le_bytes());
 +}
 +
++/// Writes a little endian i32 from a wider number, which is used for relative pointers.
 +fn put_i32(raw: &mut [u8], at: usize, value: i64) {
 +    raw[at..at + 4].copy_from_slice(&(value as i32).to_le_bytes());
 +}
 +
++/// Writes a row of values as little endian f32.
 +fn put_f32s(raw: &mut [u8], at: usize, values: &[f64]) {
 +    for (k, v) in values.iter().enumerate() {
 +        raw[at + 4 * k..at + 4 * k + 4].copy_from_slice(&(*v as f32).to_le_bytes());
 +    }
 +}
 +
++/// Pads the file with zero bytes up to a multiple of `n`.
 +fn pad(raw: &mut Vec<u8>, n: usize) {
 +    raw.resize(raw.len().next_multiple_of(n), 0);
 +}
 +
++/// Builds a model with feet from a model of a body, which is the unpacked CGFX file.
++/// The path of the model picks the style of the feet, and the texture of the body is used for their colors when it is given.
++/// It returns the bytes of the new file and the name of the style.
 +pub fn build(path: &str, model: &[u8], texture: Option<&Image>) -> Result<(Vec<u8>, &'static str), String> {
 +    let b = Blob(model);
 +    let (_, skeleton, shape) = model::parts(&b)?;
@@ -1095,6 +1377,7 @@ index 0000000..03050ee
 +    };
 +    let feet = [body.foot(&frames[0], style, patch.as_ref())?, body.foot(&frames[1], style, patch.as_ref())?];
 +
++    // First the ends of the legs are tucked in, and then the leg vertices that reach into the range of a foot are pulled inside it.
 +    let mut moved = tucked_leg_ends(&body, &frames, v.count);
 +    let ends: BTreeSet<usize> = moved.keys().copied().collect();
 +    pull_inside_feet(&body, &frames, &feet, v.count, &mut moved);
@@ -1107,8 +1390,10 @@ index 0000000..03050ee
 +    if position.format != FLOAT || normal.format != FLOAT {
 +        return Err("positions or normals that aren't floats".into());
 +    }
++    // The new file starts as a copy of the old one. Everything that is added goes to its end, and the pointers are patched to reach it.
 +    let mut raw = model.to_vec();
 +    let touching = write_moved_vertices(&mut raw, &v, position, normal, &body.triangles, &after, &moved);
++    // The texture coordinates of the tucked ends are copied for the styles other than the sandal.
 +    if style.name != "sandal" {
 +        copy_end_uvs(&mut raw, &v, &frames, &ends, &touching, &after)?;
 +    }
@@ -1118,18 +1403,23 @@ index 0000000..03050ee
 +        return Err("texture coordinates that aren't floats".into());
 +    }
 +    let (new_vertices, new_indices) = foot_geometry(&feet, &v, [position, normal, uv_attr], bones_attr, weights_attr);
++    // The index streams of the game are 16 bit.
 +    if new_indices.iter().any(|&i| i > u16::MAX as usize) {
 +        return Err("too many vertices for 16-bit indices".into());
 +    }
 +    append_feet_mesh(&mut raw, &b, &v, shape, foot_bones, &new_vertices, &new_indices)?;
++    // The file is padded to a multiple of 0x80 bytes.
 +    pad(&mut raw, 0x80);
 +    write_file_sizes(&mut raw, &b)?;
 +    Ok((raw, style.name))
 +}
 +
++/// Reads the skeleton, the vertices and the triangles of a body.
++/// It fails for a body whose vertices have only one bone each, because the builder needs the weights of several bones.
 +fn read_body<'a>(b: &Blob<'a>, model: &'a [u8], skeleton: usize, shape: usize) -> Result<(Body<'a>, model::Vertices), String> {
 +    let mut names = Vec::new();
 +    let mut records = HashMap::new();
++    // The dictionary of the bones is at 0x1C of the skeleton, and the index of a bone is at 8 of its record.
 +    for (name, at) in b.dict(b.rel(skeleton + 0x1C))? {
 +        names.push((b.i32(at + 8) as i64, name.clone()));
 +        records.insert(name, at);
@@ -1143,6 +1433,7 @@ index 0000000..03050ee
 +    if subs.iter().flat_map(|sm| sm.triangles.iter().flatten()).any(|&i| i >= n) {
 +        return Err("a triangle outside the vertex buffer".into());
 +    }
++    // The bone indices of a vertex are slots in the palette of the part that uses the vertex. They are turned into indices of the skeleton.
 +    let mut joint = vec![vec![-1i64; local.first().map_or(0, Vec::len)]; n];
 +    for sm in &subs {
 +        let used: BTreeSet<usize> = sm.triangles.iter().flatten().copied().collect();
@@ -1152,6 +1443,7 @@ index 0000000..03050ee
 +            }
 +        }
 +    }
++    // The main bone of a vertex is the bone with the highest weight.
 +    let main = (0..n)
 +        .map(|i| {
 +            let w = &weights[i];
@@ -1173,6 +1465,7 @@ index 0000000..03050ee
 +    Ok((body, v))
 +}
 +
++/// Returns the indices of the left and the right shin bone, which the feet are attached to.
 +fn shin_joints(body: &Body) -> Result<[i64; 2], String> {
 +    let shin = |leg: char| body.names.iter().find(|(_, name)| *name == format!("{leg}_leg2")).map(|(joint, _)| *joint);
 +    let (Some(left), Some(right)) = (shin('l'), shin('r')) else {
@@ -1181,6 +1474,9 @@ index 0000000..03050ee
 +    Ok([left, right])
 +}
 +
++/// Moves the lowest vertices of each leg up into the end of the shin, so that the end of the leg is hidden inside the foot.
++/// Each vertex goes to the point of the outline of the shin that lies at the nearest angle around the center, pulled in by 5 percent.
++/// It returns the new position of every vertex that moved.
 +fn tucked_leg_ends(body: &Body, frames: &[Frame; 2], vertex_count: usize) -> BTreeMap<usize, V3> {
 +    let pos = &body.pos;
 +    let mut moved: BTreeMap<usize, V3> = BTreeMap::new();
@@ -1189,6 +1485,7 @@ index 0000000..03050ee
 +        if low.is_empty() {
 +            continue;
 +        }
++        // The outline and the low vertices are both measured by their box. The angle around the center of a box is taken in units of its half sizes, so that a box that is not square still gives even angles.
 +        let outline = &frame.outline;
 +        let (o_lo, o_hi) = bounds(outline.iter().copied());
 +        let o_mid = mul(add(o_lo, o_hi), 0.5);
@@ -1200,6 +1497,7 @@ index 0000000..03050ee
 +        for &i in &low {
 +            let q = pos[i];
 +            let angle = ((q[2] - e_mid[2]) / e_size[2]).atan2((q[0] - e_mid[0]) / e_size[0]);
++            // The distance between two angles, which wraps around at a full turn.
 +            let off = |a: f64| {
 +                let d = a - angle;
 +                d.sin().atan2(d.cos()).abs()
@@ -1214,6 +1512,8 @@ index 0000000..03050ee
 +    moved
 +}
 +
++/// Pulls the vertices of each leg into the volume of its foot, where they lie in the range of the foot.
++/// A vertex is only recorded as moved when the new place differs from the old one by more than a tiny amount.
 +fn pull_inside_feet(body: &Body, frames: &[Frame; 2], feet: &[Foot; 2], vertex_count: usize, moved: &mut BTreeMap<usize, V3>) {
 +    let pos = &body.pos;
 +    for (frame, foot) in frames.iter().zip(feet) {
@@ -1228,12 +1528,16 @@ index 0000000..03050ee
 +    }
 +}
 +
++/// Writes the new positions of the moved vertices into the file, with new normals.
++/// A new normal is the average of the normals of the triangles around the vertex in the new shape.
++/// It returns the triangles that touch a moved vertex.
 +fn write_moved_vertices(raw: &mut [u8], v: &model::Vertices, position: Attr, normal: Attr, triangles: &[[usize; 3]], after: &[V3], moved: &BTreeMap<usize, V3>) -> Vec<[usize; 3]> {
 +    let touching: Vec<[usize; 3]> = triangles.iter().copied().filter(|t| t.iter().any(|i| moved.contains_key(i))).collect();
 +    let mut sums: HashMap<usize, V3> = HashMap::new();
 +    for t in &touching {
 +        let p = t.map(|i| after[i]);
 +        let face = cross(sub(p[1], p[0]), sub(p[2], p[0]));
++        // The tiny number keeps a triangle without area from dividing by zero.
 +        let face = mul(face, 1.0 / (norm(face) + 1e-12));
 +        for i in t.iter().copied().collect::<BTreeSet<_>>() {
 +            let sum = sums.entry(i).or_insert([0.0; 3]);
@@ -1244,12 +1548,15 @@ index 0000000..03050ee
 +        let sum = sums.get(&i).copied().unwrap_or([0.0; 3]);
 +        let vertex_normal = mul(sum, 1.0 / (norm(sum) + 1e-12));
 +        let at = v.data_at + i * v.stride;
++        // The values are divided by the scale of the attribute, because the scale is multiplied in again when the values are read.
 +        put_f32s(raw, at + position.offset, &q.map(|c| c / position.scale));
 +        put_f32s(raw, at + normal.offset, &vertex_normal.map(|c| c / normal.scale));
 +    }
 +    touching
 +}
 +
++/// Gives each tucked vertex the texture coordinates of its nearest neighbour that was not tucked.
++/// This keeps the texture of the leg from stretching over the moved vertices. A neighbour that is too far away is not used.
 +fn copy_end_uvs(raw: &mut [u8], v: &model::Vertices, frames: &[Frame; 2], ends: &BTreeSet<usize>, touching: &[[usize; 3]], after: &[V3]) -> Result<(), String> {
 +    let Some(uv) = v.attrs.get(&model::UV) else {
 +        return Ok(());
@@ -1258,6 +1565,7 @@ index 0000000..03050ee
 +    for frame in frames {
 +        let reach = 0.3 * frame.depth.max(2.0 * frame.half);
 +        for &i in ends.iter().filter(|&&i| frame.on_leg[i]) {
++            // The neighbours are the other corners of the triangles at the vertex. The nearest one in x and z is found, and the first of equal ones is kept.
 +            let above: BTreeSet<usize> = touching.iter().filter(|t| t.contains(&i)).flatten().copied().filter(|j| !ends.contains(j)).collect();
 +            let flat = |j: usize| (after[j][0] - after[i][0]).powi(2) + (after[j][2] - after[i][2]).powi(2);
 +            let Some(j) = above.iter().copied().fold(None, |best: Option<usize>, j| match best {
@@ -1276,6 +1584,9 @@ index 0000000..03050ee
 +    Ok(())
 +}
 +
++/// Adds a bone for each foot to the skeleton, named `l_shoe` and `r_shoe`.
++/// Each record is a copy of the record of the shin that is attached to the shin. The names, the records and a new dictionary are appended to the file, and the pointers of the skeleton are patched.
++/// It returns the indices of the two new bones.
 +fn add_foot_bones(raw: &mut Vec<u8>, b: &Blob, skeleton: usize, body: &Body, shins: [i64; 2], feet: &[Foot; 2]) -> Result<[u32; 2], String> {
 +    let old_dict = b.to(skeleton + 0x1C)?;
 +    let entries = b.dict(Some(old_dict))?;
@@ -1283,6 +1594,7 @@ index 0000000..03050ee
 +    if count != entries.len() {
 +        return Err("a skeleton whose dictionary doesn't count its bones".into());
 +    }
++    // The positions of the names and the data of the old bones are kept, because the new dictionary points to them again.
 +    let mut name_at: HashMap<String, usize> = HashMap::new();
 +    for i in 1..=count {
 +        let at = b.to(old_dict + 0x0C + 0x10 * i + 8)?;
@@ -1299,6 +1611,7 @@ index 0000000..03050ee
 +    for (k, leg) in ["l", "r"].into_iter().enumerate() {
 +        let shin_at = body.records[&format!("{leg}_leg2")];
 +        let at = raw.len();
++        // A bone record is 0xE0 bytes. The fields that are set here are the pointer to the name at 0, the flags at 4, the index at 8, the index of the parent at 0x0C and the pointer to the parent record at 0x10.
 +        let mut record = raw[shin_at..shin_at + 0xE0].to_vec();
 +        put_i32(&mut record, 0, name_at[&format!("{leg}_shoe")] as i64 - at as i64);
 +        put_u32(&mut record, 4, b.u32(shin_at + 4) | SKINNED);
@@ -1306,6 +1619,7 @@ index 0000000..03050ee
 +        put_u32(&mut record, 0x0C, shins[k] as u32);
 +        put_i32(&mut record, 0x10, shin_at as i64 - (at + 0x10) as i64);
 +        record[0x14..0x20].fill(0);
++        // The three contact points replace the first nine floats of the inverse bind matrix, and the tag is written after them.
 +        put_f32s(&mut record, INVERSE_BIND, &feet[k].contact.concat());
 +        record[INVERSE_BIND + 36..INVERSE_BIND + 40].copy_from_slice(TAG);
 +        record[INVERSE_BIND + 40..INVERSE_BIND + 48].fill(0);
@@ -1315,6 +1629,7 @@ index 0000000..03050ee
 +        foot_bones[k] = (count + k) as u32;
 +    }
 +    pad(raw, 4);
++    // The dictionary is rebuilt with the two new names, and the skeleton is changed to count the new bones and to point to the new dictionary.
 +    let dict_at = raw.len();
 +    let all: Vec<String> = entries.iter().map(|(name, _)| name.clone()).chain(["l_shoe".to_owned(), "r_shoe".to_owned()]).collect();
 +    let nodes = formats::dict_nodes(&all)?;
@@ -1324,6 +1639,9 @@ index 0000000..03050ee
 +    Ok(foot_bones)
 +}
 +
++/// Encodes the vertices and the indices of both feet in the vertex layout of the body.
++/// The first foot is bound to the first bone of the palette of the new part and the second foot to the second bone.
++/// It returns the bytes of the new vertices and the indices, which count from the end of the vertices of the body.
 +fn foot_geometry(feet: &[Foot; 2], v: &model::Vertices, [position, normal, uv]: [Attr; 3], bones: Attr, weights: Attr) -> (Vec<u8>, Vec<usize>) {
 +    let mut new_vertices = Vec::new();
 +    let mut new_indices: Vec<usize> = Vec::new();
@@ -1335,6 +1653,7 @@ index 0000000..03050ee
 +                let values: Vec<f64> = values[..a.count.min(values.len())].iter().map(|x| x / a.scale).collect();
 +                put_f32s(&mut vertex, a.offset, &values);
 +            }
++            // Every vertex of a foot has one bone with the weight 100, and the other slots stay zero.
 +            vertex[bones.offset..bones.offset + bones.count].fill(0);
 +            vertex[bones.offset] = slot as u8;
 +            vertex[weights.offset..weights.offset + weights.count].fill(0);
@@ -1346,6 +1665,9 @@ index 0000000..03050ee
 +    (new_vertices, new_indices)
 +}
 +
++/// Appends the feet to the shape as a new part.
++/// The vertex buffer is copied to the end of the file with the new vertices behind the old ones, and the indices of the feet are written after it.
++/// The new part is a copy of the first part with a palette of the two foot bones, and the list of parts of the shape is rewritten with the new part last.
 +fn append_feet_mesh(raw: &mut Vec<u8>, b: &Blob, v: &model::Vertices, shape: usize, foot_bones: [u32; 2], new_vertices: &[u8], new_indices: &[usize]) -> Result<(), String> {
 +    pad(raw, 0x80);
 +    let vertex_at = raw.len();
@@ -1359,6 +1681,7 @@ index 0000000..03050ee
 +    put_u32(raw, v.buffer + 0x14, (v.size + new_vertices.len()) as u32);
 +    put_i32(raw, v.buffer + 0x18, vertex_at as i64 - (v.buffer + 0x18) as i64);
 +
++    // The first part is the template for the new one. Its index stream must follow its primitive directly, so that both can be copied as one block.
 +    let sets = b.u32(shape + 0x2C) as usize;
 +    let old_list = b.to(shape + 0x30)?;
 +    let first = b.to(old_list)?;
@@ -1369,6 +1692,7 @@ index 0000000..03050ee
 +    }
 +    pad(raw, 4);
 +    let feet_set = raw.len();
++    // The new part is a header of 0x14 bytes, the palette of two bones, one pointer to its primitive, and then a copy of the primitive and of the index stream.
 +    let mut set = vec![0u8; 0x14 + 4 * 2 + 4];
 +    for (k, value) in [2, 0x10, b.u32(first + 8), 1, 0x14 + 4 * 2 - 0x10].into_iter().enumerate() {
 +        put_u32(&mut set, 4 * k, value);
@@ -1379,9 +1703,11 @@ index 0000000..03050ee
 +    set.extend_from_slice(&raw[first_primitive..first_primitive + 0x20]);
 +    let stream = set.len();
 +    set.extend_from_slice(&raw[first_stream..first_stream + 0x2C]);
++    // The stream gets the size of the new indices in bytes, which is two bytes for each, and a pointer to them.
 +    put_u32(&mut set, stream + 8, (2 * new_indices.len()) as u32);
 +    put_i32(&mut set, stream + 12, index_at as i64 - (feet_set + stream + 12) as i64);
 +    raw.extend(set);
++    // The new list holds the old pointers, which are made relative to the new place, and a pointer to the new part.
 +    let new_list = raw.len();
 +    for i in 0..sets {
 +        let to = b.to(old_list + 4 * i)? as i64 - (new_list + 4 * i) as i64;
@@ -1393,6 +1719,8 @@ index 0000000..03050ee
 +    Ok(())
 +}
 +
++/// Updates the sizes in the headers of the file after data was appended.
++/// The size of the IMAG block, which is the last block, and the size of the whole file are written.
 +fn write_file_sizes(raw: &mut [u8], b: &Blob) -> Result<(), String> {
 +    let data = b.u16(6) as usize;
 +    let imag = data + b.u32(data + 4) as usize;
@@ -1405,6 +1733,8 @@ index 0000000..03050ee
 +    Ok(())
 +}
 +
++/// Decodes the color texture of a body from its unpacked texture file.
++/// The texture that is named with the ending `_c0` is taken, or the first texture when there is none. It returns nothing when the file can not be read or its format is not ETC1.
 +pub fn colour_texture(file: &[u8]) -> Option<Image> {
 +    let b = Blob(file);
 +    if file.get(0..4) != Some(b"CGFX") {
@@ -1413,6 +1743,7 @@ index 0000000..03050ee
 +    let data = b.u16(6) as usize;
 +    let textures = b.dict(b.rel(data + 8 + 8 + 4)).ok()?;
 +    let (_, txob) = textures.iter().find(|(name, _)| name.ends_with("_c0")).or(textures.first())?;
++    // The height, the width and the format are in the header of the texture, and the pixel data is behind two more pointers.
 +    let (height, width, format) = (b.u32(txob + 0x18) as usize, b.u32(txob + 0x1C) as usize, b.u32(txob + 0x34));
 +    let image = b.rel(txob + 0x38)?;
 +    let bits = b.rel(image + 0x0C)?;
@@ -1423,6 +1754,7 @@ index 0000000..03050ee
 +mod tests {
 +    use super::*;
 +
++    /// The noise stays in its range and follows the xorshift steps from the fixed start.
 +    #[test]
 +    fn the_noise_is_the_python_builders() {
 +        let mut noise = Noise::new();
@@ -1435,6 +1767,7 @@ index 0000000..03050ee
 +        assert_eq!(first[0], ((s >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) * NOISE);
 +    }
 +
++    /// Fills a triangle into a mask of 32 by 32 texels and lists each row that it touches with its first and last texel.
 +    fn rows(points: [(f64, f64); 3]) -> Vec<(usize, usize, usize)> {
 +        let mut mask = vec![false; 32 * 32];
 +        fill(&mut mask, 32, 32, points);
@@ -1446,6 +1779,7 @@ index 0000000..03050ee
 +            .collect()
 +    }
 +
++    /// The fill gives the same rows as the polygon fill of the Pillow library, also for triangles that reach past the mask.
 +    #[test]
 +    fn a_triangle_fills_what_pillow_fills() {
 +        let filled = [(2, 2, 2), (3, 2, 4), (4, 3, 7), (5, 3, 9), (6, 3, 8), (7, 3, 6), (8, 4, 5), (9, 4, 4)];
@@ -1454,6 +1788,7 @@ index 0000000..03050ee
 +        assert_eq!(rows([(0.0, 7.0), (20.0, 20.0), (27.0, 10.0)])[0], (7, 0, 2));
 +    }
 +
++    /// The class in the name of a body picks the style.
 +    #[test]
 +    fn classes_have_their_styles() {
 +        assert_eq!(style_of("b/uBody_M_kgre_9.m.lz").name, "sabaton");
@@ -1461,6 +1796,7 @@ index 0000000..03050ee
 +        assert_eq!(style_of("b/uBody_M_mymM_0.m.lz").name, "shoe");
 +    }
 +
++    /// The percentile blends between neighbouring values, and the median of an odd count is the middle value.
 +    #[test]
 +    fn percentiles_go_between_values() {
 +        assert_eq!(percentile(&mut [4.0, 1.0, 3.0, 2.0], 50.0), 2.5);
@@ -1469,32 +1805,42 @@ index 0000000..03050ee
 +}
 diff --git a/crates/zakuro/src/feet/formats.rs b/crates/zakuro/src/feet/formats.rs
 new file mode 100644
-index 0000000..d73a024
+index 0000000..7518981
 --- /dev/null
 +++ b/crates/zakuro/src/feet/formats.rs
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,276 @@
++
++//! Readers and writers for the binary formats of the 3DS that the feet need.
++//! These are the little endian data of CGFX files, the dictionaries in them, and the ETC1 textures.
 +
 +use std::collections::HashMap;
 +
++/// A file of bytes with readers for little endian values and for the relative pointers of CGFX files.
 +pub struct Blob<'a>(pub &'a [u8]);
 +
 +impl Blob<'_> {
++    /// Reads a little endian u32.
 +    pub fn u32(&self, at: usize) -> u32 {
 +        u32::from_le_bytes(self.0[at..at + 4].try_into().unwrap())
 +    }
 +
++    /// Reads a little endian i32.
 +    pub fn i32(&self, at: usize) -> i32 {
 +        self.u32(at) as i32
 +    }
 +
++    /// Reads a little endian u16.
 +    pub fn u16(&self, at: usize) -> u16 {
 +        u16::from_le_bytes(self.0[at..at + 2].try_into().unwrap())
 +    }
 +
++    /// Reads a little endian f32 and widens it to f64.
 +    pub fn f32(&self, at: usize) -> f64 {
 +        f32::from_bits(self.u32(at)) as f64
 +    }
 +
++    /// Follows a relative pointer.
++    /// The value is an offset from the position of the pointer itself, and zero means a null pointer.
 +    pub fn rel(&self, at: usize) -> Option<usize> {
 +        match self.i32(at) {
 +            0 => None,
@@ -1502,21 +1848,27 @@ index 0000000..d73a024
 +        }
 +    }
 +
++    /// Follows a relative pointer that must not be null.
 +    pub fn to(&self, at: usize) -> Result<usize, String> {
 +        self.rel(at).ok_or_else(|| format!("a null pointer at 0x{at:X}"))
 +    }
 +
++    /// Reads a string that ends with a zero byte, one byte per character.
 +    pub fn cstr(&self, at: usize) -> String {
 +        let end = self.0[at..].iter().position(|&b| b == 0).map_or(self.0.len(), |n| at + n);
 +        self.0[at..end].iter().map(|&b| b as char).collect()
 +    }
 +
++    /// Reads a dictionary of CGFX and returns its names with the positions of their data.
++    /// A missing dictionary gives an empty list.
 +    pub fn dict(&self, at: Option<usize>) -> Result<Vec<(String, usize)>, String> {
 +        let Some(at) = at else { return Ok(Vec::new()) };
 +        if &self.0[at..at + 4] != b"DICT" {
 +            return Err(format!("no dictionary at 0x{at:X}"));
 +        }
 +        let count = self.u32(at + 8) as usize;
++        // The first node is the root of the tree and holds no entry, so the entries are the nodes from 1.
++        // Each node is 0x10 bytes, with the pointer to the name at 8 and the pointer to the data at 12.
 +        (1..=count)
 +            .map(|i| {
 +                let node = at + 0x0C + 0x10 * i;
@@ -1526,24 +1878,35 @@ index 0000000..d73a024
 +    }
 +}
 +
++/// The bit index of the root node of a dictionary.
 +const ROOT_BIT: u32 = u32::MAX;
 +
++/// Returns the bit `n` of a name, where bit 0 is the lowest bit of the first byte.
++/// Bits past the end of the name are zero.
 +fn bit(name: &[u8], n: u32) -> bool {
 +    name.get((n >> 3) as usize).is_some_and(|&c| (c >> (n & 7)) & 1 == 1)
 +}
 +
++/// Returns the highest bit in which two names differ, or nothing when they are equal.
 +fn highest_difference(a: &[u8], b: &[u8]) -> Option<u32> {
 +    (0..8 * a.len().max(b.len()) as u32).rev().find(|&n| bit(a, n) != bit(b, n))
 +}
 +
++/// A node of a dictionary, which is a radix tree over the bits of the names.
 +#[derive(Debug, Clone, PartialEq)]
 +pub struct Node {
++    /// The index of the bit of the name that this node tests.
 +    pub bit: u32,
++    /// The index of the node to visit when the bit is clear.
 +    pub left: u16,
++    /// The index of the node to visit when the bit is set.
 +    pub right: u16,
++    /// The name of the entry, which is empty for the root.
 +    pub name: String,
 +}
 +
++/// Walks the tree with a name and returns the index of the node where the walk ends.
++/// The walk ends when a link goes back up to a node with a lower or equal bit index.
 +fn search(nodes: &[Node], name: &[u8]) -> usize {
 +    let (mut previous, mut current) = (0, nodes[0].left as usize);
 +    while nodes[current].bit < nodes[previous].bit {
@@ -1553,18 +1916,24 @@ index 0000000..d73a024
 +    current
 +}
 +
++/// Builds the nodes of a dictionary for a list of names, by inserting the names one after the other.
++/// The root is the first node, and the node of each name has the index of the name plus one.
++/// A name that appears twice is an error.
 +pub fn dict_nodes(names: &[String]) -> Result<Vec<Node>, String> {
 +    let mut nodes = vec![Node { bit: ROOT_BIT, left: 0, right: 0, name: String::new() }];
 +    for name in names {
 +        let key = name.as_bytes();
++        // The new node tests the highest bit in which the name differs from the name where the walk ends.
 +        let ending = search(&nodes, key);
 +        let difference = highest_difference(key, nodes[ending].name.as_bytes()).ok_or_else(|| format!("{name} twice in a dictionary"))?;
++        // Walk down again, and stop in front of the first node that tests a lower bit than the new one.
 +        let (mut previous, mut current, mut went_right) = (0usize, nodes[0].left as usize, false);
 +        while nodes[current].bit < nodes[previous].bit && nodes[current].bit > difference {
 +            previous = current;
 +            went_right = bit(key, nodes[current].bit);
 +            current = if went_right { nodes[current].right } else { nodes[current].left } as usize;
 +        }
++        // The new node links to itself on the side of its own bit, and to the node that it replaces on the other side.
 +        let index = nodes.len() as u16;
 +        let (left, right) = if bit(key, difference) { (current as u16, index) } else { (index, current as u16) };
 +        nodes.push(Node { bit: difference, left, right, name: name.clone() });
@@ -1579,11 +1948,15 @@ index 0000000..d73a024
 +    Ok(nodes)
 +}
 +
++/// Writes the nodes of a dictionary as bytes, for a dictionary that is placed at position `at` in its file.
++/// The maps give the positions of the name and the data of each entry, and they are stored as pointers relative to the fields.
 +pub fn dict_bytes(nodes: &[Node], at: usize, name_at: &HashMap<String, usize>, data_at: &HashMap<String, usize>) -> Vec<u8> {
++    // The header is the magic, the size of the dictionary, and the number of entries without the root.
 +    let mut out = b"DICT".to_vec();
 +    out.extend_from_slice(&((0x0C + 0x10 * nodes.len()) as u32).to_le_bytes());
 +    out.extend_from_slice(&((nodes.len() - 1) as u32).to_le_bytes());
 +    for (i, node) in nodes.iter().enumerate() {
++        // The root has no name and no data, so both of its pointers are null.
 +        let here = at + 0x0C + 0x10 * i;
 +        let (names, data) = if node.name.is_empty() {
 +            (0, 0)
@@ -1599,21 +1972,30 @@ index 0000000..d73a024
 +    out
 +}
 +
++/// A decoded picture.
 +pub struct Image {
++    /// The width in pixels.
 +    pub width: usize,
++    /// The height in pixels.
 +    pub height: usize,
++    /// The colors of the pixels, row by row, as red, green and blue from 0 to 255.
 +    pub rgb: Vec<[f64; 3]>,
 +}
 +
 +impl Image {
++    /// Returns the color of the pixel at the given column and row.
 +    pub fn at(&self, x: usize, y: usize) -> [f64; 3] {
 +        self.rgb[y * self.width + x]
 +    }
 +}
 +
++/// The brightness modifiers of the eight ETC1 tables, as a small and a large step.
 +const MODIFIERS: [[i32; 2]; 8] = [[2, 8], [5, 17], [9, 29], [13, 42], [18, 60], [24, 80], [33, 106], [47, 183]];
 +
++/// Decodes an ETC1 texture of the 3DS, or an ETC1A4 texture, which has four bits of alpha in front of each block.
++/// The alpha is dropped. It returns nothing for other formats or when the data is too short.
 +pub fn decode_etc1(data: &[u8], width: usize, height: usize, format: u32) -> Option<Image> {
++    // The format 12 is ETC1 with 8 bytes per block, and 13 is ETC1A4 with 16 bytes per block.
 +    let step = match format {
 +        12 => 8,
 +        13 => 16,
@@ -1625,12 +2007,15 @@ index 0000000..d73a024
 +    }
 +    let mut rgb = vec![[0.0; 3]; width * height];
 +    for block in 0..blocks {
++        // The color data is the last eight bytes of each block.
 +        let bytes = &data[block * step + step - 8..block * step + step];
 +        let word = u64::from_le_bytes(bytes.try_into().unwrap());
++        // The blocks of 4 by 4 pixels are stored in tiles of 8 by 8 pixels, with four blocks per tile in rows of two.
 +        let (tile, inner) = (block / 4, block % 4);
 +        let columns = width / 8;
 +        let (tile_x, tile_y) = (tile % columns, tile / columns);
 +        let (bx, by) = (tile_x * 8 + (inner % 2) * 4, tile_y * 8 + (inner / 2) * 4);
++        // The pixels of a block run down the columns, so the index gives the column first.
 +        for (pixel, colour) in etc1_block(word).into_iter().enumerate() {
 +            let (x, y) = (pixel / 4, pixel % 4);
 +            rgb[(by + y) * width + bx + x] = colour.map(f64::from);
@@ -1639,17 +2024,23 @@ index 0000000..d73a024
 +    Some(Image { width, height, rgb })
 +}
 +
++/// Decodes one ETC1 block of 4 by 4 pixels from its 64 bit word.
++/// The block has two sub blocks with a base color each, and every pixel adds a modifier to the base color of its sub block.
 +fn etc1_block(w: u64) -> [[u8; 3]; 16] {
 +    let field = |shift: u32, size: u32| ((w >> shift) & ((1 << size) - 1)) as i32;
++    // The differential bit picks the color mode, and the flip bit splits the block into top and bottom instead of left and right.
 +    let (differential, flip) = (field(33, 1) == 1, field(32, 1) == 1);
 +    let mut base = [[0i32; 3]; 2];
++    // Per channel, the shifts of the first five bit color, the three bit delta, and the two four bit colors.
 +    for (c, (s5, s3, s4a, s4b)) in [(59, 56, 60, 56), (51, 48, 52, 48), (43, 40, 44, 40)].into_iter().enumerate() {
 +        let first5 = field(s5, 5);
++        // The delta is a signed three bit number.
 +        let mut delta = field(s3, 3);
 +        if delta >= 4 {
 +            delta -= 8;
 +        }
 +        let second5 = (first5 + delta) & 31;
++        // Five bit colors are widened to eight bits by repeating the top bits, and four bit colors by multiplying with 17.
 +        if differential {
 +            base[0][c] = (first5 << 3) | (first5 >> 2);
 +            base[1][c] = (second5 << 3) | (second5 >> 2);
@@ -1658,11 +2049,13 @@ index 0000000..d73a024
 +            base[1][c] = field(s4b, 4) * 17;
 +        }
 +    }
++    // Each sub block has its own table of modifiers.
 +    let tables = [field(37, 3) as usize, field(34, 3) as usize];
 +    let mut out = [[0u8; 3]; 16];
 +    for index in 0..16u32 {
 +        let (x, y) = (index / 4, index % 4);
 +        let second = if flip { y >= 2 } else { x >= 2 } as usize;
++        // Two bits per pixel pick the modifier. The high bits are stored in bits 16 to 31, and the low bits in bits 0 to 15.
 +        let msb = ((w >> (16 + index)) & 1) as usize;
 +        let lsb = ((w >> index) & 1) as usize;
 +        let [small, large] = MODIFIERS[tables[second]];
@@ -1681,6 +2074,7 @@ index 0000000..d73a024
 +mod tests {
 +    use super::*;
 +
++    /// Every name is found at its own node, and a name that appears twice is refused.
 +    #[test]
 +    fn a_dictionary_finds_its_names() {
 +        let names: Vec<String> = ["hip", "l_leg1", "l_leg2", "l_leg3", "r_leg2", "l_shoe", "r_shoe"].map(String::from).to_vec();
@@ -1693,10 +2087,13 @@ index 0000000..d73a024
 +}
 diff --git a/crates/zakuro/src/feet/mod.rs b/crates/zakuro/src/feet/mod.rs
 new file mode 100644
-index 0000000..8e708f4
+index 0000000..b5888b8
 --- /dev/null
 +++ b/crates/zakuro/src/feet/mod.rs
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,134 @@
++
++//! The feet mod.
++//! It builds feet for the 3D body models of the characters from the files of the game, and writes the new models as a mod folder.
 +
 +mod foot;
 +mod formats;
@@ -1709,19 +2106,26 @@ index 0000000..8e708f4
 +
 +use crate::recompile::ModStep;
 +
++/// The program id of the release of the game that the feet are made for.
 +pub const PROGRAM_ID: u64 = 0x0004_0000_0009_F100;
 +
++/// The step of the launcher that builds the feet.
 +pub const STEP: ModStep = ModStep {
 +    name: "the feet mod",
 +    label: "Feet",
 +    about: "The characters' feet, built from your copy of the game.",
 +    folder: "feet",
 +    program_id: PROGRAM_ID,
++    needs: &[],
++    quietly: &[],
 +    build,
 +};
 +
++/// Lists the file names of the body models in the `b` folder of the romfs, in sorted order.
++/// A body model is a file that is named like `uBody_*.m.lz`.
 +fn bodies(romfs: &zakuro_fs::romfs::RomFs) -> Result<Vec<String>, String> {
 +    let mut dir = romfs.root().map_err(|error| error.to_string())?;
++    // Some romfs trees have one folder without a name at the root, and the real folders are inside it.
 +    if let Some((_, nameless)) = romfs.subdirs(&dir).into_iter().find(|(_, d)| d.name.is_empty()) {
 +        dir = nameless;
 +    }
@@ -1732,7 +2136,13 @@ index 0000000..8e708f4
 +    Ok(names)
 +}
 +
-+fn build(rom: &Path, data_dir: &Path, progress: &(dyn Fn(usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
++/// The text that is shown as the progress of the build.
++const FITTING: &str = "Building the characters' feet from the game's own models.";
++
++/// Builds the feet for every body model of the game and writes them into the folder of the mod.
++/// A body that can not be given feet is left out, so the game keeps its own legs for it.
++/// It returns a short summary, or an error when the game is the wrong release, the build is cancelled, or no body worked.
++fn build(rom: &Path, data_dir: &Path, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
 +    let title = zakuro_fs::Title::load(rom).map_err(|error| format!("{}: {error}", rom.display()))?;
 +    if title.program_id() != PROGRAM_ID {
 +        return Err("the feet are made for the European release".into());
@@ -1741,21 +2151,25 @@ index 0000000..8e708f4
 +    let bodies = bodies(romfs)?;
 +    let out = STEP.folder_in(data_dir).join("romfs").join("b");
 +    std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
++    // Reads a file of the `b` folder and unpacks its LZ compression.
 +    let read = |name: &str| -> Option<Vec<u8>> {
 +        let file = romfs.lookup(&format!("b/{name}")).ok()?;
 +        crate::lz::unpack(title.read_romfs(&file, 0, file.data_size as usize)?).ok()
 +    };
++    // Builds the feet for one body, and writes the new model packed as LZ13. It returns the style of the feet.
 +    let one = |name: &str| -> Result<&'static str, String> {
 +        let model = read(name).ok_or("its file can't be read")?;
++        // The texture of the body has the same name with a `_c0.t.lz` ending. It is optional.
 +        let texture = read(&name.replace(".m.lz", "_c0.t.lz")).and_then(|file| foot::colour_texture(&file));
 +        let (bytes, style) = foot::build(&format!("b/{name}"), &model, texture.as_ref())?;
 +        let path = out.join(name);
 +        std::fs::write(&path, crate::lz::lz13(&bytes)).map_err(|error| format!("{}: {error}", path.display()))?;
 +        Ok(style)
 +    };
++    // The bodies are built on several threads. Each thread takes the next body from a shared counter until none are left.
 +    let (next, done, results) = (AtomicUsize::new(0), AtomicUsize::new(0), Mutex::new(Vec::new()));
 +    let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).min(bodies.len()).max(1);
-+    progress(0, bodies.len());
++    progress(FITTING, 0, bodies.len());
 +    std::thread::scope(|scope| {
 +        for _ in 0..workers {
 +            scope.spawn(|| loop {
@@ -1765,7 +2179,7 @@ index 0000000..8e708f4
 +                }
 +                let result = one(&bodies[i]);
 +                results.lock().unwrap().push((bodies[i].clone(), result));
-+                progress(done.fetch_add(1, Ordering::Relaxed) + 1, bodies.len());
++                progress(FITTING, done.fetch_add(1, Ordering::Relaxed) + 1, bodies.len());
 +            });
 +        }
 +    });
@@ -1781,6 +2195,7 @@ index 0000000..8e708f4
 +            Err(error) => log::info!("feet: {name} keeps the game's legs, {error}"),
 +        }
 +    }
++    // Models from an earlier build that did not work this time are removed, so that the game does not use stale files.
 +    for entry in std::fs::read_dir(&out).into_iter().flatten().flatten() {
 +        let name = entry.file_name().to_string_lossy().into_owned();
 +        if name.starts_with("uBody_") && name.ends_with(".m.lz") && !made.contains(name.as_str()) {
@@ -1797,6 +2212,8 @@ index 0000000..8e708f4
 +mod tests {
 +    use super::*;
 +
++    /// Builds the feet for the whole game, from the rom and the data folder that the environment variables `ZAKURO_FEET_ROM` and `ZAKURO_FEET_DATA` name.
++    /// The test is ignored by default because it needs the game.
 +    #[test]
 +    #[ignore]
 +    fn the_whole_game() {
@@ -1804,32 +2221,47 @@ index 0000000..8e708f4
 +            panic!("set ZAKURO_FEET_ROM and ZAKURO_FEET_DATA");
 +        };
 +        let started = std::time::Instant::now();
-+        let said = build(Path::new(&rom), Path::new(&data), &|_, _| {}, &AtomicBool::new(false)).unwrap();
++        let said = build(Path::new(&rom), Path::new(&data), &|_, _, _| {}, &AtomicBool::new(false)).unwrap();
 +        println!("{said} in {:.1} s", started.elapsed().as_secs_f64());
 +    }
 +}
 diff --git a/crates/zakuro/src/feet/model.rs b/crates/zakuro/src/feet/model.rs
 new file mode 100644
-index 0000000..562ad05
+index 0000000..01e52e9
 --- /dev/null
 +++ b/crates/zakuro/src/feet/model.rs
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,179 @@
++
++//! Reads the model of a body from a CGFX file.
++//! It finds the vertices, the attributes of the vertices and the triangles of the meshes.
 +
 +use std::collections::HashMap;
 +
 +use super::formats::Blob;
 +
++/// The OpenGL code of a 32 bit float.
 +pub const FLOAT: u32 = 0x1406;
++/// The OpenGL code of a signed 16 bit integer.
 +const SHORT: u32 = 0x1402;
++/// The OpenGL code of an unsigned 8 bit integer.
 +const UBYTE: u32 = 0x1401;
++/// The OpenGL code of a signed 8 bit integer.
 +const BYTE: u32 = 0x1400;
++/// The OpenGL code of an unsigned 16 bit integer, which is used for the indices of triangles.
 +const SHORT_INDICES: u32 = 0x1403;
++/// The usage of an attribute that holds the position of a vertex.
 +pub const POSITION: u32 = 0;
++/// The usage of an attribute that holds the normal of a vertex.
 +pub const NORMAL: u32 = 1;
++/// The usage of an attribute that holds the texture coordinates of a vertex.
 +pub const UV: u32 = 4;
++/// The usage of an attribute that holds the indices of the bones that move a vertex.
 +pub const BONES: u32 = 7;
++/// The usage of an attribute that holds the weights of those bones.
 +pub const WEIGHTS: u32 = 8;
 +
++/// Returns the size in bytes of one value of a vertex format.
++/// A format that is not read is an error.
 +pub fn width(format: u32) -> Result<usize, String> {
 +    match format {
 +        FLOAT => Ok(4),
@@ -1839,48 +2271,74 @@ index 0000000..562ad05
 +    }
 +}
 +
++/// One attribute of a vertex, such as its position.
 +#[derive(Debug, Clone, Copy)]
 +pub struct Attr {
++    /// The OpenGL code of the format of each value.
 +    pub format: u32,
++    /// The number of values, for example three for a position.
 +    pub count: usize,
++    /// The factor that is applied to each value after it is read.
 +    pub scale: f64,
++    /// The position of the attribute inside one vertex, in bytes.
 +    pub offset: usize,
 +}
 +
++/// The vertices of one shape, as they are read from its vertex buffer.
 +pub struct Vertices {
++    /// The positions of the vertices.
 +    pub position: Vec<[f64; 3]>,
++    /// The texture coordinates, when the shape has them.
 +    pub uv: Option<Vec<[f64; 2]>>,
++    /// The indices of the bones of each vertex, when the shape has them.
 +    pub bones: Option<Vec<Vec<i64>>>,
++    /// The weights of the bones of each vertex, when the shape has them.
 +    pub weights: Option<Vec<Vec<f64>>>,
++    /// The size of one vertex in bytes.
 +    pub stride: usize,
++    /// The attributes of the vertex by their usage.
 +    pub attrs: HashMap<u32, Attr>,
++    /// The number of vertices.
 +    pub count: usize,
++    /// The position of the vertex data in the file.
 +    pub data_at: usize,
++    /// The size of the vertex data in bytes.
 +    pub size: usize,
++    /// The position of the description of the vertex buffer in the file.
 +    pub buffer: usize,
 +}
 +
++/// A part of a shape with its own triangles.
 +pub struct SubMesh {
++    /// The indices of the bones that the part uses.
 +    pub palette: Vec<u32>,
++    /// The triangles of the part as three indices of vertices each.
 +    pub triangles: Vec<[usize; 3]>,
 +}
 +
++/// Finds the main parts of the first model of a CGFX file.
++/// It returns the position of the model, and the positions of two lists that the model points to at 0xE0 and 0xC8.
 +pub fn parts(b: &Blob) -> Result<(usize, usize, usize), String> {
 +    if b.0.get(0..4) != Some(b"CGFX") {
 +        return Err("not a CGFX file".into());
 +    }
++    // The header size is at 6, and the dictionary of the models is the first pointer after the header.
 +    let models = b.dict(b.rel(b.u16(6) as usize + 12))?;
 +    let model = models.first().ok_or("no model")?.1;
 +    Ok((model, b.to(model + 0xE0)?, b.to(b.to(model + 0xC8)?)?))
 +}
 +
++/// Reads the vertices of a shape from its vertex buffer.
++/// A shape without positions, or a buffer outside the file, is an error.
 +pub fn vertices(b: &Blob, shape: usize) -> Result<Vertices, String> {
++    // The shape points to a vertex buffer through one more pointer. The buffer holds the size, the data pointer, the stride and the attributes.
 +    let buffer = b.to(b.to(shape + 0x3C)?)?;
 +    let (size, data_at, stride) = (b.u32(buffer + 0x14) as usize, b.to(buffer + 0x18)?, b.u32(buffer + 0x24) as usize);
 +    let mut attrs = HashMap::new();
 +    let list = b.to(buffer + 0x2C)?;
 +    for i in 0..b.u32(buffer + 0x28) as usize {
 +        let at = b.to(list + 4 * i)?;
++        // The usage is at 4 in an attribute, and the format, the value count, the scale and the offset are at 36, 40, 44 and 48.
 +        let attr = Attr { format: b.u32(at + 36), count: b.u32(at + 40) as usize, scale: b.f32(at + 44), offset: b.u32(at + 48) as usize };
 +        attrs.insert(b.u32(at + 4), attr);
 +    }
@@ -1888,6 +2346,7 @@ index 0000000..562ad05
 +        return Err("a vertex buffer outside its file".into());
 +    }
 +    let count = size / stride;
++    // Reads all values of one attribute for every vertex, with the scale applied. It gives nothing when the shape has no such attribute.
 +    let take = |usage: u32| -> Result<Option<Vec<Vec<f64>>>, String> {
 +        let Some(attr) = attrs.get(&usage) else { return Ok(None) };
 +        let w = width(attr.format)?;
@@ -1915,11 +2374,13 @@ index 0000000..562ad05
 +    Ok(Vertices { position, uv, bones, weights: take(WEIGHTS)?, stride, attrs, count, data_at, size, buffer })
 +}
 +
++/// Reads the parts of a shape with their bone palettes and triangles.
 +pub fn submeshes(b: &Blob, shape: usize) -> Result<Vec<SubMesh>, String> {
 +    let list = b.to(shape + 0x30)?;
 +    let mut out = Vec::new();
 +    for i in 0..b.u32(shape + 0x2C) as usize {
 +        let sm = b.to(list + 4 * i)?;
++        // The part starts with the number of bones in its palette. A part with none has no palette pointer.
 +        let count = b.u32(sm) as usize;
 +        let palette = match count {
 +            0 => Vec::new(),
@@ -1928,6 +2389,7 @@ index 0000000..562ad05
 +                (0..count).map(|k| b.u32(at + 4 * k)).collect()
 +            }
 +        };
++        // The faces of the part hold streams of indices, and every three indices of a stream are one triangle.
 +        let mut triangles = Vec::new();
 +        let faces = b.rel(sm + 0x10);
 +        for f in 0..b.u32(sm + 0x0C) as usize {
@@ -1936,6 +2398,7 @@ index 0000000..562ad05
 +            for d in 0..b.u32(face) as usize {
 +                let desc = b.to(descs.ok_or("no index streams")? + 4 * d)?;
 +                let (format, size, data) = (b.u32(desc), b.u32(desc + 8) as usize, b.to(desc + 12)?);
++                // The indices are 16 bit when the format says so, and 8 bit otherwise.
 +                let indices: Vec<usize> = match format {
 +                    SHORT_INDICES => (0..size / 2).map(|k| b.u16(data + 2 * k) as usize).collect(),
 +                    _ => b.0[data..data + size].iter().map(|&i| i as usize).collect(),
@@ -1948,27 +2411,27 @@ index 0000000..562ad05
 +    Ok(out)
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 16f1e1b..b9b791e 100644
+index 5b06f5e..688e817 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
-@@ -7,6 +7,7 @@ mod banners;
- mod camera;
+@@ -8,6 +8,7 @@ mod camera;
  mod cli;
  mod console;
+ mod downloads;
 +mod feet;
  mod gamepad;
  mod gui;
  mod hdtext;
 diff --git a/crates/zakuro/src/recompile.rs b/crates/zakuro/src/recompile.rs
-index ea312ad..73fae60 100644
+index 43c8a82..cd2ae3e 100644
 --- a/crates/zakuro/src/recompile.rs
 +++ b/crates/zakuro/src/recompile.rs
-@@ -34,7 +34,7 @@ impl ModStep {
-     }
+@@ -48,7 +48,7 @@ impl ModStep {
  }
  
+ /// Every mod step that the launcher can install.
 -pub const MOD_STEPS: &[ModStep] = &[crate::hdtext::STEP];
 +pub const MOD_STEPS: &[ModStep] = &[crate::feet::STEP, crate::hdtext::STEP];
  
- fn mod_steps(program_id: u64) -> impl Iterator<Item = &'static ModStep> {
-     MOD_STEPS.iter().filter(move |step| step.program_id == program_id)
+ 
+ impl ModStep {

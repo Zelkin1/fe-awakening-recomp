@@ -150,6 +150,7 @@ impl OverlayPainter {
         }
     }
 
+    /// Records the texture changes and fills the geometry of this frame, before the render pass starts. The area of the bottom screen, when it has a picture, remaps the coordinates of the meshes that show it.
     pub(super) fn upload(
         &mut self,
         device: &ash::Device,
@@ -224,6 +225,7 @@ impl OverlayPainter {
         let buffer = self.geometry[frame].as_ref().expect("sized above");
         let (mut vertex_at, mut index_at) = (0usize, self.index_offset as usize);
         for mesh in &overlay.meshes {
+            // The meshes of the bottom screen use coordinates of the whole screen. The image may hold a part of a larger picture, so they move into the area and stay inside its bounds.
             let remapped: Vec<OverlayVertex>;
             let vertices = match bottom_screen.filter(|_| mesh.texture == BOTTOM_SCREEN_TEXTURE) {
                 Some([x, y, width, height, low_x, low_y, high_x, high_y]) => {
@@ -290,6 +292,7 @@ impl OverlayPainter {
             let count = mesh.indices.len() as u32;
             let [left, top, right, bottom] = mesh.clip;
             let (right, bottom) = (right.min(extent.width), bottom.min(extent.height));
+            // The bottom screen uses the set of the screen instead of a texture of the overlay.
             let descriptor = if mesh.texture == BOTTOM_SCREEN_TEXTURE { bottom_screen } else { self.textures.get(&mesh.texture).map(|texture| texture.descriptor) };
 
             if let (Some(descriptor), true) = (descriptor, left < right && top < bottom && count > 0) {

@@ -711,6 +711,7 @@ pub(super) fn compile(program: &Program, entry: u32, tier: Tier) -> Result<Compi
         ("is_pic", "false"),
         ("enable_verifier", verify),
         ("regalloc_algorithm", allocator),
+        // Inline stack probes touch the pages of a large frame in order, so the guard page of the stack catches an overflow.
         ("enable_probestack", "true"),
         ("probestack_strategy", "inline"),
     ];

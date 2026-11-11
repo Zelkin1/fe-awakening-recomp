@@ -685,6 +685,7 @@ impl VulkanPresenter {
                 )
                 .expect("begin command buffer");
         }
+        // The set and the area of the image of each screen. It is built before the upload because the overlay needs the area of the bottom screen to remap its coordinates.
         let crop = |index: usize| match sources[index] {
             Source::Nothing => None,
             Source::Own => Some((self.screens[index].descriptor, WHOLE)),
@@ -1351,6 +1352,7 @@ fn set_viewport(
         );
         // the scissor has to be clamped to the framebuffer or validation
         // complains when the window is smaller than the layout wants.
+        // The same rounded edges as the viewport of OpenGL, clamped to the framebuffer.
         let [left, top, right, bottom] = viewport.pixels();
         let (x, y) = (left.max(0), top.max(0));
         let width = (right.min(extent.width as i32) - x).max(0) as u32;

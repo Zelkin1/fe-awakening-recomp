@@ -29,17 +29,23 @@ pub struct Cheat {
     /// is turned off. a player's cheat keeps what it wrote, as in Citra: the
     /// money a cheat gave stays.
     pub(crate) overwrote: BTreeMap<u32, Overwrote>,
+    /// The number the player can change for this cheat, when it has one.
     pub setting: Option<CheatSetting>,
 }
 
+/// The setting of a cheat together with its current value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheatSetting {
+    /// The declaration of the setting, with its name, range and unit.
     pub setting: crate::enhancements::Setting,
+    /// The current value, always inside the range of the setting.
     pub value: u16,
+    /// The lines of the code with the placeholders still in them, from which the code is rebuilt when the value changes.
     template: Vec<String>,
 }
 
 impl CheatSetting {
+    /// Creates the setting of a cheat from its declaration, its value and the lines of the code that hold the placeholders.
     pub(crate) fn new(setting: crate::enhancements::Setting, value: u16, template: Vec<String>) -> CheatSetting {
         CheatSetting { setting, value, template }
     }
@@ -100,6 +106,8 @@ impl Cheat {
         &self.lines
     }
 
+    /// Sets the value of the setting, clamped to its range, and rebuilds the code from the template.
+    /// Returns the value that was set, or `None` when the cheat has no setting.
     pub fn set_value(&mut self, value: u16) -> Option<u16> {
         let setting = self.setting.as_mut()?;
         setting.value = value.clamp(setting.setting.min, setting.setting.max);
@@ -234,6 +242,7 @@ impl CodeRanges {
 /// what was recompiled of it checked again, so that the interpreter runs the
 /// functions it changed, and the recompiled code those put back.
 pub fn run(system: &mut System) {
+    // In the original mode the cheats are held back, and what they overwrote is put back.
     let held = system.config.original;
     if !system.cheats.iter().any(|cheat| (cheat.enabled && !held) || !cheat.overwrote.is_empty()) {
         return;

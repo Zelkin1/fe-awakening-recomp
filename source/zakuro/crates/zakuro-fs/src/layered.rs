@@ -61,6 +61,8 @@ impl Layered {
         Layered::stacked(romfs, image, &[dir])
     }
 
+    /// Like `new`, with the mods in several directories laid over the RomFS one after the other.
+    /// A later directory wins over an earlier one.
     pub fn stacked(romfs: &RomFs, image: &[u8], dirs: &[&Path]) -> Result<Option<Layered>, FsError> {
         let mut tree = Tree::read(romfs)?;
         let content = tree.content();
@@ -563,6 +565,7 @@ mod tests {
         std::fs::remove_dir_all(mods).unwrap();
     }
 
+    /// Two mods laid in order give the file of the later one, and a patch of the later one applies to the file of the earlier one.
     #[test]
     fn mods_stack_in_order() {
         let image = game(&[("Data/a.bin", b"a"), ("Data/b.bin", b"b"), ("Data/c.bin", b"c")]);

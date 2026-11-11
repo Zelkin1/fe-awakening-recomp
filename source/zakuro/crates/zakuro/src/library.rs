@@ -34,9 +34,12 @@ pub struct Addon {
     pub version: u16,
 }
 
+/// What a scan looks at.
 #[derive(Clone, Debug)]
 pub enum Source {
+    /// A game file and optionally an update file, both chosen by the user.
     Files { game: PathBuf, update: Option<PathBuf> },
+    /// Every game file in a folder.
     Folder(PathBuf),
 }
 
@@ -53,6 +56,7 @@ pub struct Library {
 }
 
 impl Library {
+    /// Starts looking at the source again on a thread. The result is taken in by `poll`.
     pub fn scan(&mut self, source: Source) {
         let (send, receive) = channel();
         std::thread::spawn(move || {
@@ -88,6 +92,7 @@ impl Library {
     }
 }
 
+/// Reads the games and the add-ons of the source, and pairs each add-on with its game. Returns the games, the playable ones first, and the Download Play children.
 fn scan(source: &Source) -> (Vec<Game>, Vec<Addon>) {
     let (mut games, addons) = match source {
         Source::Folder(folder) => read_folder(folder),
@@ -123,6 +128,7 @@ fn scan(source: &Source) -> (Vec<Game>, Vec<Addon>) {
     (games, children)
 }
 
+/// Reads every game file in the folder. The updates, the DLC and the Download Play children are returned apart from the games.
 fn read_folder(folder: &Path) -> (Vec<Game>, Vec<Addon>) {
     let Ok(entries) = std::fs::read_dir(folder) else { return (Vec::new(), Vec::new()) };
     let paths = entries.filter_map(|entry| entry.ok().map(|entry| entry.path())).filter(|path| {
@@ -141,8 +147,10 @@ fn read_folder(folder: &Path) -> (Vec<Game>, Vec<Addon>) {
     (games, addons)
 }
 
+/// Reads the chosen game file and the chosen update file, and nothing else. An update that does not belong to the game still shows as a file that can't be played.
 fn read_chosen_files(game: &Path, update: Option<&Path>) -> (Vec<Game>, Vec<Addon>) {
     let mut paths = vec![game];
+    // The same file is not read twice when it was chosen as both.
     paths.extend(update.filter(|update| *update != game));
     let (mut games, mut addons) = (Vec::new(), Vec::new());
     for path in paths {
@@ -154,11 +162,13 @@ fn read_chosen_files(game: &Path, update: Option<&Path>) -> (Vec<Game>, Vec<Addo
             _ => {}
         }
     }
+    // A game and its add-ons share the lower 32 bits of the title id. Add-ons of another game are dropped, except the chosen update.
     let playable_ids: Vec<u64> = games.iter().filter(|game| game.problem.is_none()).map(|game| game.program_id & 0xFFFF_FFFF).collect();
     addons.retain(|addon| playable_ids.contains(&(addon.title_id & 0xFFFF_FFFF)) || update == Some(addon.path.as_path()));
     (games, addons)
 }
 
+/// Reads the chosen file for the game at the path. Returns the update or the DLC in it when it belongs to the game, and nothing otherwise.
 pub fn chosen_addon(path: &Path, chosen: &Path) -> (Option<Addon>, Vec<Addon>) {
     let program_id = zakuro_fs::Title::load(path).ok().map(|title| title.program_id());
     match (program_id, addon(chosen)) {

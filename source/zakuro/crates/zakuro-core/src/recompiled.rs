@@ -29,14 +29,20 @@ pub struct Library {
     /// picks. a jump through a register looks its target up, which is a
     /// search through every function otherwise.
     found: Box<[Found]>,
+    /// The functions of the game that are replaced or wrapped by a hook, by address.
     hooks: Vec<(u32, Hook)>,
 }
 
+/// A function that runs in place of the start of a function of the game.
+/// It gets the memory and the registers, and says what to do next.
 pub type Hook = fn(&mut Memory, &mut Context) -> AfterHook;
 
+/// What happens after a hook has run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AfterHook {
+    /// The original function of the game runs next.
     RunOriginal,
+    /// The original function is skipped and the call returns to its caller.
     ReturnToCaller,
 }
 
@@ -128,9 +134,12 @@ unsafe extern "C" fn lookup(ctx: *mut Context, address: u32) -> Option<Code> {
     unsafe { machine(ctx).library.lookup(address) }
 }
 
+/// The entry for every hooked address in place of its recompiled code.
+/// It runs the hook, then either returns to the caller or continues with the original function.
 unsafe extern "C" fn hooked(ctx: *mut Context) {
     unsafe {
         let machine = machine(ctx);
+        // The program counter holds the address that was jumped to.
         let address = (*ctx).r[15];
         let hook = machine.library.hooks.iter().find(|(at, _)| *at == address).map(|&(_, hook)| hook);
         if hook.is_some_and(|hook| hook(machine.memory, &mut *ctx) == AfterHook::ReturnToCaller) {
@@ -144,8 +153,10 @@ unsafe extern "C" fn hooked(ctx: *mut Context) {
     }
 }
 
+/// Returns from the current function the way `bx lr` does.
 fn return_to_caller(ctx: &mut Context) {
     let return_address = ctx.r[14];
+    // The lowest bit of the link register tells that the caller runs in Thumb mode, and the address is aligned for the mode.
     let thumb = return_address & 1 != 0;
     ctx.thumb = thumb as u8;
     ctx.r[15] = return_address & if thumb { !1 } else { !3 };
@@ -194,9 +205,11 @@ impl Library {
         Library { code, fallbacks: Cell::new(0), found: Library::nothing_found(), hooks: Vec::new() }
     }
 
+    /// Hooks the function at the address, replacing a hook that is already there.
     pub fn hook(&mut self, address: u32, hook: Hook) {
         self.hooks.retain(|(at, _)| *at != address);
         self.hooks.push((address, hook));
+        // The cache of looked up code may hold the address, so it is emptied.
         self.found = Library::nothing_found();
     }
 
@@ -234,6 +247,7 @@ impl Library {
         match slot.get() {
             (seen, code) if seen == address => code,
             _ => {
+                // A hooked address runs through `hooked`, which calls the hook first.
                 let code = match self.hooks.iter().any(|(at, _)| *at == address) {
                     true => Some(hooked as Code),
                     false => self.code.lookup(address),

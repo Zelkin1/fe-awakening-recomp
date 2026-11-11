@@ -1,3 +1,7 @@
+//! Redraws the labels in the pictures of the game, such as buttons, plates and menu texts.
+//!
+//! For every label, the old letters are measured and erased, the new text is laid out in the new font, and the whole picture is enlarged with the new text on top.
+
 use std::collections::{HashMap, HashSet};
 
 use super::banners;
@@ -6,19 +10,29 @@ use super::ops::{dilate, distance, erode, fill_holes, gaussian, label, largest, 
 use super::text::Face;
 use super::titles::SCALE;
 
+/// The gradient strength below which a pixel counts as flat when the flat cells of the picture are searched.
 const EDGE: f32 = 0.05;
+/// The smallest number of pixels that a flat cell needs to be flattened.
 const SMALLEST: usize = 12;
+/// The colour difference from the colour of the cell at which a pixel counts as detail that must be kept.
 const TOLERANCE: f32 = 0.07;
+/// The brightness above which a flat cell is flattened.
 const CELL_LIGHT: f32 = 0.8;
+/// The brightness below which a flat cell is flattened.
 const CELL_DARK: f32 = 0.45;
+/// The space in enlarged pixels that the text keeps from the edge of its area.
 const MARGIN: isize = 2;
+/// The drop shadow of the text as the offset, the blur and the strength. The offset and the blur are in pixels of the original picture.
 const SHADOW: (f32, f32, f32) = (0.6, 0.3, 0.7);
+/// The letter spacings that are tried when a label is laid out.
 const TRACKINGS: [f32; 3] = [0.0, 0.02, 0.04];
 
+/// Drops the alpha channel of a pixel.
 fn rgb(p: [f32; 4]) -> [f32; 3] {
     [p[0], p[1], p[2]]
 }
 
+/// Builds a mask of the given size from a function of the position.
 fn mask(w: usize, h: usize, f: impl Fn(usize, usize) -> bool) -> Mask {
     let mut m = Mask::new(w, h);
     for y in 0..h {
@@ -29,10 +43,12 @@ fn mask(w: usize, h: usize, f: impl Fn(usize, usize) -> bool) -> Mask {
     m
 }
 
+/// Builds a mask of the given size with a filled rectangle, given as `x0, y0, x1, y1` with the upper ends exclusive.
 fn rect(w: usize, h: usize, b: (usize, usize, usize, usize)) -> Mask {
     mask(w, h, |x, y| x >= b.0 && x < b.2 && y >= b.1 && y < b.3)
 }
 
+/// Erodes a mask without the border of the picture counting as empty. The mask is padded by repeating its edge pixels first. With `grow` set, the mask is closed and its holes are filled instead of eroded.
 fn padded_erode(m: &Mask, pad: usize, iterations: usize, grow: bool) -> Mask {
     let (w, h) = (m.w + 2 * pad, m.h + 2 * pad);
     let big = mask(w, h, |x, y| m.at((x as isize - pad as isize).clamp(0, m.w as isize - 1) as usize, (y as isize - pad as isize).clamp(0, m.h as isize - 1) as usize));
@@ -40,6 +56,7 @@ fn padded_erode(m: &Mask, pad: usize, iterations: usize, grow: bool) -> Mask {
     mask(m.w, m.h, |x, y| done.at(x + pad, y + pad))
 }
 
+/// Interpolates linearly between the points `xs, ys`, which are sorted by `xs`. Outside the range, the first or last value is returned.
 fn interp(x: f32, xs: &[f32], ys: &[f32]) -> f32 {
     if x <= xs[0] {
         return ys[0];
@@ -52,6 +69,7 @@ fn interp(x: f32, xs: &[f32], ys: &[f32]) -> f32 {
     if x1 == x0 { y0 } else { y0 + (y1 - y0) * (x - x0) / (x1 - x0) }
 }
 
+/// Splits a mask into its connected pieces. Every piece is a list of pixel indices.
 fn pieces(m: &Mask, eight: bool) -> Vec<Vec<usize>> {
     let (labels, count) = label(m, eight);
     let mut out = vec![Vec::new(); count];
@@ -63,6 +81,7 @@ fn pieces(m: &Mask, eight: bool) -> Vec<Vec<usize>> {
     out
 }
 
+/// Returns the width and the height of a piece as the distance between its outermost pixels. The pixel indices are for a picture of width `w`.
 fn span(piece: &[usize], w: usize) -> (usize, usize) {
     let xs = piece.iter().map(|i| i % w);
     let ys = piece.iter().map(|i| i / w);
@@ -71,6 +90,7 @@ fn span(piece: &[usize], w: usize) -> (usize, usize) {
     (x1 - x0, y1 - y0)
 }
 
+/// Finds the dark plate behind the letters of a region and returns its bounding box as `x0, y0, x1, y1`. Falls back to the whole region.
 fn plate_box(region: &Rgba) -> (usize, usize, usize, usize) {
     let lum = region.lum();
     let dark = Mask::from(&lum, |v| v < 0.45);
@@ -78,17 +98,23 @@ fn plate_box(region: &Rgba) -> (usize, usize, usize, usize) {
     largest(&solid).and_then(|m| m.bounds()).unwrap_or((0, 0, region.w, region.h))
 }
 
+/// The old letters of a label, as measured from the picture.
 struct Letters {
+    /// How much every pixel belongs to the letters, from zero to one.
     core: Plane,
+    /// The typical colour of the letters.
     colour: [f32; 3],
+    /// The colour of the letters from top to bottom in 16 steps, when the letters have a vertical gradient.
     profile: Option<Vec<[f32; 3]>>,
 }
 
+/// Measures the letters in a region. Returns `None` when there are no light or no dark pixels to compare.
 fn letters(region: &Rgba) -> Option<Letters> {
     let (w, h) = (region.w, region.h);
     let lum = region.lum();
     let inside = rect(w, h, plate_box(region));
     let values: Vec<f32> = lum.v.iter().zip(&inside.v).filter(|(_, &i)| i).map(|(&l, _)| l).collect();
+    // The brightest pixels on the plate are taken as letters and the darkest pixels as the plate.
     let (high, low) = (percentile(&values, 80.0), percentile(&values, 45.0));
     let light = mask(w, h, |x, y| inside.at(x, y) && lum.at(x, y) > high);
     let dark = mask(w, h, |x, y| inside.at(x, y) && lum.at(x, y) < low);
@@ -96,6 +122,7 @@ fn letters(region: &Rgba) -> Option<Letters> {
     let plate = rgb(median_colour(region, &dark)?);
     let direction = [colour[0] - plate[0], colour[1] - plate[1], colour[2] - plate[2]];
     let length = direction.iter().map(|d| d * d).sum::<f32>().max(1e-4);
+    // Every pixel is projected onto the line from the plate colour to the letter colour. The result is zero on the plate and one on the letters.
     let mut core = Plane::new(w, h);
     for y in 0..h {
         for x in 0..w {
@@ -107,6 +134,7 @@ fn letters(region: &Rgba) -> Option<Letters> {
             core.set(x, y, ((t - 0.15) / 0.7).clamp(0.0, 1.0));
         }
     }
+    // Thin lines that run across most of the region are borders and not letters, so they are removed.
     for piece in pieces(&Mask::from(&core, |v| v > 0.3), false) {
         let (sx, sy) = span(&piece, w);
         if (sx <= 1 && sy as f32 >= h as f32 * 0.6) || (sy <= 1 && sx as f32 >= w as f32 * 0.6) {
@@ -115,6 +143,7 @@ fn letters(region: &Rgba) -> Option<Letters> {
             }
         }
     }
+    // The median colour of the strong letter pixels is taken for every row, and then resampled to 16 evenly spaced steps from the top to the bottom of the letters.
     let mut rows = Vec::new();
     let mut values: Vec<[f32; 3]> = Vec::new();
     for y in 0..h {
@@ -144,6 +173,7 @@ fn letters(region: &Rgba) -> Option<Letters> {
     Some(Letters { core, colour, profile })
 }
 
+/// Finds the divider lines along the edges of an area, such as a bright or dark line at the border of a plate. A line counts when at least 85 percent of its pixels are clearly brighter or darker than the plain plate. Only the two outermost rows and columns are checked.
 fn dividers(region: &Rgba, area: &Mask, plain_lum: f32) -> Mask {
     let (w, h) = (region.w, region.h);
     let lum = region.lum();
@@ -171,6 +201,7 @@ fn dividers(region: &Rgba, area: &Mask, plain_lum: f32) -> Mask {
     lines
 }
 
+/// Measures the plain colour of the plate, away from the letters and from any texture. Returns `None` when there are too few usable pixels.
 fn plate_colour(region: &Rgba, core: &Plane) -> Option<[f32; 4]> {
     let (w, h) = (region.w, region.h);
     let lum = region.lum();
@@ -185,6 +216,7 @@ fn plate_colour(region: &Rgba, core: &Plane) -> Option<[f32; 4]> {
     if interior.count() < 4 {
         return None;
     }
+    // The local standard deviation of the brightness over 3 by 3 pixels tells flat areas from textured ones.
     let mean = uniform(&lum, 3);
     let square = uniform(&lum.map(|v| v * v), 3);
     let flat = mask(w, h, |x, y| interior.at(x, y) && (square.at(x, y) - mean.at(x, y).powi(2)).max(0.0).sqrt() < 0.025);
@@ -194,6 +226,7 @@ fn plate_colour(region: &Rgba, core: &Plane) -> Option<[f32; 4]> {
     }
 }
 
+/// Paints over the old letters of a plate with its plain colour. The `shared` colour is used when it is known, and otherwise the colour is measured.
 fn without_letters(region: &Rgba, core: &Plane, shared: Option<[f32; 4]>) -> Rgba {
     let (w, h) = (region.w, region.h);
     let inked = Mask::from(core, |v| v > 0.05);
@@ -219,6 +252,7 @@ fn without_letters(region: &Rgba, core: &Plane, shared: Option<[f32; 4]>) -> Rgb
             out.v[i] = plain;
         }
     }
+    // Leftovers of the letters outside the plate area are removed as well. Bright pieces larger than 40 pixels are kept, as they belong to the picture and not to the letters.
     let mut brighter = mask(w, h, |x, y| lum.at(x, y) - plain_lum > 0.1 && !area.at(x, y));
     for piece in pieces(&brighter.clone(), false) {
         if piece.len() > 40 {
@@ -231,6 +265,7 @@ fn without_letters(region: &Rgba, core: &Plane, shared: Option<[f32; 4]>) -> Rgb
             out.v[i] = plain;
         }
     }
+    // The same is done for dark leftovers, such as the shadows of the letters. Large dark pieces are kept.
     let mut darker = mask(w, h, |x, y| plain_lum - lum.at(x, y) > 0.05 && !area.at(x, y) && region.at(x, y)[3] > 0.98);
     for piece in pieces(&darker.clone(), false) {
         let (sx, sy) = span(&piece, w);
@@ -247,6 +282,7 @@ fn without_letters(region: &Rgba, core: &Plane, shared: Option<[f32; 4]>) -> Rgb
     out
 }
 
+/// Returns the share of set pixels in a window of the given size along one direction, as a box filter over the mask. The edges are mirrored.
 fn uniform_1d(m: &Mask, size: usize, vertical: bool) -> Plane {
     let (w, h) = (m.w, m.h);
     let n = if vertical { h } else { w };
@@ -279,6 +315,7 @@ fn uniform_1d(m: &Mask, size: usize, vertical: bool) -> Plane {
     out
 }
 
+/// Grows every set pixel into a line of the given length along one direction.
 fn dilate_line(m: &Mask, length: usize, vertical: bool) -> Mask {
     if length == 0 {
         return Mask::new(m.w, m.h);
@@ -293,9 +330,11 @@ fn dilate_line(m: &Mask, length: usize, vertical: bool) -> Mask {
     })
 }
 
+/// Measures the letters on a button. The `wanted` polarity is `light`, `dark` or anything else to choose automatically. Returns the letter core, the letter colour and a mask of the pixels to erase.
 fn button_letters(region: &Rgba, wanted: &str) -> (Plane, [f32; 3], Mask) {
     let (w, h) = (region.w, region.h);
     let lum = region.lum();
+    // The reference of every row is the median colour of the row, which is the colour of the button face at that height.
     let reference: Vec<f32> = (0..h)
         .map(|y| {
             let mut c = [0.0; 3];
@@ -311,6 +350,7 @@ fn button_letters(region: &Rgba, wanted: &str) -> (Plane, [f32; 3], Mask) {
             difference.set(x, y, lum.at(x, y) - r);
         }
     }
+    // The letters are lighter or darker than the face, whichever deviates more at the extremes of the picture.
     let (lighter, darker) = (percentile(&difference.v, 97.0), -percentile(&difference.v, 3.0));
     let polarity = match wanted {
         "light" => 1.0,
@@ -324,6 +364,7 @@ fn button_letters(region: &Rgba, wanted: &str) -> (Plane, [f32; 3], Mask) {
     let colour = if strong.count() > 3 { median_colour(region, &strong).map(rgb).unwrap_or([1.0; 3]) } else { [1.0; 3] };
     let contrast = if strong.count() > 3 { median_of(&mut difference.v.iter().zip(&strong.v).filter(|(_, &s)| s).map(|(&d, _)| d).collect::<Vec<f32>>()) } else { 0.2 }.max(0.05);
     let mut core = difference.map(|d| ((d / contrast - 0.15) / 0.7).clamp(0.0, 1.0));
+    // Lines that run over at least half of the height or the width of the button are frames and not letters. They and the pixels around them are removed.
     let on = Mask::from(&core, |v| v > 0.2);
     let (half_h, half_w) = ((h as f32 * 0.5) as usize, (w as f32 * 0.5) as usize);
     let tall_avg = uniform_1d(&on, half_h.max(3), true);
@@ -337,6 +378,7 @@ fn button_letters(region: &Rgba, wanted: &str) -> (Plane, [f32; 3], Mask) {
             core.v[i] = 0.0;
         }
     }
+    // Only the tallest band of rows with letter pixels is kept, with one row of room on each side.
     let filled: Vec<bool> = (0..h).map(|y| (0..w).filter(|&x| core.at(x, y) > 0.3).count() >= 3).collect();
     let mut bands: Vec<(usize, usize)> = Vec::new();
     let mut start = None;
@@ -360,6 +402,7 @@ fn button_letters(region: &Rgba, wanted: &str) -> (Plane, [f32; 3], Mask) {
         }
     }
     let erase = mask(w, h, |x, y| core.at(x, y) > 0.03 && x >= 2 && x + 2 < w);
+    // Pieces that touch the border of the region are not letters, so they are removed from the core. They stay in the erase mask.
     let (labels, _) = label(&Mask::from(&core, |v| v > 0.3), false);
     let mut edges = HashSet::new();
     for x in 0..w {
@@ -378,6 +421,7 @@ fn button_letters(region: &Rgba, wanted: &str) -> (Plane, [f32; 3], Mask) {
     (core, colour, erase)
 }
 
+/// Averages the plane over a square window of the given radius. Pixels outside the plane repeat the nearest edge pixel.
 fn box_mean(p: &Plane, radius: usize) -> Plane {
     let (w, h) = (p.w, p.h);
     let size = 2 * radius + 1;
@@ -399,6 +443,7 @@ fn box_mean(p: &Plane, radius: usize) -> Plane {
     out
 }
 
+/// Smooths a channel with a guided filter, which keeps the edges of the guide image. The `eps` sets how strong an edge must be to be kept.
 fn guided(channel: &Plane, guide: &Plane, radius: usize, eps: f32) -> Plane {
     let (mean_g, mean_c) = (box_mean(guide, radius), box_mean(channel, radius));
     let covariance = box_mean(&guide.zip(channel, |a, b| a * b), radius).zip(&mean_g.zip(&mean_c, |a, b| a * b), |a, b| a - b);
@@ -408,22 +453,26 @@ fn guided(channel: &Plane, guide: &Plane, radius: usize, eps: f32) -> Plane {
     box_mean(&a, radius).zip(guide, |a, g| a * g).zip(&box_mean(&b, radius), |x, y| x + y)
 }
 
+/// Estimates the colour of every pixel from the pixels marked in `keep`, by blurring the kept pixels and dividing by the blurred weight. Returns the weight and the four colour channels.
 fn smeared(region: &Rgba, keep: &Plane, sigma: f32, floor: f32) -> (Plane, [Plane; 4]) {
     let weight = gaussian(keep, sigma);
     let estimate = [0, 1, 2, 3].map(|c| gaussian(&region.channel(c).zip(keep, |v, k| v * k), sigma).zip(&weight, |v, wt| v / wt.max(floor)));
     (weight, estimate)
 }
 
+/// Removes the old letters from a button and fills the gap with the colours of the button face around it.
 fn button_without_letters(region: &Rgba, core: &Plane, erase: &Mask) -> Rgba {
     let (w, h) = (region.w, region.h);
     if w < 7 || h < 7 {
         return region.clone();
     }
+    // The face is the region without a border of 3 pixels. The marks are the face pixels that the letters touch.
     let face = rect(w, h, (3, 3, w - 3, h - 3));
     let solid = mask(w, h, |x, y| region.at(x, y)[3] > 0.98);
     let grown = dilate(&Mask::from(core, |v| v > 0.03).or(erase), 2);
     let marks = grown.and(&face);
     let keep = face.and(&marks.not()).and(&solid).as_plane();
+    // Where the letters touch the rim of the button, every column is repaired by interpolating vertically between the good pixels.
     let mut filled = region.clone();
     let rim = mask(w, h, |x, y| grown.at(x, y) && !face.at(x, y) && solid.at(x, y) && x >= 2 && x + 2 < w && y >= 2 && y + 2 < h);
     for x in 0..w {
@@ -443,6 +492,7 @@ fn button_without_letters(region: &Rgba, core: &Plane, erase: &Mask) -> Rgba {
             }
         }
     }
+    // The marked pixels are filled from the kept pixels around them with growing blur radii, until all of them are covered.
     let mut remaining = marks.clone();
     for sigma in [1.0, 1.5, 2.5, 4.0, 6.0] {
         let (weight, estimate) = smeared(region, &keep, sigma, 1e-4);
@@ -464,6 +514,7 @@ fn button_without_letters(region: &Rgba, core: &Plane, erase: &Mask) -> Rgba {
             }
         }
     }
+    // The result is smoothed to hide the seams of the fill. The two outermost pixels on each side are left as they are.
     let guide = filled.lum();
     let smooth = [0, 1, 2].map(|c| guided(&filled.channel(c), &guide, 3, 0.003));
     let mut out = filled.clone();
@@ -476,8 +527,10 @@ fn button_without_letters(region: &Rgba, core: &Plane, erase: &Mask) -> Rgba {
     out
 }
 
+/// Flattens the cells of nearly constant colour in the picture to their median colour, which removes noise before the enlargement. Returns the flattened picture and the amount of grain to add back per pixel. The `spared` pixels are not touched.
 fn flatten(image: &Rgba, spared: &Mask) -> (Rgba, Plane) {
     let (w, h) = (image.w, image.h);
+    // The gradient is measured on a median filtered copy of every channel, so that noise does not count as an edge.
     let smooth = [0, 1, 2].map(|c| median(&image.channel(c), 3));
     let mut gradient = Plane::new(w, h);
     for s in &smooth {
@@ -514,6 +567,7 @@ fn flatten(image: &Rgba, spared: &Mask) -> (Rgba, Plane) {
         let mean = m.iter().map(|&i| lum.v[i]).sum::<f32>() / m.len() as f32;
         spread[l] = (m.iter().map(|&i| (lum.v[i] - mean).powi(2)).sum::<f32>() / m.len() as f32).max(0.0).sqrt();
     }
+    // The difference of every pixel from the colour of its cell. In light cells, pixels that are not darker than the cell are ignored.
     let mut difference = Plane::new(w, h);
     for i in 0..difference.v.len() {
         let t = table[labels[i] as usize];
@@ -526,6 +580,7 @@ fn flatten(image: &Rgba, spared: &Mask) -> (Rgba, Plane) {
         }
         difference.v[i] = d;
     }
+    // Detail is kept where a pixel differs clearly from its cell, together with the faint differences that are connected to it.
     let faint = Mask::from(&difference, |d| d >= TOLERANCE * 0.4);
     let (faint_labels, _) = label(&faint, true);
     let touching: HashSet<u32> = (0..difference.v.len()).filter(|&i| difference.v[i] >= TOLERANCE && faint.v[i]).map(|i| faint_labels[i]).filter(|&l| l > 0).collect();
@@ -543,6 +598,7 @@ fn flatten(image: &Rgba, spared: &Mask) -> (Rgba, Plane) {
     (flat, grain)
 }
 
+/// Adds noise to the enlarged picture to replace the grain that the flattening removed. The `grain` plane is at the original size and gives the strength per pixel. The same seed always gives the same noise.
 fn add_grain(image: &mut Rgba, grain: &Plane, seed: u64) {
     let (w, h) = (image.w, image.h);
     let amount = resize(grain, w, h, Filter::Nearest);
@@ -553,6 +609,7 @@ fn add_grain(image: &mut Rgba, grain: &Plane, seed: u64) {
         let mean = p.sum() / p.v.len() as f32;
         (p.v.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / p.v.len() as f32).sqrt().max(1e-6)
     };
+    // Fine and coarse noise are normalised and mixed, and the brightness of the pixel is scaled by the result.
     let (sf, sc) = (std(&fine), std(&coarse));
     for i in 0..image.v.len() {
         let n = fine.v[i] / sf * 0.6 + coarse.v[i] / sc * 0.2;
@@ -562,11 +619,13 @@ fn add_grain(image: &mut Rgba, grain: &Plane, seed: u64) {
     }
 }
 
+/// Splits an image into four planes with the colour channels multiplied by the alpha. Resizing in this form avoids dark fringes at transparent edges.
 fn premultiplied(image: &Rgba) -> [Plane; 4] {
     let a = image.channel(3);
     [0, 1, 2, 3].map(|c| if c == 3 { a.clone() } else { image.channel(c).zip(&a, |v, a| v * a) })
 }
 
+/// Converts premultiplied planes back to an image. Pixels that are almost transparent become fully transparent black.
 fn unpremultiply(channels: &[Plane; 4]) -> Rgba {
     let (w, h) = (channels[3].w, channels[3].h);
     let mut out = Rgba::new(w, h);
@@ -583,12 +642,15 @@ fn unpremultiply(channels: &[Plane; 4]) -> Rgba {
     out
 }
 
+/// Enlarges an image by the scale with a smooth bicubic filter.
 pub fn enlarge(image: &Rgba) -> Rgba {
     let pre = premultiplied(image);
     unpremultiply(&pre.map(|c| resize(&c, image.w * SCALE, image.h * SCALE, Filter::Bicubic).map(|v| v.clamp(0.0, 1.0))))
 }
 
+/// Enlarges an image by the scale with bilinear filtering, where the blend between two source pixels is squeezed toward the middle by `squeeze`. A larger value gives harder edges.
 pub fn sharp_enlarge(image: &Rgba, squeeze: f32) -> Rgba {
+    // For every output index along one axis, this gives the two source pixels to blend and the blend weight.
     let axis = |n: usize| -> Vec<(usize, usize, f32)> {
         (0..n * SCALE)
             .map(|i| {
@@ -618,40 +680,54 @@ pub fn sharp_enlarge(image: &Rgba, squeeze: f32) -> Rgba {
     unpremultiply(&channels)
 }
 
+/// Returns the group of a label, which is its own text when it has no group. Labels of one group share their colour.
 fn group(label: &Label) -> &str {
     if label.group.is_empty() { label.text } else { label.group }
 }
 
+/// A label with its new text laid out and ready to be composited.
 struct Drawn {
+    /// The top left corner of the label in the original picture.
     x0: usize,
     y0: usize,
+    /// The new text as a mask at the enlarged size, covering the area of the label.
     mask: Plane,
+    /// The colour of every pixel of the mask.
     colour: Vec<[f32; 3]>,
+    /// Whether the text is lighter than the plate and so gets a drop shadow.
     shadowed: bool,
+    /// For a button, the colour of the face under the old letters. The text is then drawn as engraved.
     engraved: Option<[f32; 3]>,
+    /// The area of the label in which the text may be drawn, at the enlarged size.
     inside: Mask,
+    /// The name of the size group. Labels of one group are scaled down by the same factor.
     size: String,
 }
 
+/// Enlarges a mask by the scale.
 fn kron(m: &Mask) -> Mask {
     m.scale_up(SCALE)
 }
 
+/// Returns the bounds of the values above the threshold as `x0, x1, y0, y1`, with all four ends inclusive.
 fn bounds_of(p: &Plane, threshold: f32) -> Option<(isize, isize, isize, isize)> {
     let (r0, r1) = p.rows_above(threshold)?;
     let (c0, c1) = p.cols_above(threshold)?;
     Some((c0 as isize, c1 as isize, r0 as isize, r1 as isize))
 }
 
+/// Moves the content of a plane by the offset. The parts that leave the plane are dropped.
 fn shift(p: &Plane, dx: isize, dy: isize) -> Plane {
     let mut out = Plane::new(p.w, p.h);
     out.paste(p, dx, dy);
     out
 }
 
+/// Redraws all labels of a picture in the new font and returns the picture enlarged by the scale.
 pub fn redraw(image: &Rgba, labels: &[Label], face: &Face) -> Rgba {
     let (w, h) = (image.w, image.h);
     let region = |l: &Label| image.crop(l.box_[0], l.box_[1], l.box_[2], l.box_[3]);
+    // First pass: measure the old letters of every label.
     let mut clean = image.clone();
     let mut spared = Mask::new(w, h);
     let mut found: Vec<Option<(Plane, [f32; 3])>> = Vec::new();
@@ -683,6 +759,7 @@ pub fn redraw(image: &Rgba, labels: &[Label], face: &Face) -> Rgba {
             }
         }
     }
+    // The letter colour of a group is the median over all its labels, and the plate colour is the median over the labels of the group that look alike.
     let mut colours: HashMap<String, Vec<[f32; 3]>> = HashMap::new();
     for (l, f) in labels.iter().zip(&found) {
         if let Some((_, c)) = f {
@@ -700,6 +777,7 @@ pub fn redraw(image: &Rgba, labels: &[Label], face: &Face) -> Rgba {
             Some([0, 1, 2, 3].map(|k| median_of(&mut alike.iter().map(|c| c[k]).collect::<Vec<f32>>())))
         })
         .collect();
+    // Second pass: lay out the new text, erase the old letters and gather what is needed to composite.
     let mut drawn: Vec<Drawn> = Vec::new();
     for (i, l) in labels.iter().enumerate() {
         let Some((core, _)) = &found[i] else { continue };
@@ -712,6 +790,7 @@ pub fn redraw(image: &Rgba, labels: &[Label], face: &Face) -> Rgba {
         let base = shared[group(l)];
         let shadowed = luminance(base) > luminance(under);
         let mut colour = vec![base; layout.v.len()];
+        // Labels that shine get the vertical colour gradient of their group, stretched over the rows of the new text.
         if l.shine {
             if let Some(list) = profiles.get(group(l)).filter(|p| !p.is_empty()) {
                 let profile: Vec<[f32; 3]> = (0..16).map(|j| [0, 1, 2].map(|k| median_of(&mut list.iter().map(|p| p[j][k]).collect::<Vec<f32>>()))).collect();
@@ -739,6 +818,7 @@ pub fn redraw(image: &Rgba, labels: &[Label], face: &Face) -> Rgba {
         let size = if !l.size.is_empty() { l.size.to_string() } else { group(l).to_string() };
         drawn.push(Drawn { x0: l.box_[0], y0: l.box_[1], mask: layout, colour, shadowed, engraved: l.button.then_some(under), inside: kron(&inside), size });
     }
+    // Every size group is scaled by the smallest factor that makes all its texts fit their areas, so equal labels keep equal sizes. Texts are never enlarged.
     let mut group_scale: HashMap<String, f32> = HashMap::new();
     for d in &drawn {
         let scale = match (bounds_of(&d.mask, 0.15), d.inside.bounds()) {
@@ -763,6 +843,7 @@ pub fn redraw(image: &Rgba, labels: &[Label], face: &Face) -> Rgba {
         }
         if let (Some((c0, c1, r0, r1)), Some((x0, y0, x1, y1))) = (bounds_of(&d.mask, 0.15), d.inside.bounds()) {
             let (x0, y0, x1, y1) = (x0 as isize, y0 as isize, x1 as isize - 1, y1 as isize - 1);
+            // Button text is centred in its area. Other text is only moved as far as needed to keep its margin from the edges.
             let (dx, dy) = if d.engraved.is_some() {
                 ((x0 + x1 - c0 - c1) / 2, (y0 + y1 - r0 - r1) / 2)
             } else {
@@ -773,6 +854,7 @@ pub fn redraw(image: &Rgba, labels: &[Label], face: &Face) -> Rgba {
             }
         }
     }
+    // The picture is enlarged twice, smoothly and sharply. The sharp version is used around the labels and where there is grain, and the smooth version elsewhere.
     let (flat, grain) = flatten(&clean, &spared);
     let mut crisp = mask(w, h, |x, y| grain.at(x, y) > 0.0 || spared.at(x, y));
     for l in labels {
@@ -793,6 +875,7 @@ pub fn redraw(image: &Rgba, labels: &[Label], face: &Face) -> Rgba {
         }
     }
     add_grain(&mut out, &grain, 7);
+    // Finally, every text is drawn on the enlarged picture. Button text is engraved with a highlight and a dark ring, and other text gets a drop shadow when it is lighter than the plate.
     let (offset, blur, strength) = SHADOW;
     for d in &drawn {
         let (mw, mh) = (d.mask.w, d.mask.h);
@@ -830,18 +913,27 @@ pub fn redraw(image: &Rgba, labels: &[Label], face: &Face) -> Rgba {
     out
 }
 
+/// A second copy of the area around a label elsewhere in the picture.
 struct Repeat {
+    /// The number of pixels that are identical in both copies.
     pixels: usize,
+    /// The offset from the area of the label to the copy.
     dx: isize,
     dy: isize,
+    /// The part of the area of the label that has a copy, as `x0, y0, x1, y1`.
     area: (usize, usize, usize, usize),
+    /// The identical pixels, relative to `area`.
     same: Mask,
+    /// The bounding box of the identical pixels, relative to `area`.
     boxed: Mask,
 }
 
+/// Finds copies of the areas around the labels in the original picture and copies the redrawn result onto them. Some pictures contain the same artwork twice, for example a mirrored or repeated part, and the copies must show the new text as well. The `original` texels are the picture at the original size, and `out` is the redrawn picture, which is changed in place.
 pub fn mirror_copies(original: &[[u8; 4]], w: usize, h: usize, out: &mut Rgba, labels: &[Label], crisp: &Rgba) {
+    // The space in pixels that is added around every label when looking for copies.
     const MARGIN_PX: usize = 10;
     let px = |x: usize, y: usize| original[y * w + x];
+    // The 4 by 4 pixels from a position, as bytes, so that equal windows can be found with a hash map.
     let window = |x: usize, y: usize| -> [u8; 64] {
         let mut k = [0u8; 64];
         for dy in 0..4 {
@@ -857,11 +949,13 @@ pub fn mirror_copies(original: &[[u8; 4]], w: usize, h: usize, out: &mut Rgba, l
             index.entry(window(x, y)).or_default().push((y, x));
         }
     }
+    // The detail mask marks the pixels with some local contrast. Copies that only match in flat areas are not trusted.
     let lum = Plane { w, h, v: original.iter().map(|p| luminance([p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0])).collect() };
     let mean = uniform(&lum, 3);
     let square = uniform(&lum.map(|v| v * v), 3);
     let detail = Mask { w, h, v: (0..w * h).map(|i| (square.v[i] - mean.v[i].powi(2)).max(0.0).sqrt() > 0.06).collect() };
     let (piece_map, _) = label(&Mask { w, h, v: original.iter().map(|p| p[3] as f32 / 255.0 > 0.05).collect() }, true);
+    // The labels with their margin are protected, so a copy is never written over another label.
     let mut protected = Mask::new(w, h);
     for l in labels {
         let [x0, y0, x1, y1] = l.box_;
@@ -874,6 +968,7 @@ pub fn mirror_copies(original: &[[u8; 4]], w: usize, h: usize, out: &mut Rgba, l
     for l in labels {
         let [x0, y0, x1, y1] = l.box_;
         let (ex0, ey0, ex1, ey1) = (x0.saturating_sub(MARGIN_PX), y0.saturating_sub(MARGIN_PX), (x1 + MARGIN_PX).min(w), (y1 + MARGIN_PX).min(h));
+        // Opaque patches with enough contrast are looked up in the index. Every match gives a candidate offset between the area of the label and a copy of it.
         let mut offsets: HashSet<(isize, isize)> = HashSet::new();
         let mut ky = 0;
         while ky + 4 < ey1 - ey0 {
@@ -895,6 +990,7 @@ pub fn mirror_copies(original: &[[u8; 4]], w: usize, h: usize, out: &mut Rgba, l
             }
             ky += 2;
         }
+        // Every offset is checked. A copy must not overlap the area of the label and must match in enough pixels with detail, partly inside the label itself. Copies that belong to the same piece of the picture as the label are rejected.
         let mut found: Vec<Repeat> = Vec::new();
         for &(dx, dy) in &offsets {
             if dx.unsigned_abs() < ex1 - ex0 && dy.unsigned_abs() < ey1 - ey0 {
@@ -941,6 +1037,7 @@ pub fn mirror_copies(original: &[[u8; 4]], w: usize, h: usize, out: &mut Rgba, l
             }
             found.push(Repeat { pixels: kept.count(), dx, dy, area: (ax0, ay0, ax1, ay1), same: kept, boxed });
         }
+        // The best copies come first. Copies at almost the same offset as a better one are skipped.
         found.sort_by(|a, b| b.pixels.cmp(&a.pixels).then((a.dx, a.dy).cmp(&(b.dx, b.dy))));
         let mut taken: Vec<(isize, isize)> = Vec::new();
         for Repeat { dx, dy, area: (ax0, ay0, ax1, ay1), same, boxed, .. } in found {
@@ -958,6 +1055,7 @@ pub fn mirror_copies(original: &[[u8; 4]], w: usize, h: usize, out: &mut Rgba, l
             let (sx0, sy0) = (ax0 * SCALE, ay0 * SCALE);
             let (dx0, dy0) = (tx(0) * SCALE, ty(0) * SCALE);
             let bw = rw * SCALE;
+            // The first pass copies the crisp enlargement around the copy, and the second pass copies the redrawn pixels of the label over the identical pixels.
             for y in 0..rh * SCALE {
                 for x in 0..bw {
                     let i = y * bw + x;

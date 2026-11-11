@@ -6,7 +6,9 @@
 | [3dsrecomp](https://github.com/fearkov/3dsrecomp) | `3dsrecomp/` (a clone), changed by `patches/3dsrecomp-*.patch` | MIT, as its `Cargo.toml` declares (the repository has no license file) | The recompiler |
 | Rust toolchain (rustup) | `tools/rust/` | MIT or Apache-2.0 | Builds Zakuro and 3dsrecomp; downloaded, not part of the project |
 | Python with NumPy and Pillow | installed separately | BSD-3-Clause (NumPy), MIT-CMU (Pillow) | The scripts in `tools/` |
-| Open fonts: Alegreya Sans Bold and ExtraBold | `source/zakuro/crates/zakuro/src/hdtext/fonts/` and the patch, built into the launcher | SIL Open Font License 1.1, below | The fonts the HD text mod draws the game's text with |
+| Open fonts: Alegreya Sans Bold and ExtraBold | downloaded from the [Google Fonts repository](https://github.com/google/fonts) when the HD text mod is installed, not part of the project | SIL Open Font License 1.1, below | The fonts the HD text mod draws the game's text with |
+| [Real-ESRGAN ncnn Vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan) | downloaded from its author's release when the HD text mod is installed, not part of the project | MIT, built on Tencent's ncnn (BSD-3-Clause) | Runs the AI model of the HD text mod's cleanup |
+| [1x BCGone Smooth](https://openmodeldb.info/models/1x-BCGone-Smooth) by Mutin Choler | downloaded from its author's link when the HD text mod is installed, and converted to ncnn on the player's computer; not part of the project | WTFPL | The AI model that removes the blocks of the game's texture compression |
 
 The crates Zakuro and 3dsrecomp depend on keep their own licenses, listed in
 their `Cargo.lock` files.
@@ -43,8 +45,8 @@ SOFTWARE.
 
 ## Open font
 
-The launcher carries this font unchanged and draws with it. Its notice and
-license, as `hdtext/fonts/OFL.txt` holds them:
+The HD text mod downloads this font unchanged from the Google Fonts repository
+and draws with it. Its notice and license:
 
 ```
 Alegreya Sans Bold and ExtraBold (AlegreyaSans-Bold.ttf, AlegreyaSans-ExtraBold.ttf)
