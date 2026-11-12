@@ -706,6 +706,7 @@ Added:
 - `fn App::touch_on_pieces`
 - `fn App::marker_spans`
 - `fn App::library_source`
+- `fn App::change_game`
 - `fn App::save_and_rescan`
 - `fn App::shown_layout`
 - `fn App::bottom_over_layout`
@@ -854,8 +855,12 @@ Added:
 - `fn ModStep::installed`
 - `fn ModStep::downloads`
 - `fn ModStep::uninstall`
+- `fn remove_builds`
+- `fn remove_builds_in`
+- `fn remove`
 - `fn Stage::doing`
 - `fn Job::install`
+- `fn tests::the_builds_of_one_game_go_and_the_others_stay`
 - `fn tests::a_whole_build`
 
 Changed:
@@ -867,6 +872,7 @@ Changed:
 - `struct Job`
 - `impl Job`
 - `fn Job::start`
+- `mod tests`
 
 ### `zakuro/crates/zakuro/src/settings.rs`
 

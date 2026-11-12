@@ -418,6 +418,13 @@ mod tests {
             menus.library(ui, &library, &settings, &[]);
         });
         picture.save(folder.join("library.png")).unwrap();
+        // A file that can't be played still shows the commands to choose another one.
+        library.games[0].problem = Some("Partly encrypted or damaged, it needs dumping again".to_owned());
+        let ctx = crate::gui::context();
+        let picture = paint(&ctx, [1224, 800], None, |ui| {
+            menus.library(ui, &library, &settings, &[]);
+        });
+        picture.save(folder.join("library-unplayable.png")).unwrap();
     }
 
     /// Saves pictures of the battle panels, the banners and the buttons over two captured screens of a battle.

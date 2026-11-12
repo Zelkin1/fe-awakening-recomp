@@ -1187,6 +1187,30 @@ impl App {
         }
     }
 
+    /// Chooses another game file, and removes what the launcher built for the game chosen before when the new file is another game that can be played.
+    ///
+    /// Nothing is removed while a game runs, or while the old game is being recompiled, whose job is cancelled instead.
+    fn change_game(&mut self, file: PathBuf) {
+        let old = self.settings.game_file.as_ref().and_then(|old| self.library.games.iter().find(|game| &game.path == old && game.problem.is_none()));
+        let old = old.map(|game| (game.program_id, game.name.clone()));
+        let new = zakuro_fs::Title::load(&file).ok().map(|title| title.program_id());
+        self.settings.game_file = Some(file);
+        self.save_and_rescan();
+        let Some((old, name)) = old.filter(|(old, _)| new.is_some_and(|new| new != *old)) else { return };
+        let mut busy = false;
+        for job in self.jobs.iter().filter(|job| job.program_id == old && !job.stage().finished()) {
+            job.cancel();
+            busy = true;
+        }
+        if busy || self.game.is_some() {
+            return;
+        }
+        self.menus.message = Some(match recompile::remove_builds(old, self.data_dir.as_deref()) {
+            Ok(()) => format!("The recompiled code and the mods built for {name} are removed."),
+            Err(error) => format!("Some of what was built for {name} could not be removed, {error}"),
+        });
+    }
+
     /// Saves the settings and scans the library again.
     fn save_and_rescan(&mut self) {
         self.settings.save();
@@ -1590,8 +1614,7 @@ impl App {
             }
             Action::ChooseGame => {
                 if let Some(file) = rfd::FileDialog::new().set_title("The game's file").add_filter("3DS games", &["3ds", "cci", "cxi", "cia"]).pick_file() {
-                    self.settings.game_file = Some(file);
-                    self.save_and_rescan();
+                    self.change_game(file);
                 }
             }
             Action::ChooseUpdate => {

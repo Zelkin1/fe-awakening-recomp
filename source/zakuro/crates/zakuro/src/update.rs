@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use crate::zig::{fetch, windowless, Fetcher};
 
 /// The tag of the release this build belongs to.
-pub const RELEASE: &str = "v1.0.16";
+pub const RELEASE: &str = "v1.0.17";
 /// The GitHub API address that describes the latest release.
 const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 /// The end of the file name of the release asset that holds the launcher for this system: a zip on Windows, an AppImage on Linux.

@@ -424,8 +424,22 @@ impl Menus {
                     }
                     ui.add_space(20.0);
                     ui.vertical(|ui| {
+                        // A file that can't be played keeps the commands to choose another one and to reach the settings.
                         if let Some(problem) = &game.problem {
                             ui.label(RichText::new(problem).size(15.0).color(theme::TAG_PROBLEM));
+                            ui.add_space(8.0);
+                            ui.set_max_width((ui.available_width() / 2.0).max(220.0));
+                            theme::commands(ui, |ui| {
+                                if theme::command(ui, "\u{1F4C2}", "Select game files", true).clicked() {
+                                    actions.push(Action::ChooseGame);
+                                }
+                                if theme::command(ui, "\u{2699}", "Settings", true).clicked() {
+                                    open_settings = true;
+                                }
+                                if theme::command(ui, "\u{1F6AA}", "Exit", true).clicked() {
+                                    actions.push(Action::Quit);
+                                }
+                            });
                             return;
                         }
                         ui.horizontal(|ui| {

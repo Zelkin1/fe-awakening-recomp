@@ -9581,7 +9581,7 @@ index 908b5c9..0e1a338 100644
      pub fn apply(&self, mut state: InputState) -> InputState {
          let Some(gilrs) = &self.gilrs else { return state };
 diff --git a/crates/zakuro/src/gui.rs b/crates/zakuro/src/gui.rs
-index a5b4c18..e43c663 100644
+index a5b4c18..f465e71 100644
 --- a/crates/zakuro/src/gui.rs
 +++ b/crates/zakuro/src/gui.rs
 @@ -15,8 +15,7 @@ pub struct Gui {
@@ -9621,7 +9621,7 @@ index a5b4c18..e43c663 100644
  /// egui's own fonts, then extra ones to fall back on for what they lack.
  /// game names come in Japanese, Korean and Chinese, whose characters
  /// egui's fonts have none of and drew as boxes.
-@@ -186,6 +198,312 @@ fn font_candidates() -> Vec<(char, Vec<std::path::PathBuf>)> {
+@@ -186,6 +198,319 @@ fn font_candidates() -> Vec<(char, Vec<std::path::PathBuf>)> {
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -9845,6 +9845,13 @@ index a5b4c18..e43c663 100644
 +            menus.library(ui, &library, &settings, &[]);
 +        });
 +        picture.save(folder.join("library.png")).unwrap();
++        // A file that can't be played still shows the commands to choose another one.
++        library.games[0].problem = Some("Partly encrypted or damaged, it needs dumping again".to_owned());
++        let ctx = crate::gui::context();
++        let picture = paint(&ctx, [1224, 800], None, |ui| {
++            menus.library(ui, &library, &settings, &[]);
++        });
++        picture.save(folder.join("library-unplayable.png")).unwrap();
 +    }
 +
 +    /// Saves pictures of the battle panels, the banners and the buttons over two captured screens of a battle.
@@ -15979,7 +15986,7 @@ index 0000000..ff7b492
 +    out
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..9721ecd 100644
+index 6cf00db..24d0f27 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,22 +3,34 @@
@@ -16488,7 +16495,7 @@ index 6cf00db..9721ecd 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1177,224 @@ impl App {
+@@ -958,6 +1177,248 @@ impl App {
          }
      }
  
@@ -16499,6 +16506,30 @@ index 6cf00db..9721ecd 100644
 +            (None, Some(folder)) => Some(library::Source::Folder(folder.clone())),
 +            (None, None) => None,
 +        }
++    }
++
++    /// Chooses another game file, and removes what the launcher built for the game chosen before when the new file is another game that can be played.
++    ///
++    /// Nothing is removed while a game runs, or while the old game is being recompiled, whose job is cancelled instead.
++    fn change_game(&mut self, file: PathBuf) {
++        let old = self.settings.game_file.as_ref().and_then(|old| self.library.games.iter().find(|game| &game.path == old && game.problem.is_none()));
++        let old = old.map(|game| (game.program_id, game.name.clone()));
++        let new = zakuro_fs::Title::load(&file).ok().map(|title| title.program_id());
++        self.settings.game_file = Some(file);
++        self.save_and_rescan();
++        let Some((old, name)) = old.filter(|(old, _)| new.is_some_and(|new| new != *old)) else { return };
++        let mut busy = false;
++        for job in self.jobs.iter().filter(|job| job.program_id == old && !job.stage().finished()) {
++            job.cancel();
++            busy = true;
++        }
++        if busy || self.game.is_some() {
++            return;
++        }
++        self.menus.message = Some(match recompile::remove_builds(old, self.data_dir.as_deref()) {
++            Ok(()) => format!("The recompiled code and the mods built for {name} are removed."),
++            Err(error) => format!("Some of what was built for {name} could not be removed, {error}"),
++        });
 +    }
 +
 +    /// Saves the settings and scans the library again.
@@ -16713,7 +16744,7 @@ index 6cf00db..9721ecd 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -975,9 +1412,9 @@ impl App {
+@@ -975,9 +1436,9 @@ impl App {
      /// set, with Zig downloaded first. with none of those it asks whether
      /// to download it.
      fn recompile(&mut self, index: usize, download: bool) {
@@ -16726,7 +16757,7 @@ index 6cf00db..9721ecd 100644
              return;
          }
          let tools = zig::tools_dir(self.data_dir.as_deref());
-@@ -1003,24 +1440,96 @@ impl App {
+@@ -1003,24 +1464,96 @@ impl App {
                  },
              },
          };
@@ -16827,7 +16858,7 @@ index 6cf00db..9721ecd 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1033,9 +1542,7 @@ impl App {
+@@ -1033,9 +1566,7 @@ impl App {
                          }
                      }
                  }
@@ -16838,7 +16869,7 @@ index 6cf00db..9721ecd 100644
                  _ => {}
              }
          }
-@@ -1049,6 +1556,21 @@ impl App {
+@@ -1049,6 +1580,21 @@ impl App {
                  }
              }
              Action::Recompile(index) => self.recompile(index, false),
@@ -16860,7 +16891,7 @@ index 6cf00db..9721ecd 100644
              Action::DownloadCompiler(index) => self.recompile(index, true),
              Action::Mods(program_id) => {
                  if let Some(data_dir) = &self.data_dir {
-@@ -1065,13 +1587,22 @@ impl App {
+@@ -1065,13 +1611,21 @@ impl App {
                      job.cancel();
                  }
              }
@@ -16871,16 +16902,15 @@ index 6cf00db..9721ecd 100644
 -                    self.library.scan(&folder);
 +            Action::ChooseGame => {
 +                if let Some(file) = rfd::FileDialog::new().set_title("The game's file").add_filter("3DS games", &["3ds", "cci", "cxi", "cia"]).pick_file() {
-+                    self.settings.game_file = Some(file);
-+                    self.save_and_rescan();
-+                }
-+            }
++                    self.change_game(file);
+                 }
+             }
 +            Action::ChooseUpdate => {
 +                if let Some(file) = rfd::FileDialog::new().set_title("The game's DLC").add_filter("DLC", &["cia"]).pick_file() {
 +                    self.settings.update_file = Some(file);
 +                    self.save_and_rescan();
-                 }
-             }
++                }
++            }
 +            Action::ForgetUpdate => {
 +                self.settings.update_file = None;
 +                self.save_and_rescan();
@@ -16888,7 +16918,7 @@ index 6cf00db..9721ecd 100644
              Action::SaveState => self.save_state(),
              Action::LoadState => self.load_state(),
              Action::HostRoom => self.host_room(),
-@@ -1087,32 +1618,6 @@ impl App {
+@@ -1087,32 +1641,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -16921,7 +16951,7 @@ index 6cf00db..9721ecd 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1655,15 @@ impl App {
+@@ -1150,6 +1678,15 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -16937,7 +16967,7 @@ index 6cf00db..9721ecd 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1202,7 +1716,35 @@ impl App {
+@@ -1202,7 +1739,35 @@ impl App {
          }
          self.library.poll();
          self.poll_jobs();
@@ -16973,7 +17003,7 @@ index 6cf00db..9721ecd 100644
          // a room that went away takes the game's local wireless with it
          if self.room.as_ref().is_some_and(|room| !room.open()) {
              self.leave_room();
-@@ -1304,10 +1846,57 @@ impl App {
+@@ -1304,10 +1869,57 @@ impl App {
      /// runs one frame of the game.
      fn emulate(&mut self) {
          let Some(game) = &mut self.game else { return };
@@ -17032,7 +17062,7 @@ index 6cf00db..9721ecd 100644
          game.frame += 1;
          if let Some(recorder) = &mut game.recorder {
              recorder.record(input);
-@@ -1539,16 +2128,37 @@ impl App {
+@@ -1539,16 +2151,37 @@ impl App {
      /// the menus, and the actions they asked for, done.
      fn interface(&mut self, event_loop: &ActiveEventLoop) -> Overlay {
          // when the slot chosen was saved to, while the menu shows it
@@ -17078,7 +17108,7 @@ index 6cf00db..9721ecd 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,18 +2171,45 @@ impl App {
+@@ -1561,18 +2194,45 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -17126,7 +17156,7 @@ index 6cf00db..9721ecd 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,13 +2218,17 @@ impl App {
+@@ -1581,13 +2241,17 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -17145,7 +17175,7 @@ index 6cf00db..9721ecd 100644
          });
          self.library.changed = false;
          for action in actions {
-@@ -1596,7 +2237,85 @@ impl App {
+@@ -1596,7 +2260,85 @@ impl App {
          overlay
      }
  
@@ -17231,7 +17261,7 @@ index 6cf00db..9721ecd 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
-@@ -1697,6 +2416,12 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
+@@ -1697,6 +2439,12 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
  /// keeps the renderer kind referenced even when a backend feature is off.
  const _: RendererKind = RendererKind::Software;
  
@@ -17781,7 +17811,7 @@ index 8a5163d..e961e29 100644
      zakuro::run(None);
  }
 diff --git a/crates/zakuro/src/menus.rs b/crates/zakuro/src/menus.rs
-index 9372f02..7f22b18 100644
+index 9372f02..d96bc3b 100644
 --- a/crates/zakuro/src/menus.rs
 +++ b/crates/zakuro/src/menus.rs
 @@ -4,14 +4,18 @@ use std::collections::HashMap;
@@ -18004,7 +18034,7 @@ index 9372f02..7f22b18 100644
          });
          let background = match self.background.get(ui.ctx(), settings.background.as_deref()) {
              Ok(texture) => texture.map(|texture| (texture.id(), texture.size())),
-@@ -239,119 +325,179 @@ impl Menus {
+@@ -239,119 +325,193 @@ impl Menus {
                  None
              }
          };
@@ -18120,13 +18150,7 @@ index 9372f02..7f22b18 100644
                      }
 -                    frame.show(ui, |ui| {
 -                        ui.set_width(ui.available_width());
-+                    ui.add_space(20.0);
-+                    ui.vertical(|ui| {
-+                        if let Some(problem) = &game.problem {
-+                            ui.label(RichText::new(problem).size(15.0).color(theme::TAG_PROBLEM));
-+                            return;
-+                        }
-                         ui.horizontal(|ui| {
+-                        ui.horizontal(|ui| {
 -                            let icon = game.icon.as_ref().map(|pixels| {
 -                                self.icons.entry(game.path.clone()).or_insert_with(|| {
 -                                    let image = egui::ColorImage::from_rgba_unmultiplied([ICON_SIZE, ICON_SIZE], pixels);
@@ -18136,27 +18160,30 @@ index 9372f02..7f22b18 100644
 -                            match icon {
 -                                Some(texture) => {
 -                                    ui.add(egui::Image::new(&*texture).fit_to_exact_size(Vec2::splat(ICON_SIZE as f32)));
--                                }
++                    ui.add_space(20.0);
++                    ui.vertical(|ui| {
++                        // A file that can't be played keeps the commands to choose another one and to reach the settings.
++                        if let Some(problem) = &game.problem {
++                            ui.label(RichText::new(problem).size(15.0).color(theme::TAG_PROBLEM));
++                            ui.add_space(8.0);
++                            ui.set_max_width((ui.available_width() / 2.0).max(220.0));
++                            theme::commands(ui, |ui| {
++                                if theme::command(ui, "\u{1F4C2}", "Select game files", true).clicked() {
++                                    actions.push(Action::ChooseGame);
+                                 }
 -                                None => {
 -                                    ui.allocate_space(Vec2::splat(ICON_SIZE as f32));
--                                }
-+                            ui.spacing_mut().item_spacing.x = 14.0;
-+                            let building = job.is_some_and(|job| !job.stage().finished());
-+                            let (status, color) = match (building, game.recompiled) {
-+                                (true, _) => ("recompiling", theme::TAG_MISSING),
-+                                (false, true) => ("recompiled", theme::TAG_GOOD),
-+                                (false, false) => ("not recompiled", theme::TAG_MISSING),
-+                            };
-+                            ui.label(RichText::new(status).size(15.0).color(color));
-+                            if let Some(update) = &game.update {
-+                                let version = zakuro_fs::version_name(update.version);
-+                                ui.label(RichText::new(format!("update {version}")).size(15.0).color(theme::TAG_MISSING));
-                             }
++                                if theme::command(ui, "\u{2699}", "Settings", true).clicked() {
++                                    open_settings = true;
+                                 }
+-                            }
 -                            ui.vertical(|ui| {
 -                                ui.label(RichText::new(&game.name).strong().size(16.0));
 -                                if !game.publisher.is_empty() {
 -                                    ui.label(&game.publisher);
--                                }
++                                if theme::command(ui, "\u{1F6AA}", "Exit", true).clicked() {
++                                    actions.push(Action::Quit);
+                                 }
 -                                if let Some(problem) = &game.problem {
 -                                    ui.label(RichText::new(problem).color(Color32::from_rgb(230, 160, 80)));
 -                                    return;
@@ -18177,18 +18204,23 @@ index 9372f02..7f22b18 100644
 -                                        ui.label(RichText::new("DLC").color(Color32::from_rgb(220, 180, 100)));
 -                                    }
 -                                });
--                            });
+                             });
 -                            if game.problem.is_some() {
 -                                return;
-+                            let dlc = if game.dlc.is_empty() { theme::TAG_MISSING } else { theme::TAG_GOOD };
-+                            ui.label(RichText::new("DLC").size(15.0).color(dlc));
-+                        });
-+                        ui.add_space(8.0);
-+                        // The commands take half the card, but never less than 220 points.
-+                        ui.set_max_width((ui.available_width() / 2.0).max(220.0));
-+                        theme::commands(ui, |ui| {
-+                            if theme::primary_command(ui, "\u{25B6}", "Play").clicked() {
-+                                actions.push(Action::Play(game.path.clone()));
++                            return;
++                        }
++                        ui.horizontal(|ui| {
++                            ui.spacing_mut().item_spacing.x = 14.0;
++                            let building = job.is_some_and(|job| !job.stage().finished());
++                            let (status, color) = match (building, game.recompiled) {
++                                (true, _) => ("recompiling", theme::TAG_MISSING),
++                                (false, true) => ("recompiled", theme::TAG_GOOD),
++                                (false, false) => ("not recompiled", theme::TAG_MISSING),
++                            };
++                            ui.label(RichText::new(status).size(15.0).color(color));
++                            if let Some(update) = &game.update {
++                                let version = zakuro_fs::version_name(update.version);
++                                ui.label(RichText::new(format!("update {version}")).size(15.0).color(theme::TAG_MISSING));
                              }
 -                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
 -                                if ui.button(RichText::new("▶ Play").size(15.0)).clicked() {
@@ -18213,6 +18245,16 @@ index 9372f02..7f22b18 100644
 -                                }
 -                                if ui.button("Mods").on_hover_text("Open the game's mods folder. Files put in its romfs folder replace the game's, the way Luma3DS and Citra take mods, and a texture pack made for Citra or Azahar goes in its textures folder.").clicked() {
 -                                    actions.push(Action::Mods(game.program_id));
++                            let dlc = if game.dlc.is_empty() { theme::TAG_MISSING } else { theme::TAG_GOOD };
++                            ui.label(RichText::new("DLC").size(15.0).color(dlc));
++                        });
++                        ui.add_space(8.0);
++                        // The commands take half the card, but never less than 220 points.
++                        ui.set_max_width((ui.available_width() / 2.0).max(220.0));
++                        theme::commands(ui, |ui| {
++                            if theme::primary_command(ui, "\u{25B6}", "Play").clicked() {
++                                actions.push(Action::Play(game.path.clone()));
++                            }
 +                        });
 +                        ui.add_space(10.0);
 +                        theme::commands(ui, |ui| {
@@ -18265,7 +18307,7 @@ index 9372f02..7f22b18 100644
      }
  
      /// what goes over a running game, the menu when it is open and the
-@@ -361,11 +507,10 @@ impl Menus {
+@@ -361,11 +521,10 @@ impl Menus {
          &mut self,
          ui: &mut egui::Ui,
          name: &str,
@@ -18279,7 +18321,7 @@ index 9372f02..7f22b18 100644
      ) -> Vec<Action> {
          let mut actions = Vec::new();
          let ctx = ui.ctx().clone();
-@@ -398,134 +543,175 @@ impl Menus {
+@@ -398,134 +557,175 @@ impl Menus {
              // clicks go through to the screen under it
              egui::Area::new(egui::Id::new("fps")).fixed_pos(egui::pos2(8.0, 8.0)).interactable(false).show(&ctx, |ui| {
                  egui::Frame::popup(ui.style()).show(ui, |ui| {
@@ -18564,7 +18606,7 @@ index 9372f02..7f22b18 100644
          self.cheats_open = open;
          actions
      }
-@@ -653,197 +839,123 @@ impl Menus {
+@@ -653,197 +853,123 @@ impl Menus {
          // taller than a screen has room for, so it scrolls, and it can be
          // dragged to any size that fits
          let room = ctx.content_rect().height() - 16.0;
@@ -18862,7 +18904,7 @@ index 9372f02..7f22b18 100644
      }
  
      /// a message box, when there is something to tell.
-@@ -917,27 +1029,392 @@ impl Menus {
+@@ -917,27 +1043,392 @@ impl Menus {
          action
      }
  
@@ -19267,7 +19309,7 @@ index 9372f02..7f22b18 100644
  }
  
  /// a line a GameOverlay keeps over the game, in the bottom right corner.
-@@ -952,20 +1429,78 @@ pub fn corner(ctx: &egui::Context, text: &str) {
+@@ -952,20 +1443,78 @@ pub fn corner(ctx: &egui::Context, text: &str) {
          });
  }
  
@@ -19355,7 +19397,7 @@ index 9372f02..7f22b18 100644
  }
  
  /// a key as a person would call it.
-@@ -1011,7 +1546,7 @@ mod tests {
+@@ -1011,7 +1560,7 @@ mod tests {
      /// running past its bottom.
      #[test]
      fn the_settings_fit_a_short_screen() {
@@ -19364,7 +19406,7 @@ index 9372f02..7f22b18 100644
          let mut menus = Menus { settings_open: true, ..Menus::default() };
          let mut settings = Settings::default();
          let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 360.0));
-@@ -1026,6 +1561,13 @@ mod tests {
+@@ -1026,6 +1575,13 @@ mod tests {
          assert!(screen.contains_rect(window), "{window:?} in {screen:?}");
      }
  
@@ -20136,10 +20178,10 @@ index 0000000..b061386
 +    }
 +}
 diff --git a/crates/zakuro/src/recompile.rs b/crates/zakuro/src/recompile.rs
-index 1640c7a..59a8805 100644
+index 1640c7a..760a96d 100644
 --- a/crates/zakuro/src/recompile.rs
 +++ b/crates/zakuro/src/recompile.rs
-@@ -17,8 +17,82 @@ pub enum Toolchain {
+@@ -17,8 +17,117 @@ pub enum Toolchain {
      Download(PathBuf),
  }
  
@@ -20215,6 +20257,41 @@ index 1640c7a..59a8805 100644
 +    }
 +}
 +
++/// Removes what the launcher built for a game: its recompiled code, the work files of the recompiler and the mods that the launcher built for it.
++/// The saves, the save states, the settings and the mods that the user added stay.
++/// Every part is tried, and the parts that could not be removed are listed in the error.
++pub fn remove_builds(program_id: u64, data_dir: Option<&Path>) -> Result<(), String> {
++    remove_builds_in(program_id, recomp3ds::abi::library_dir().as_deref(), &build::cache_dir(program_id), data_dir)
++}
++
++/// Removes the builds of a game as remove_builds does, with the folder of the recompiled libraries and the work folder of the game given.
++fn remove_builds_in(program_id: u64, library_dir: Option<&Path>, cache_dir: &Path, data_dir: Option<&Path>) -> Result<(), String> {
++    let mut paths = vec![cache_dir.to_owned()];
++    // The recompiled code is a library named after the title, with the files beside it that start with the same name.
++    let name = format!("{program_id:016X}.");
++    if let Some(entries) = library_dir.and_then(|dir| std::fs::read_dir(dir).ok()) {
++        paths.extend(entries.flatten().filter(|entry| entry.file_name().to_string_lossy().starts_with(&name)).map(|entry| entry.path()));
++    }
++    let mut failed: Vec<String> = paths.iter().filter_map(|path| remove(path).err()).collect();
++    if let Some(data_dir) = data_dir {
++        let built = MOD_STEPS.iter().filter(|step| step.program_id == program_id && step.installed(data_dir));
++        failed.extend(built.filter_map(|step| step.uninstall(data_dir).err()));
++    }
++    match failed.is_empty() {
++        true => Ok(()),
++        false => Err(failed.join(", ")),
++    }
++}
++
++/// Removes a file or a folder, and is fine when it is not there.
++fn remove(path: &Path) -> Result<(), String> {
++    let result = if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
++    match result {
++        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(format!("{}: {error}", path.display())),
++        _ => Ok(()),
++    }
++}
++
  #[derive(Debug, Clone, PartialEq)]
  pub enum Stage {
 +    /// Building the mods, with what is being done now and how many parts are done of the total.
@@ -20222,7 +20299,7 @@ index 1640c7a..59a8805 100644
      /// fetching the compiler, how much of it has arrived, 0 to 1.
      Downloading(f32),
      /// finding the code and writing it as C.
-@@ -35,9 +109,18 @@ impl Stage {
+@@ -35,9 +144,18 @@ impl Stage {
          matches!(self, Stage::Done | Stage::Failed(_))
      }
  
@@ -20241,7 +20318,7 @@ index 1640c7a..59a8805 100644
              Stage::Downloading(arrived) => *arrived,
              Stage::Generating => 0.05,
              Stage::Compiling { done, total } => 0.05 + 0.9 * *done as f32 / (*total).max(1) as f32,
-@@ -68,22 +151,33 @@ pub struct Job {
+@@ -68,22 +186,33 @@ pub struct Job {
      pub name: String,
      /// the user was told how it ended.
      pub announced: bool,
@@ -20279,7 +20356,7 @@ index 1640c7a..59a8805 100644
              let events = |event: Event| {
                  if let (Some(stage), Ok(mut state)) = (Stage::after(&event), progress.lock()) {
                      state.stage = stage;
-@@ -115,13 +209,50 @@ impl Job {
+@@ -115,13 +244,50 @@ impl Job {
                  state.finished_at = Some(Instant::now());
              }
          });
@@ -20331,7 +20408,36 @@ index 1640c7a..59a8805 100644
      /// how long it has run, or ran.
      pub fn elapsed(&self) -> Duration {
          let finished = self.state.lock().ok().and_then(|state| state.finished_at);
-@@ -378,6 +509,36 @@ mod tests {
+@@ -316,6 +482,28 @@ mod tests {
+         std::fs::write(path, data).unwrap();
+     }
+ 
++    /// Removing the builds of a game takes its library, the files beside it and its work folder.
++    /// The library of another game and the mods of another game stay, and removing again is fine.
++    #[test]
++    fn the_builds_of_one_game_go_and_the_others_stay() {
++        let root = std::env::temp_dir().join(format!("zakuro-remove-builds-{}", std::process::id()));
++        let (libraries, cache, data) = (root.join("libraries"), root.join("cache"), root.join("data"));
++        let other = 0x0004_0000_000A_0500_u64;
++        for name in ["00040000000A0500.dll", "00040000000A0500.hints", "00040000000A0500.dll.old0", "000400000009F100.dll"] {
++            write(&libraries.join(name), b"x");
++        }
++        write(&cache.join("code.c"), b"x");
++        let kept_mod = MOD_STEPS[0].folder_in(&data).join("kept.bin");
++        write(&kept_mod, b"x");
++        assert_eq!(remove_builds_in(other, Some(&libraries), &cache, Some(&data)), Ok(()));
++        let left: Vec<String> = std::fs::read_dir(&libraries).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
++        assert_eq!(left, ["000400000009F100.dll"]);
++        assert!(!cache.exists());
++        assert!(kept_mod.exists(), "the mods of another game stay");
++        assert_eq!(remove_builds_in(other, Some(&libraries), &cache, Some(&data)), Ok(()), "nothing left to remove");
++        std::fs::remove_dir_all(&root).unwrap();
++    }
++
+     /// what a mod does to the code and to the game's modules is what gets
+     /// recompiled, and a mod of other files changes nothing recompiled.
+     #[test]
+@@ -378,6 +566,36 @@ mod tests {
          std::fs::remove_file(rom).unwrap();
      }
  
@@ -21568,7 +21674,7 @@ index 0000000..af1abea
 +
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..6eadba0
+index 0000000..c845043
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,219 @@
@@ -21583,7 +21689,7 @@ index 0000000..6eadba0
 +use crate::zig::{fetch, windowless, Fetcher};
 +
 +/// The tag of the release this build belongs to.
-+pub const RELEASE: &str = "v1.0.16";
++pub const RELEASE: &str = "v1.0.17";
 +/// The GitHub API address that describes the latest release.
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +/// The end of the file name of the release asset that holds the launcher for this system: a zip on Windows, an AppImage on Linux.

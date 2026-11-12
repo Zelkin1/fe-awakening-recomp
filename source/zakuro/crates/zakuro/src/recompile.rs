@@ -89,6 +89,41 @@ impl ModStep {
     }
 }
 
+/// Removes what the launcher built for a game: its recompiled code, the work files of the recompiler and the mods that the launcher built for it.
+/// The saves, the save states, the settings and the mods that the user added stay.
+/// Every part is tried, and the parts that could not be removed are listed in the error.
+pub fn remove_builds(program_id: u64, data_dir: Option<&Path>) -> Result<(), String> {
+    remove_builds_in(program_id, recomp3ds::abi::library_dir().as_deref(), &build::cache_dir(program_id), data_dir)
+}
+
+/// Removes the builds of a game as remove_builds does, with the folder of the recompiled libraries and the work folder of the game given.
+fn remove_builds_in(program_id: u64, library_dir: Option<&Path>, cache_dir: &Path, data_dir: Option<&Path>) -> Result<(), String> {
+    let mut paths = vec![cache_dir.to_owned()];
+    // The recompiled code is a library named after the title, with the files beside it that start with the same name.
+    let name = format!("{program_id:016X}.");
+    if let Some(entries) = library_dir.and_then(|dir| std::fs::read_dir(dir).ok()) {
+        paths.extend(entries.flatten().filter(|entry| entry.file_name().to_string_lossy().starts_with(&name)).map(|entry| entry.path()));
+    }
+    let mut failed: Vec<String> = paths.iter().filter_map(|path| remove(path).err()).collect();
+    if let Some(data_dir) = data_dir {
+        let built = MOD_STEPS.iter().filter(|step| step.program_id == program_id && step.installed(data_dir));
+        failed.extend(built.filter_map(|step| step.uninstall(data_dir).err()));
+    }
+    match failed.is_empty() {
+        true => Ok(()),
+        false => Err(failed.join(", ")),
+    }
+}
+
+/// Removes a file or a folder, and is fine when it is not there.
+fn remove(path: &Path) -> Result<(), String> {
+    let result = if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
+    match result {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(format!("{}: {error}", path.display())),
+        _ => Ok(()),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stage {
     /// Building the mods, with what is being done now and how many parts are done of the total.
@@ -445,6 +480,28 @@ mod tests {
     fn write(path: &Path, data: &[u8]) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, data).unwrap();
+    }
+
+    /// Removing the builds of a game takes its library, the files beside it and its work folder.
+    /// The library of another game and the mods of another game stay, and removing again is fine.
+    #[test]
+    fn the_builds_of_one_game_go_and_the_others_stay() {
+        let root = std::env::temp_dir().join(format!("zakuro-remove-builds-{}", std::process::id()));
+        let (libraries, cache, data) = (root.join("libraries"), root.join("cache"), root.join("data"));
+        let other = 0x0004_0000_000A_0500_u64;
+        for name in ["00040000000A0500.dll", "00040000000A0500.hints", "00040000000A0500.dll.old0", "000400000009F100.dll"] {
+            write(&libraries.join(name), b"x");
+        }
+        write(&cache.join("code.c"), b"x");
+        let kept_mod = MOD_STEPS[0].folder_in(&data).join("kept.bin");
+        write(&kept_mod, b"x");
+        assert_eq!(remove_builds_in(other, Some(&libraries), &cache, Some(&data)), Ok(()));
+        let left: Vec<String> = std::fs::read_dir(&libraries).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(left, ["000400000009F100.dll"]);
+        assert!(!cache.exists());
+        assert!(kept_mod.exists(), "the mods of another game stay");
+        assert_eq!(remove_builds_in(other, Some(&libraries), &cache, Some(&data)), Ok(()), "nothing left to remove");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     /// what a mod does to the code and to the game's modules is what gets
