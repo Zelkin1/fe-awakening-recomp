@@ -8,14 +8,31 @@
 //! the matrices of a draw are mostly what changes, and halfway between two
 //! of them is close to the transform halfway between, for the little a
 //! thirtieth of a second moves things.
+//! Small draws, such as sprites, numbers and particles, mostly move by their vertices instead.
+//! A title writes those vertices anew every frame, often into another buffer each time.
+//! Their vertices are kept, and the draw in between blends them halfway too.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::registers::*;
-use crate::shader::{ShaderUnit, Vec4, FLOAT_UNIFORMS};
+use crate::shader::{ShaderUnit, Vec4, FLOAT_UNIFORMS, INPUT_REGISTERS};
 
 /// the vertex shader's float uniforms at a draw.
 pub(crate) type Uniforms = [Vec4; FLOAT_UNIFORMS];
+
+/// The shader inputs of each vertex of a draw, in the order that the draw takes them.
+pub(crate) type Inputs = Vec<[Vec4; INPUT_REGISTERS]>;
+
+/// The most vertices a draw may have for its vertices to be kept and blended in between.
+pub(crate) const KEPT_VERTICES: u32 = 1024;
+
+/// What the draw in between draws differently from the draw of the title.
+pub(crate) struct Between {
+    /// The float uniforms of the vertex shader.
+    pub(crate) uniforms: Box<Uniforms>,
+    /// The vertices halfway between the two frames, when they moved.
+    pub(crate) inputs: Option<Inputs>,
+}
 
 /// How much a component may differ from its expected move before it counts as a jump.
 const JUMP: f32 = 1.0;
@@ -49,12 +66,40 @@ const RESTLESS: u8 = 4;
 /// for one it had not, how many frames on a jump still counts as one more
 /// of its jumps, see RESTLESS, and which of them a draw of the next frame
 /// took for its own.
+/// For small draws, the lists also hold the vertex arrays that each draw read, see arrays, and its vertices, which are empty for the other draws.
 #[derive(Default)]
 struct Drawn {
     uniforms: Vec<Uniforms>,
     moves: Vec<Uniforms>,
     restless: Vec<u8>,
     taken: Vec<bool>,
+    arrays: Vec<u64>,
+    inputs: Vec<Inputs>,
+}
+
+/// How far apart the inputs that blend are in two lists of vertices, as a sum over every component.
+/// Lists of different lengths are as far as anything gets.
+fn vertices_apart(before: &[[Vec4; INPUT_REGISTERS]], now: &[[Vec4; INPUT_REGISTERS]], blending: u16) -> f32 {
+    if before.len() != now.len() {
+        return f32::INFINITY;
+    }
+    let mut total = 0.0f32;
+    for (before, now) in before.iter().zip(now) {
+        for register in (0..INPUT_REGISTERS).filter(|r| blending & (1 << r) != 0) {
+            total += before[register].iter().zip(&now[register]).map(|(before, now)| (before - now).abs()).sum::<f32>();
+        }
+    }
+    if total.is_nan() { f32::INFINITY } else { total }
+}
+
+/// The vertices halfway between two lists of them, for the inputs that blend.
+/// The other inputs are as the frame has them.
+fn halfway(before: &Inputs, now: &Inputs, blending: u16) -> Inputs {
+    let blend = |register: usize, before: &Vec4, now: &Vec4| match blending & (1 << register) != 0 {
+        true => std::array::from_fn(|i| before[i] + (now[i] - before[i]) * 0.5),
+        false => *now,
+    };
+    before.iter().zip(now).map(|(before, now)| std::array::from_fn(|register| blend(register, &before[register], &now[register]))).collect()
 }
 
 /// the draw of the frame before, among those drawn the same way and not
@@ -63,8 +108,12 @@ struct Drawn {
 /// a title can draw a model twice in an order of its own each frame,
 /// Majora's Mask 3D draws the two eyes of the 3D the other way round every
 /// other frame, and in the order they came they would swap places.
-fn nearest(drawn: &Drawn, place: usize, now: &Uniforms, placing: u128) -> Option<usize> {
-    let distance = |before: &Uniforms| {
+/// A small draw comes first among those that read its own vertex arrays, and its first vertex counts in how near it is.
+/// The first vertex alone is cheap to compare, and it tells sprites apart.
+fn nearest(drawn: &Drawn, place: usize, now: &Uniforms, placing: u128, (arrays, inputs): (u64, &Inputs), blending: u16) -> Option<usize> {
+    let first = |list: &Inputs| list.len().min(1);
+    let distance = |i: usize| {
+        let before = &drawn.uniforms[i];
         let mut total = 0.0f32;
         let mut uniforms = placing;
         while uniforms != 0 {
@@ -72,20 +121,23 @@ fn nearest(drawn: &Drawn, place: usize, now: &Uniforms, placing: u128) -> Option
             uniforms &= uniforms - 1;
             total += before[uniform].iter().zip(&now[uniform]).map(|(before, now)| (before - now).abs()).sum::<f32>();
         }
+        let before_inputs = &drawn.inputs[i];
+        total += vertices_apart(&before_inputs[..first(before_inputs)], &inputs[..first(inputs)], blending);
         // NaN as far as anything gets
-        if total.is_nan() { f32::INFINITY } else { total }
+        let total = if total.is_nan() { f32::INFINITY } else { total };
+        (drawn.arrays[i] != arrays, total)
     };
     let count = drawn.uniforms.len();
     let around = match count <= NEAREST {
         true => 0..count,
         false => place.saturating_sub(NEAREST / 2)..(place + NEAREST / 2).min(count),
     };
-    let own = (place < count && !drawn.taken[place]).then(|| (place, distance(&drawn.uniforms[place])));
-    if own.is_some_and(|(_, distance)| distance == 0.0) {
+    let own = (place < count && !drawn.taken[place]).then(|| (place, distance(place)));
+    if own.is_some_and(|(_, distance)| distance == (false, 0.0)) {
         return own.map(|(place, _)| place);
     }
-    let others = around.filter(|&i| i != place && !drawn.taken[i]).map(|i| (i, distance(&drawn.uniforms[i])));
-    own.into_iter().chain(others).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
+    let others = around.filter(|&i| i != place && !drawn.taken[i]).map(|i| (i, distance(i)));
+    own.into_iter().chain(others).min_by(|a, b| a.1 .0.cmp(&b.1 .0).then(a.1 .1.total_cmp(&b.1 .1))).map(|(i, _)| i)
 }
 
 /// what frame interpolation keeps of the draws of a frame and the one before.
@@ -104,7 +156,12 @@ pub(crate) struct Interpolation {
     /// it may read for the coordinates too second. only those move in
     /// between, a texture's offset into a sheet of sprites or a flag are as
     /// the frame's.
-    placing: HashMap<(u64, u32, u16, u16), (u128, u128)>,
+    /// The input registers that blend come third, see ShaderUnit::inputs_blending.
+    placing: HashMap<(u64, u32, u16, u16), (u128, u128, u16)>,
+    /// What the small draws of the frame before drew, with where their vertex arrays start, see reads_new_arrays.
+    arrays_before: HashSet<u64>,
+    /// The same for this frame so far.
+    arrays_now: HashSet<u64>,
     /// this frame's counts, see Matches.
     draws: u32,
     matched: u32,
@@ -136,19 +193,37 @@ impl Matches {
 }
 
 impl Interpolation {
+    /// Whether a small draw reads other vertex arrays than any draw drawn the same way the frame before, and notes them for the next frame.
+    /// Such a draw has vertices that the title writes anew every frame into another buffer, so it gives them to draw.
+    /// The other small draws read the same vertices as before, which move by the uniforms alone.
+    pub(crate) fn reads_new_arrays(&mut self, registers: &[u32], vertex: &ShaderUnit) -> bool {
+        let drawn = mix(key(registers, vertex, None), arrays(registers));
+        self.arrays_now.insert(drawn);
+        !self.arrays_before.contains(&drawn)
+    }
+
     /// the uniforms halfway between the draw's and those of the frame
     /// before's draw that matches it, for drawing it again in between, none
     /// when they are the same or it has no match or it jumped, or nothing
     /// is drawn in between. the draw's own are kept for the next frame's to
     /// match. a draw through a geometry shader is left as it is. give the
     /// uniforms back once drawn with.
-    pub(crate) fn draw(&mut self, registers: &[u32], vertex: &ShaderUnit, geometry: Option<&ShaderUnit>, between: bool) -> Option<Box<Uniforms>> {
+    /// A small draw gives its vertices too, see KEPT_VERTICES, and the others give none.
+    /// When the vertices of a small draw moved, the draw in between has vertices halfway as well.
+    pub(crate) fn draw(&mut self, registers: &[u32], vertex: &ShaderUnit, geometry: Option<&ShaderUnit>, inputs: Inputs, between: bool) -> Option<Between> {
         self.draws += 1;
-        let key = key(registers, vertex, geometry);
+        // A small draw matches whichever vertex arrays it reads, and another draw only matches those that read its own.
+        let arrays = arrays(registers);
+        let key = match inputs.is_empty() {
+            true => mix(key(registers, vertex, geometry), arrays),
+            false => key(registers, vertex, geometry),
+        };
         let drawn = self.now.entry(key).or_default();
         drawn.uniforms.push(*vertex.float_uniforms);
         drawn.moves.push([[0.0; 4]; FLOAT_UNIFORMS]);
         drawn.restless.push(0);
+        drawn.arrays.push(arrays);
+        drawn.inputs.push(inputs);
         let place = drawn.uniforms.len() - 1;
         if !between {
             return None;
@@ -158,16 +233,20 @@ impl Interpolation {
             return None;
         }
         let (outputs, coordinates) = crate::raster::placing_outputs(registers);
-        let (placing, shared) = *self
-            .placing
-            .entry((vertex.fingerprint(), vertex.entry_point, outputs, coordinates))
-            .or_insert_with(|| vertex.uniforms_feeding(outputs, coordinates));
+        let (placing, shared, blending) = *self.placing.entry((vertex.fingerprint(), vertex.entry_point, outputs, coordinates)).or_insert_with(|| {
+            let (placing, shared) = vertex.uniforms_feeding(outputs, coordinates);
+            (placing, shared, vertex.inputs_blending(coordinates))
+        });
         let drawn = self.before.get_mut(&key)?;
         let now = self.now.get_mut(&key)?;
-        let found = nearest(drawn, place, &now.uniforms[place], placing | shared)?;
+        let found = nearest(drawn, place, &now.uniforms[place], placing | shared, (now.arrays[place], &now.inputs[place]), blending)?;
         drawn.taken[found] = true;
         let (before, moved_before, restless) = (&drawn.uniforms[found], &drawn.moves[found], drawn.restless[found]);
+        let (vertices_before, vertices_now) = (&drawn.inputs[found], &now.inputs[place]);
         let (now, moved_now, still_restless) = (&now.uniforms[place], &mut now.moves[place], &mut now.restless[place]);
+        // The vertices moved when the inputs that blend changed.
+        let apart = vertices_apart(vertices_before, vertices_now, blending);
+        let vertices_move = !vertices_now.is_empty() && apart > 0.0 && apart.is_finite();
         *still_restless = restless.saturating_sub(1);
         for ((moved, now), before) in moved_now.iter_mut().zip(now).zip(before) {
             *moved = std::array::from_fn(|i| now[i] - before[i]);
@@ -179,10 +258,15 @@ impl Interpolation {
         // the vertices, but for steps of those the coordinates may read
         let moves = |uniform: usize, before: f32, now: f32| placed(uniform) && before != now && !(shared(uniform) && steps(before, now));
         let changes = |uniform: usize, before: &Vec4, now: &Vec4| (0..4).any(|i| moves(uniform, before[i], now[i]));
-        if !before.iter().zip(now.iter()).enumerate().any(|(uniform, (before, now))| changes(uniform, before, now)) {
+        let uniforms_move = before.iter().zip(now.iter()).enumerate().any(|(uniform, (before, now))| changes(uniform, before, now));
+        if !uniforms_move && !vertices_move {
             return None;
         }
         let mut between = self.spare.take().unwrap_or_else(|| Box::new([[0.0; 4]; FLOAT_UNIFORMS]));
+        // Uniforms that stay are as the frame has them.
+        if !uniforms_move {
+            *between = *now;
+        }
         let mut jumped = false;
         // a component jumps when its move differs from its move the frame
         // before by more than JUMP says. NaN and infinity compare false,
@@ -193,7 +277,7 @@ impl Interpolation {
             !(before.is_finite() && now.is_finite() && (change <= JUMP || before.abs().max(now.abs()) > TURN))
         };
         let mut lerped = false;
-        let uniforms = between.iter_mut().zip(before.iter()).zip(now.iter()).zip(moved_before.iter());
+        let uniforms = between.iter_mut().zip(before.iter()).zip(now.iter()).zip(moved_before.iter()).filter(|_| uniforms_move);
         for (uniform, (((out, before), now), moved_before)) in uniforms.enumerate() {
             let moving: [bool; 4] = std::array::from_fn(|i| moves(uniform, before[i], now[i]));
             let jumping: [bool; 4] = std::array::from_fn(|i| moving[i] && jumps(before[i], now[i], moved_before[i]));
@@ -215,7 +299,7 @@ impl Interpolation {
             *out = std::array::from_fn(|i| if lerping[i] { before[i] + (now[i] - before[i]) * 0.5 } else { now[i] });
             lerped |= lerping.contains(&true);
         }
-        if !jumped && !lerped {
+        if !jumped && !lerped && !vertices_move {
             // what moved jumped, and is as the frame has it
             self.spare = Some(between);
             return None;
@@ -230,7 +314,8 @@ impl Interpolation {
             return None;
         }
         self.moved += 1;
-        Some(between)
+        let inputs = vertices_move.then(|| halfway(vertices_before, vertices_now, blending));
+        Some(Between { uniforms: between, inputs })
     }
 
     /// takes back the uniforms draw gave.
@@ -242,6 +327,8 @@ impl Interpolation {
     /// and how they matched the frame before's.
     pub(crate) fn frame_done(&mut self) -> Matches {
         let matches = Matches { draws: self.draws, matched: self.matched, moved: self.moved, jumped: self.jumped, jumping: self.jumping };
+        std::mem::swap(&mut self.arrays_before, &mut self.arrays_now);
+        self.arrays_now.clear();
         let mut older = std::mem::replace(&mut self.before, std::mem::take(&mut self.now));
         for drawn in self.before.values_mut() {
             drawn.taken.clear();
@@ -254,6 +341,8 @@ impl Interpolation {
             drawn.uniforms.clear();
             drawn.moves.clear();
             drawn.restless.clear();
+            drawn.arrays.clear();
+            drawn.inputs.clear();
             kept
         });
         self.now = older;
@@ -262,17 +351,41 @@ impl Interpolation {
     }
 }
 
+/// Mixes a word into a hash.
+fn mix(hash: u64, word: u64) -> u64 {
+    (hash.rotate_left(5) ^ word).wrapping_mul(0x517C_C1B7_2722_0A95)
+}
+
+/// Whether a register holds where the vertex arrays or the indices start, rather than how they are laid out.
+fn array_offset(register: usize) -> bool {
+    let loaders = REG_ATTRIBUTE_LOADER..REG_ATTRIBUTE_LOADER + REG_ATTRIBUTE_LOADER_COUNT * REG_ATTRIBUTE_LOADER_STRIDE;
+    register == REG_INDEX_ARRAY || (loaders.contains(&register) && (register - REG_ATTRIBUTE_LOADER) % REG_ATTRIBUTE_LOADER_STRIDE == 0)
+}
+
+/// The low bits of the index array register hold the offset of the indices, and the top bits hold their format.
+const INDEX_OFFSET: u32 = 0x0FFF_FFFF;
+
+/// A hash of where the vertex arrays and the indices of a draw start.
+fn arrays(registers: &[u32]) -> u64 {
+    let offsets = (REG_ATTRIBUTE_BASE..=REG_INDEX_ARRAY).filter(|&register| array_offset(register));
+    offsets.fold(0x9E37_79B9_7F4A_7C15, |hash, register| {
+        let word = if register == REG_INDEX_ARRAY { registers[register] & INDEX_OFFSET } else { registers[register] };
+        mix(hash, word as u64)
+    })
+}
+
 /// what a draw draws, the same from frame to frame for a model drawn the
-/// same way, its programs, its vertex arrays and the buffers it draws into
+/// same way, its programs, how its vertex arrays are laid out and the buffers it draws into
 /// and its first texture.
+/// Where the arrays start is left out, see arrays.
 fn key(registers: &[u32], vertex: &ShaderUnit, geometry: Option<&ShaderUnit>) -> u64 {
-    let mix = |hash: u64, word: u64| (hash.rotate_left(5) ^ word).wrapping_mul(0x517C_C1B7_2722_0A95);
     // from an odd start, so that words of zero still count
     let mut hash = mix(mix(0x9E37_79B9_7F4A_7C15, vertex.fingerprint()), vertex.entry_point as u64);
     if let Some(geometry) = geometry {
         hash = mix(mix(mix(hash, 1), geometry.fingerprint()), geometry.entry_point as u64);
     }
-    let arrays = REG_ATTRIBUTE_BASE..=REG_INDEX_ARRAY;
+    let arrays = (REG_ATTRIBUTE_BASE..REG_INDEX_ARRAY).filter(|&register| !array_offset(register));
+    hash = mix(hash, (registers[REG_INDEX_ARRAY] & !INDEX_OFFSET) as u64);
     let others = [
         REG_VERTEX_COUNT,
         REG_VERTEX_OFFSET,
@@ -311,22 +424,22 @@ mod tests {
     #[test]
     fn draws_match_the_frame_before_in_order() {
         let mut interpolation = Interpolation::default();
-        assert!(interpolation.draw(&registers(3), &unit(0.0), None, true).is_none(), "nothing before");
-        assert!(interpolation.draw(&registers(3), &unit(4.0), None, true).is_none());
-        assert!(interpolation.draw(&registers(6), &unit(1.0), None, true).is_none());
+        assert!(interpolation.draw(&registers(3), &unit(0.0), None, Vec::new(), true).is_none(), "nothing before");
+        assert!(interpolation.draw(&registers(3), &unit(4.0), None, Vec::new(), true).is_none());
+        assert!(interpolation.draw(&registers(6), &unit(1.0), None, Vec::new(), true).is_none());
         let first = interpolation.frame_done();
         assert_eq!(first, Matches { draws: 3, matched: 0, moved: 0, jumped: 0, jumping: 0 });
         assert!(!first.smooth());
 
-        let between = interpolation.draw(&registers(3), &unit(0.4), None, true).expect("moved");
-        assert_eq!(between[0], [1.0, 0.0, 0.0, 0.2]);
-        assert_eq!(between[1], [0.0, 1.0, 0.0, 2.0]);
-        interpolation.give_back(between);
-        let between = interpolation.draw(&registers(3), &unit(4.2), None, true).expect("the second matches the second");
-        assert!((between[0][3] - 4.1).abs() < 1e-6);
-        interpolation.give_back(between);
-        assert!(interpolation.draw(&registers(6), &unit(1.0), None, true).is_none(), "stayed");
-        assert!(interpolation.draw(&registers(9), &unit(1.0), None, true).is_none(), "new");
+        let between = interpolation.draw(&registers(3), &unit(0.4), None, Vec::new(), true).expect("moved");
+        assert_eq!(between.uniforms[0], [1.0, 0.0, 0.0, 0.2]);
+        assert_eq!(between.uniforms[1], [0.0, 1.0, 0.0, 2.0]);
+        interpolation.give_back(between.uniforms);
+        let between = interpolation.draw(&registers(3), &unit(4.2), None, Vec::new(), true).expect("the second matches the second");
+        assert!((between.uniforms[0][3] - 4.1).abs() < 1e-6);
+        interpolation.give_back(between.uniforms);
+        assert!(interpolation.draw(&registers(6), &unit(1.0), None, Vec::new(), true).is_none(), "stayed");
+        assert!(interpolation.draw(&registers(9), &unit(1.0), None, Vec::new(), true).is_none(), "new");
         let second = interpolation.frame_done();
         assert_eq!(second, Matches { draws: 4, matched: 3, moved: 2, jumped: 0, jumping: 0 });
         assert!(second.smooth());
@@ -358,17 +471,17 @@ mod tests {
         };
         let mut interpolation = Interpolation::default();
         for (x, shared) in [(0.0, 0.3), (0.1, 5.0)] {
-            if let Some(between) = interpolation.draw(&registers, &at(x, shared), None, true) {
-                interpolation.give_back(between);
+            if let Some(between) = interpolation.draw(&registers, &at(x, shared), None, Vec::new(), true) {
+                interpolation.give_back(between.uniforms);
             }
             interpolation.frame_done();
         }
-        let between = interpolation.draw(&registers, &at(0.2, -5.0), None, true).expect("its place moved");
-        assert!((between[0][3] - 0.15).abs() < 1e-6);
-        assert_eq!(between[20][0], -5.0, "the shared one as the frame has it");
-        interpolation.give_back(between);
+        let between = interpolation.draw(&registers, &at(0.2, -5.0), None, Vec::new(), true).expect("its place moved");
+        assert!((between.uniforms[0][3] - 0.15).abs() < 1e-6);
+        assert_eq!(between.uniforms[20][0], -5.0, "the shared one as the frame has it");
+        interpolation.give_back(between.uniforms);
         assert_eq!(interpolation.frame_done().jumped, 0);
-        assert!(interpolation.draw(&registers, &at(0.2, 6.0), None, true).is_none(), "only the shared one changed, and jumped");
+        assert!(interpolation.draw(&registers, &at(0.2, 6.0), None, Vec::new(), true).is_none(), "only the shared one changed, and jumped");
     }
 
     /// a model going on as it went moves in between however fast, through
@@ -378,10 +491,10 @@ mod tests {
         let mut interpolation = Interpolation::default();
         let mut moved = Vec::new();
         for x in [-16.3, -5.7, 5.1, 16.2, 27.5] {
-            let between = interpolation.draw(&registers(3), &unit(x), None, true);
+            let between = interpolation.draw(&registers(3), &unit(x), None, Vec::new(), true);
             moved.push(between.is_some());
             if let Some(between) = between {
-                interpolation.give_back(between);
+                interpolation.give_back(between.uniforms);
             }
             interpolation.frame_done();
         }
@@ -392,10 +505,10 @@ mod tests {
     fn a_round_step_from_standing_still_and_back_toggles() {
         let mut interpolation = Interpolation::default();
         let mut frame = |x: f32| {
-            let between = interpolation.draw(&registers(3), &unit(x), None, true);
-            let shown = between.as_ref().map(|between| between[0][3]);
+            let between = interpolation.draw(&registers(3), &unit(x), None, Vec::new(), true);
+            let shown = between.as_ref().map(|between| between.uniforms[0][3]);
             if let Some(between) = between {
-                interpolation.give_back(between);
+                interpolation.give_back(between.uniforms);
             }
             assert_eq!(interpolation.frame_done().jumped, 0);
             shown
@@ -414,10 +527,10 @@ mod tests {
     fn draws_that_keep_jumping_count_apart() {
         let mut interpolation = Interpolation::default();
         let mut frame = |batch: f32, model: f32| {
-            let batch = interpolation.draw(&registers(3), &unit(batch), None, true);
-            let model = interpolation.draw(&registers(4), &unit(model), None, true);
+            let batch = interpolation.draw(&registers(3), &unit(batch), None, Vec::new(), true);
+            let model = interpolation.draw(&registers(4), &unit(model), None, Vec::new(), true);
             for between in [batch, model].into_iter().flatten() {
-                interpolation.give_back(between);
+                interpolation.give_back(between.uniforms);
             }
             interpolation.frame_done()
         };
@@ -432,8 +545,8 @@ mod tests {
         let jumps: Vec<(u32, u32)> = [0.0, 0.0, 1.2, 1.2, 0.0, 0.0, 1.2]
             .into_iter()
             .map(|x| {
-                if let Some(between) = interpolation.draw(&registers(3), &unit(x), None, true) {
-                    interpolation.give_back(between);
+                if let Some(between) = interpolation.draw(&registers(3), &unit(x), None, Vec::new(), true) {
+                    interpolation.give_back(between.uniforms);
                 }
                 let matches = interpolation.frame_done();
                 (matches.jumped, matches.jumping)
@@ -447,27 +560,27 @@ mod tests {
     #[test]
     fn draws_drawn_the_other_way_round_match_the_nearest() {
         let mut interpolation = Interpolation::default();
-        interpolation.draw(&registers(3), &unit(-3.7), None, true);
-        interpolation.draw(&registers(3), &unit(3.7), None, true);
+        interpolation.draw(&registers(3), &unit(-3.7), None, Vec::new(), true);
+        interpolation.draw(&registers(3), &unit(3.7), None, Vec::new(), true);
         interpolation.frame_done();
-        let right = interpolation.draw(&registers(3), &unit(3.8), None, true).expect("the right eye");
-        assert!((right[0][3] - 3.75).abs() < 1e-6);
-        interpolation.give_back(right);
-        let left = interpolation.draw(&registers(3), &unit(-3.6), None, true).expect("the left eye");
-        assert!((left[0][3] + 3.65).abs() < 1e-6);
-        interpolation.give_back(left);
+        let right = interpolation.draw(&registers(3), &unit(3.8), None, Vec::new(), true).expect("the right eye");
+        assert!((right.uniforms[0][3] - 3.75).abs() < 1e-6);
+        interpolation.give_back(right.uniforms);
+        let left = interpolation.draw(&registers(3), &unit(-3.6), None, Vec::new(), true).expect("the left eye");
+        assert!((left.uniforms[0][3] + 3.65).abs() < 1e-6);
+        interpolation.give_back(left.uniforms);
         assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 2, moved: 2, jumped: 0, jumping: 0 });
     }
 
     #[test]
     fn jumps_are_not_drawn_in_between() {
         let mut interpolation = Interpolation::default();
-        interpolation.draw(&registers(3), &unit(100.0), None, true);
-        interpolation.draw(&registers(4), &unit(0.9), None, true);
+        interpolation.draw(&registers(3), &unit(100.0), None, Vec::new(), true);
+        interpolation.draw(&registers(4), &unit(0.9), None, Vec::new(), true);
         interpolation.frame_done();
-        let between = interpolation.draw(&registers(3), &unit(160.3), None, true).expect("far, however far");
-        interpolation.give_back(between);
-        assert!(interpolation.draw(&registers(4), &unit(-1.2), None, true).is_none(), "turned around");
+        let between = interpolation.draw(&registers(3), &unit(160.3), None, Vec::new(), true).expect("far, however far");
+        interpolation.give_back(between.uniforms);
+        assert!(interpolation.draw(&registers(4), &unit(-1.2), None, Vec::new(), true).is_none(), "turned around");
         assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 2, moved: 1, jumped: 1, jumping: 0 });
     }
 
@@ -477,10 +590,10 @@ mod tests {
     fn geometry_shaders_are_drawn_as_they_are() {
         let mut interpolation = Interpolation::default();
         let geometry = unit(0.0);
-        interpolation.draw(&registers(3), &unit(0.0), Some(&geometry), true);
+        interpolation.draw(&registers(3), &unit(0.0), Some(&geometry), Vec::new(), true);
         interpolation.frame_done();
-        assert!(interpolation.draw(&registers(3), &unit(0.2), None, true).is_none(), "no geometry stage");
-        assert!(interpolation.draw(&registers(3), &unit(0.2), Some(&geometry), true).is_none());
+        assert!(interpolation.draw(&registers(3), &unit(0.2), None, Vec::new(), true).is_none(), "no geometry stage");
+        assert!(interpolation.draw(&registers(3), &unit(0.2), Some(&geometry), Vec::new(), true).is_none());
         assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 1, moved: 0, jumped: 0, jumping: 0 });
     }
 
@@ -508,16 +621,52 @@ mod tests {
             unit
         };
         let mut interpolation = Interpolation::default();
-        interpolation.draw(&registers, &at(0.0, 0.25), None, true);
+        interpolation.draw(&registers, &at(0.0, 0.25), None, Vec::new(), true);
         interpolation.frame_done();
-        let between = interpolation.draw(&registers, &at(0.4, 0.5), None, true).expect("moved");
-        assert_eq!(between[0], [1.0, 0.0, 0.0, 0.2]);
-        assert_eq!(between[1], [0.5, 0.0, 0.0, 0.0], "the next sprite, not half of each");
-        interpolation.give_back(between);
+        let between = interpolation.draw(&registers, &at(0.4, 0.5), None, Vec::new(), true).expect("moved");
+        assert_eq!(between.uniforms[0], [1.0, 0.0, 0.0, 0.2]);
+        assert_eq!(between.uniforms[1], [0.5, 0.0, 0.0, 0.0], "the next sprite, not half of each");
+        interpolation.give_back(between.uniforms);
         interpolation.frame_done();
-        assert!(interpolation.draw(&registers, &at(0.4, 0.75), None, true).is_none(), "only the sprite changed");
+        assert!(interpolation.draw(&registers, &at(0.4, 0.75), None, Vec::new(), true).is_none(), "only the sprite changed");
         interpolation.frame_done();
-        assert!(interpolation.draw(&registers, &at(0.6, 9.0), None, true).is_some(), "the sprite's jump does not count");
+        assert!(interpolation.draw(&registers, &at(0.6, 9.0), None, Vec::new(), true).is_some(), "the sprite's jump does not count");
+    }
+
+    /// A small draw that the title writes into another buffer every frame matches the draw of the frame before.
+    /// Its vertices go halfway, but for the inputs that the texture coordinates read.
+    #[test]
+    fn vertices_written_anew_move_halfway() {
+        // o0 = c0 . v0, o2 = v1, with o0 the position and o2 a texture's coordinates.
+        let mut unit = ShaderUnit::new();
+        unit.program[0] = (0x02 << 26) | (0x20 << 12);
+        unit.program[1] = (0x13 << 26) | (0x02 << 21) | (0x01 << 12);
+        unit.program[2] = 0x22 << 26;
+        unit.descriptors[0] = 0xF | (0b00_01_10_11 << 5) | (0b00_01_10_11 << 14);
+        unit.prepare();
+        unit.float_uniforms[0] = [1.0, 0.0, 0.0, 0.0];
+        let mut registers = registers(3);
+        registers[REG_SHADER_OUTPUT_TOTAL] = 3;
+        registers[REG_SHADER_OUTPUT_MAP] = 0x0302_0100;
+        registers[REG_SHADER_OUTPUT_MAP + 2] = 0x1F1F_0D0C;
+        let at = |offset: u32| {
+            let mut registers = registers.clone();
+            registers[REG_ATTRIBUTE_LOADER] = offset;
+            registers
+        };
+        let vertices = |x: f32| -> Inputs { vec![std::array::from_fn(|register| if register == 0 { [x, 0.0, 0.0, 1.0] } else { [x; 4] }); 3] };
+        let mut interpolation = Interpolation::default();
+        assert!(interpolation.reads_new_arrays(&at(0x100), &unit));
+        assert!(interpolation.draw(&at(0x100), &unit, None, vertices(0.0), true).is_none(), "nothing before");
+        interpolation.frame_done();
+        assert!(interpolation.reads_new_arrays(&at(0x200), &unit), "another buffer");
+        let between = interpolation.draw(&at(0x200), &unit, None, vertices(2.0), true).expect("moved");
+        let inputs = between.inputs.expect("the vertices moved");
+        assert_eq!(inputs[0][0], [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(inputs[0][1], [2.0; 4], "the coordinates as the frame has them");
+        assert_eq!(between.uniforms[0], [1.0, 0.0, 0.0, 0.0], "the uniforms stayed");
+        interpolation.frame_done();
+        assert!(!interpolation.reads_new_arrays(&at(0x200), &unit), "the buffer of the frame before");
     }
 
     /// uniforms the coordinates may read through an address register too,
@@ -542,13 +691,13 @@ mod tests {
             unit
         };
         let mut interpolation = Interpolation::default();
-        interpolation.draw(&registers, &at(0.25), None, true);
+        interpolation.draw(&registers, &at(0.25), None, Vec::new(), true);
         interpolation.frame_done();
-        assert!(interpolation.draw(&registers, &at(0.5), None, true).is_none(), "a step between round values");
+        assert!(interpolation.draw(&registers, &at(0.5), None, Vec::new(), true).is_none(), "a step between round values");
         interpolation.frame_done();
-        interpolation.draw(&registers, &at(0.3), None, true);
+        interpolation.draw(&registers, &at(0.3), None, Vec::new(), true);
         interpolation.frame_done();
-        let between = interpolation.draw(&registers, &at(0.4), None, true).expect("a move");
-        assert!((between[20][3] - 0.35).abs() < 1e-6);
+        let between = interpolation.draw(&registers, &at(0.4), None, Vec::new(), true).expect("a move");
+        assert!((between.uniforms[20][3] - 0.35).abs() < 1e-6);
     }
 }

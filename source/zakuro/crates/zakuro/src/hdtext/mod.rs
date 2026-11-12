@@ -245,12 +245,32 @@ fn banner_job<'a>(game: &'a Game, face: &'a text::Face, lang: char, name: &'stat
     })
 }
 
-/// Builds the job that redraws the labels of one status atlas.
+/// Builds the job that redraws the labels of one menu picture, such as a status atlas or the level-up panel.
 fn label_job<'a>(face: &'a text::Face, texture: rom::Texture, list: &'static [data::Label], cleaned: &'a Cleaned) -> Job<'a> {
     Box::new(move || {
         let image = source(&texture, cleaned);
         let mut out = labels::redraw(&image, list, face);
         labels::mirror_copies(&texture.texels, texture.width, texture.height, &mut out, list, &labels::sharp_enlarge(&image, 8.0));
+        Made { pictures: vec![Picture { name: texture.name(), image: out }], files: Vec::new() }
+    })
+}
+
+/// Builds the job that redraws the words of the big buttons in one system picture.
+/// The words are white on a clear background, among buttons and icons that the redraw of words would change, so only the part with the words is redrawn.
+/// The new words are flat, because the old ones have no glow around them.
+/// The rest of the picture is enlarged as the labels of a picture are.
+fn button_words_job<'a>(face: &'a text::Face, texture: rom::Texture, texts: &'static [&'static str; 6], cleaned: &'a Cleaned) -> Job<'a> {
+    Box::new(move || {
+        let image = source(&texture, cleaned);
+        let mut out = labels::redraw(&image, &[], face);
+        let [x0, y0, x1, y1] = words::BUTTON_WORD_AREA;
+        let part = image.crop(x0, y0, x1, y1);
+        // The boxes are given within the part.
+        let boxes: Vec<(words::Box4, &str)> = words::BUTTON_WORD_BOXES.iter().zip(texts).map(|(b, &t)| ([b[0] - x0, b[1] - y0, b[2] - x0, b[3] - y0], t)).collect();
+        match words::redraw(&part, &boxes, &[], words::SOFT, banners::Kind::Bare, face) {
+            Some(redrawn) => out.paste(&redrawn, x0 * titles::SCALE, y0 * titles::SCALE),
+            None => log::info!("the HD text keeps the words of the big buttons of {}, their letters were not found", texture.name()),
+        }
         Made { pictures: vec![Picture { name: texture.name(), image: out }], files: Vec::new() }
     })
 }
@@ -263,7 +283,7 @@ fn words_job<'a>(game: &'a Game, face: &'a text::Face, path: String, at: Option<
         let pictures = rom::textures_in(&bytes)
             .into_iter()
             .filter(|(offset, _)| at.is_none_or(|at| *offset == at))
-            .filter_map(|(_, texture)| Some(Picture { name: texture.name(), image: words::redraw(&texture.rgba(), &words, keep, words::SOFT, face)? }))
+            .filter_map(|(_, texture)| Some(Picture { name: texture.name(), image: words::redraw(&texture.rgba(), &words, keep, words::SOFT, banners::Kind::Plain, face)? }))
             .collect();
         Made { pictures, files: Vec::new() }
     })
@@ -302,7 +322,7 @@ fn class_job<'a>(game: &'a Game, face: &'a text::Face, lang: char) -> Job<'a> {
             let rows = (texture.height / 32).min(CLASS_ROWS);
             let words: Vec<(words::Box4, &str)> = (0..rows).filter_map(|r| Some(([0, r * 32, texture.width, r * 32 + 32], names.get(next + r)?.as_str()))).collect();
             next += rows;
-            if let Some(image) = words::redraw(&texture.rgba(), &words, &[], banners::VIVID, &slanted) {
+            if let Some(image) = words::redraw(&texture.rgba(), &words, &[], banners::VIVID, banners::Kind::Plain, &slanted) {
                 pictures.push(Picture { name: texture.name(), image });
             }
         }
@@ -386,12 +406,20 @@ pub fn generate(rom: &Path, root: &Path, font: &Font, cleaner: Option<&clean::Cl
     let cleaned: Cleaned = OnceLock::new();
     let messages: HashMap<char, HashMap<String, String>> = LANGUAGES.iter().map(|&lang| (lang, game.read(&format!("m/{lang}/GameData.bin.lz")).map(|d| rom::messages(&d)).unwrap_or_default())).collect();
     let mut jobs: Vec<Job> = Vec::new();
-    for lang in LANGUAGES {
-        let atlases = game.read(&format!("ui/status_{lang}.ctpk.lz")).map(|bytes| rom::textures_in(&bytes)).unwrap_or_default();
-        for (at, texture) in atlases {
-            if let Some((_, _, list)) = data::LABELS.iter().find(|(l, offset, _)| *l == lang && *offset == at) {
-                jobs.push(label_job(&face, texture, list, &cleaned));
-            }
+    for (lang, labels, critical, spaced) in data::BATTLE_WORDS {
+        let entries = words::battle_text(labels, critical, *spaced);
+        jobs.push(buttons_job(&game, &face, format!("bs/btl_{lang}.tp.lz"), words::BATTLE_TEXT_AT, entries, words::faithful_art, &cleaned));
+    }
+    for (lang, texts) in data::BUTTON_WORDS {
+        let textures = game.read(&format!("ui/system_{lang}.ctpk.lz")).map(|bytes| rom::textures_in(&bytes)).unwrap_or_default();
+        if let Some((_, texture)) = textures.into_iter().find(|(offset, _)| *offset == words::BUTTON_WORDS_AT) {
+            jobs.push(button_words_job(&face, texture, texts, &cleaned));
+        }
+    }
+    for &(file, lang, at, list) in data::LABELS {
+        let textures = game.read(&format!("ui/{file}_{lang}.ctpk.lz")).map(|bytes| rom::textures_in(&bytes)).unwrap_or_default();
+        if let Some((_, texture)) = textures.into_iter().find(|(offset, _)| *offset == at) {
+            jobs.push(label_job(&face, texture, list, &cleaned));
         }
     }
     jobs.push(logo_job(&game, &face));
@@ -420,19 +448,19 @@ pub fn generate(rom: &Path, root: &Path, font: &Font, cleaner: Option<&clean::Cl
         }
         if let Some((_, names)) = data::FORECAST_WORDS.iter().find(|(l, _)| *l == lang) {
             let icons = words::SYSTEM_ICONS.iter().map(|&(b, text)| words::Word::flat(b, text, words::Ink::Light));
-            let forecast = words::FORECAST.iter().map(|&(at, i, ink, look)| words::Word { at, text: names[i], ink, look, align: words::Align::Centre, slant: 0.0 });
+            let forecast = words::FORECAST.iter().map(|&(at, i, ink, look)| words::Word { at, text: names[i], ink, look, align: words::Align::Centre, slant: 0.0, size: 1.0 });
             jobs.push(buttons_job(&game, &face, format!("ui/system_{lang}.ctpk.lz"), 0x46300, icons.chain(forecast).collect(), words::faithful_art, &cleaned));
         }
         if let Some((_, names)) = data::UNIT_WORDS.iter().find(|(l, _)| *l == lang) {
-            let entries = words::UNIT.iter().map(|&(at, i, ink, look, align, slant)| words::Word { at, text: names[i], ink, look, align, slant }).collect();
+            let entries = words::UNIT.iter().map(|&(at, i, ink, look, align, slant)| words::Word { at, text: names[i], ink, look, align, slant, size: 1.0 }).collect();
             jobs.push(buttons_job(&game, &face, format!("ui/system_{lang}.ctpk.lz"), 0x26300, entries, words::unit_art, &cleaned));
         }
         if let Some((_, names)) = data::RADAR_WORDS.iter().find(|(l, _)| *l == lang) {
-            let entries = words::RADAR.iter().map(|&(at, i, align)| words::Word { at, text: names[i], ink: words::Ink::Light, look: words::Look::Flat, align, slant: 0.0 }).collect();
+            let entries = words::RADAR.iter().map(|&(at, i, align)| words::Word { at, text: names[i], ink: words::Ink::Light, look: words::Look::Flat, align, slant: 0.0, size: 1.0 }).collect();
             jobs.push(buttons_job(&game, &face, format!("bs/intro_{lang}.tp.lz"), 0x900, entries, words::faithful_art, &cleaned));
         }
         if let Some((_, names)) = data::CARD_WORDS.iter().find(|(l, _)| *l == lang) {
-            let entries = words::CARDS.iter().map(|&(at, i, align)| words::Word { at, text: names[i], ink: words::Ink::Light, look: words::Look::Shadow, align, slant: 0.0 }).collect();
+            let entries = words::CARDS.iter().map(|&(at, i, align)| words::Word { at, text: names[i], ink: words::Ink::Light, look: words::Look::Shadow, align, slant: 0.0, size: 1.0 }).collect();
             jobs.push(buttons_job(&game, &face, format!("ui/filemenu_{lang}.ctpk.lz"), 0x80180, entries, words::faithful_art, &cleaned));
         }
         for file in game.list(&format!("chapter/title/{lang}")) {

@@ -28,6 +28,8 @@ pub const VIVID: Tone = Tone { share: 0.5, grey: 1.0 };
 pub enum Kind {
     /// The letters have a flat fill and a profile around them.
     Plain,
+    /// The letters have a flat fill and nothing around them.
+    Bare,
     /// The letters have a glow, which is rebuilt as a bloom.
     Glow,
     /// The letters are filled with the texture of the old letters.
@@ -227,11 +229,14 @@ pub fn redraw(image: &Rgba, letters: &Plane, kind: Kind, tone: Tone, big: &Plane
     let ours = signed_distance(&Mask::from(big, |v| v >= 0.5));
     let texture = (kind == Kind::Stone).then(|| stone_texture(image, big));
     // The halo is the colour around the new letters, read from the measured profile at the distance of every pixel.
+    // Bare letters keep a clear halo.
     let mut halo: [Plane; 4] = [0, 1, 2, 3].map(|_| Plane::new(big.w, big.h));
-    for (i, d) in ours.v.iter().enumerate() {
-        let p = profile.at(d.max(HOLD));
-        for k in 0..4 {
-            halo[k].v[i] = p[k];
+    if kind != Kind::Bare {
+        for (i, d) in ours.v.iter().enumerate() {
+            let p = profile.at(d.max(HOLD));
+            for k in 0..4 {
+                halo[k].v[i] = p[k];
+            }
         }
     }
     // For a glow, the halo colour is replaced by the fill colour times a bloom of the new letters.

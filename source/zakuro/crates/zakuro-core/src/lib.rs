@@ -191,7 +191,7 @@ struct Pacing {
     twinning: bool,
 }
 
-pub use scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
+pub use scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, PREPARATIONS, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
 
 /// The counts of the pictures shown on the top screen, split by where they come from.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -886,6 +886,11 @@ impl System {
     /// Whether the view of a unit is showing.
     pub fn unit_view(&self) -> bool {
         self.scenes.shown(UNIT_VIEW, self.frames)
+    }
+
+    /// Whether a menu of the preparations between two battles is showing.
+    pub fn preparations(&self) -> bool {
+        self.scenes.shown(PREPARATIONS, self.frames)
     }
 
     /// Whether a unit is selected on the map.

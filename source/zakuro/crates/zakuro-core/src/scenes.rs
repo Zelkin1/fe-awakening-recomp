@@ -27,6 +27,8 @@ pub const LEFT_BANNER: u32 = 9;
 pub const RIGHT_BANNER: u32 = 10;
 /// The view of a unit.
 pub const UNIT_VIEW: u32 = 11;
+/// The menus that prepare the army between two battles.
+pub const PREPARATIONS: u32 = 12;
 
 /// The number of frames for which a marker still counts as shown after its last draw.
 const RECENT_FRAMES: u64 = 4;

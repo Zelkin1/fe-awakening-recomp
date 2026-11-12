@@ -132,9 +132,10 @@ pub struct Label {
     pub size: &'static str,
 }
 
-/// The labels of the status atlases, as a language letter, the offset of the texture in the file and the labels of that texture.
-pub const LABELS: &[(char, usize, &[Label])] = &[
-    ('F', 0x20100, &[
+/// The labels drawn in pictures of the menus, as the name of the file in `ui`, a language letter, the offset of the texture in the file and the labels of that texture.
+/// The file is `ui/<name>_<language>.ctpk.lz`.
+pub const LABELS: &[(&str, char, usize, &[Label])] = &[
+    ("status", 'F', 0x20100, &[
         Label { box_: [192, 4, 221, 21], text: "Atq", group: "combat", button: false, letters: "", shine: false, size: "" },
         Label { box_: [192, 22, 221, 39], text: "Prc", group: "combat", button: false, letters: "", shine: false, size: "" },
         Label { box_: [192, 40, 221, 57], text: "Crit", group: "combat", button: false, letters: "", shine: false, size: "" },
@@ -159,7 +160,7 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
         Label { box_: [419, 44, 451, 75], text: "Détail.", group: "button pressed", button: true, letters: "light", shine: false, size: "buttons" },
         Label { box_: [419, 82, 451, 114], text: "Détail.", group: "button", button: true, letters: "dark", shine: false, size: "buttons" },
     ]),
-    ('F', 0x40100, &[
+    ("status", 'F', 0x40100, &[
         Label { box_: [193, 5, 243, 20], text: "Éval.", group: "level", button: false, letters: "", shine: false, size: "" },
         Label { box_: [193, 66, 280, 82], text: "Faiblesses", group: "headers", button: false, letters: "", shine: false, size: "" },
         Label { box_: [193, 106, 280, 121], text: "Techniques", group: "headers", button: false, letters: "", shine: false, size: "" },
@@ -173,7 +174,7 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
         Label { box_: [401, 233, 439, 250], text: "Femme", group: "family", button: false, letters: "", shine: false, size: "" },
         Label { box_: [441, 233, 479, 250], text: "Proche", group: "family", button: false, letters: "", shine: false, size: "" },
     ]),
-    ('G', 0x20100, &[
+    ("status", 'G', 0x20100, &[
         Label { box_: [192, 4, 221, 21], text: "Agr.", group: "combat", button: false, letters: "", shine: false, size: "" },
         Label { box_: [192, 22, 221, 39], text: "Trf.", group: "combat", button: false, letters: "", shine: false, size: "" },
         Label { box_: [192, 40, 221, 57], text: "Krt.", group: "combat", button: false, letters: "", shine: false, size: "" },
@@ -198,7 +199,7 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
         Label { box_: [419, 44, 451, 75], text: "Info", group: "button pressed", button: true, letters: "light", shine: false, size: "buttons" },
         Label { box_: [419, 82, 451, 114], text: "Info", group: "button", button: true, letters: "dark", shine: false, size: "buttons" },
     ]),
-    ('G', 0x40100, &[
+    ("status", 'G', 0x40100, &[
         Label { box_: [193, 5, 243, 20], text: "Macht", group: "level", button: false, letters: "", shine: false, size: "" },
         Label { box_: [193, 66, 280, 82], text: "Verwundbarkeit", group: "headers", button: false, letters: "", shine: false, size: "" },
         Label { box_: [193, 106, 280, 121], text: "Fähigkeiten", group: "headers", button: false, letters: "", shine: false, size: "" },
@@ -212,7 +213,7 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
         Label { box_: [401, 233, 439, 250], text: "Ehefrau", group: "family", button: false, letters: "", shine: false, size: "" },
         Label { box_: [441, 233, 479, 250], text: "Partner", group: "family", button: false, letters: "", shine: false, size: "" },
     ]),
-    ('I', 0x20100, &[
+    ("status", 'I', 0x20100, &[
         Label { box_: [192, 4, 221, 21], text: "Att", group: "combat", button: false, letters: "", shine: false, size: "" },
         Label { box_: [192, 22, 221, 39], text: "Clp", group: "combat", button: false, letters: "", shine: false, size: "" },
         Label { box_: [192, 40, 221, 57], text: "Trpl", group: "combat", button: false, letters: "", shine: false, size: "" },
@@ -237,7 +238,7 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
         Label { box_: [419, 44, 451, 75], text: "DATI", group: "button pressed", button: true, letters: "light", shine: false, size: "buttons" },
         Label { box_: [419, 82, 451, 114], text: "DATI", group: "button", button: true, letters: "dark", shine: false, size: "buttons" },
     ]),
-    ('I', 0x40100, &[
+    ("status", 'I', 0x40100, &[
         Label { box_: [193, 5, 243, 20], text: "Valore", group: "level", button: false, letters: "", shine: false, size: "" },
         Label { box_: [193, 66, 280, 82], text: "Vulnerabilità", group: "headers", button: false, letters: "", shine: false, size: "" },
         Label { box_: [193, 106, 280, 121], text: "Abilità", group: "headers", button: false, letters: "", shine: false, size: "" },
@@ -251,7 +252,7 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
         Label { box_: [401, 233, 439, 250], text: "Sposa", group: "family", button: false, letters: "", shine: false, size: "" },
         Label { box_: [441, 233, 479, 250], text: "Partner", group: "family", button: false, letters: "", shine: false, size: "" },
     ]),
-    ('S', 0x20100, &[
+    ("status", 'S', 0x20100, &[
         Label { box_: [192, 4, 221, 21], text: "Atc", group: "combat", button: false, letters: "", shine: false, size: "" },
         Label { box_: [192, 22, 221, 39], text: "Gol", group: "combat", button: false, letters: "", shine: false, size: "" },
         Label { box_: [192, 40, 221, 57], text: "Crí", group: "combat", button: false, letters: "", shine: false, size: "" },
@@ -276,7 +277,7 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
         Label { box_: [419, 44, 451, 75], text: "Ficha", group: "button pressed", button: true, letters: "light", shine: false, size: "buttons" },
         Label { box_: [419, 82, 451, 114], text: "Ficha", group: "button", button: true, letters: "dark", shine: false, size: "buttons" },
     ]),
-    ('S', 0x40100, &[
+    ("status", 'S', 0x40100, &[
         Label { box_: [193, 5, 243, 20], text: "Valoración", group: "level", button: false, letters: "", shine: false, size: "" },
         Label { box_: [193, 66, 280, 82], text: "Debilidades", group: "headers", button: false, letters: "", shine: false, size: "" },
         Label { box_: [193, 106, 280, 121], text: "Habilidades", group: "headers", button: false, letters: "", shine: false, size: "" },
@@ -290,7 +291,7 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
         Label { box_: [401, 233, 439, 250], text: "Cónyuge", group: "family", button: false, letters: "", shine: false, size: "" },
         Label { box_: [441, 233, 479, 250], text: "Pareja", group: "family", button: false, letters: "", shine: false, size: "" },
     ]),
-    ('U', 0x20100, &[
+    ("status", 'U', 0x20100, &[
         Label { box_: [192, 4, 221, 21], text: "Atk", group: "combat", button: false, letters: "", shine: false, size: "" },
         Label { box_: [192, 22, 221, 39], text: "Hit", group: "combat", button: false, letters: "", shine: false, size: "" },
         Label { box_: [192, 40, 221, 57], text: "Crit", group: "combat", button: false, letters: "", shine: false, size: "" },
@@ -315,7 +316,7 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
         Label { box_: [419, 44, 451, 75], text: "FULL", group: "button pressed", button: true, letters: "light", shine: false, size: "buttons" },
         Label { box_: [419, 82, 451, 114], text: "FULL", group: "button", button: true, letters: "dark", shine: false, size: "buttons" },
     ]),
-    ('U', 0x40100, &[
+    ("status", 'U', 0x40100, &[
         Label { box_: [193, 5, 243, 20], text: "Rating", group: "level", button: false, letters: "", shine: false, size: "" },
         Label { box_: [193, 66, 280, 82], text: "Weaknesses", group: "headers", button: false, letters: "", shine: false, size: "" },
         Label { box_: [193, 106, 280, 121], text: "Skills", group: "headers", button: false, letters: "", shine: false, size: "" },
@@ -329,7 +330,33 @@ pub const LABELS: &[(char, usize, &[Label])] = &[
         Label { box_: [401, 233, 439, 250], text: "Wife", group: "family", button: false, letters: "", shine: false, size: "" },
         Label { box_: [441, 233, 479, 250], text: "Companion", group: "family", button: false, letters: "", shine: false, size: "" },
     ]),
+    ("dialog_lvup", 'F', 0x80, &level_up(["PV", "Frc", "Mag", "Tec", "Vit", "Cha", "Déf", "Rés"])),
+    ("dialog_lvup", 'G', 0x80, &level_up(["KP", "Stä.", "Mag.", "Fäh.", "Ges.", "Glk.", "Ver.", "Res."])),
+    ("dialog_lvup", 'I', 0x80, &level_up(["PS", "Forz", "Mag", "Abil", "Vel", "Fort", "Dif", "Res"])),
+    ("dialog_lvup", 'S', 0x80, &level_up(["PV", "Fue", "Mag", "Hab", "Vel", "Sue", "Def", "Res"])),
+    ("dialog_lvup", 'U', 0x80, &level_up(["HP", "Str", "Mag", "Skill", "Spd", "Lck", "Def", "Res"])),
 ];
+
+/// The labels of the level-up panel, from its eight words: the HP, then the seven stats from the top.
+/// The panel is the same picture in every language, with its words in boxes 18 pixels apart.
+const fn level_up(words: [&'static str; 8]) -> [Label; 8] {
+    [
+        Label { box_: [32, 39, 62, 56], text: words[0], group: "level", button: false, letters: "", shine: true, size: "" },
+        level_up_stat(words[1], 59),
+        level_up_stat(words[2], 77),
+        level_up_stat(words[3], 95),
+        level_up_stat(words[4], 113),
+        level_up_stat(words[5], 131),
+        level_up_stat(words[6], 149),
+        level_up_stat(words[7], 167),
+    ]
+}
+
+/// One stat label of the level-up panel, with the top row of its box.
+const fn level_up_stat(text: &'static str, top: usize) -> Label {
+    Label { box_: [32, top, 64, top + 17], text, group: "stats", button: false, letters: "", shine: false, size: "" }
+}
+
 
 /// The "press any button" text of the title screen for each language.
 pub const PRESS_ANY_BUTTON: &[(char, &str)] = &[('F', "Appuyez sur un bouton"), ('G', "KNOPF DRÜCKEN"), ('I', "PREMI UN PULSANTE"), ('S', "PULSA UN BOTÓN"), ('U', "PRESS ANY BUTTON")];
@@ -396,6 +423,25 @@ pub const OVERVIEW_WORDS: &[(char, [&str; 9])] = &[
 ];
 
 /// The word of the close button of the tutorials for each language.
+/// The words shown over a fight, as a language letter, the names of the hit, critical, avoid and dodge stats, the word of a critical hit, and the words of no damage and of a miss.
+/// The last two are spelled with their spaces, since each letter keeps its own cell in the picture.
+pub const BATTLE_WORDS: &[(char, [&str; 4], &str, [&str; 2])] = &[
+    ('F', ["Prc", "Crit", "Esq", "Évit"], "CRITIQUE!", ["SANS EFFET!", "RATÉ!"]),
+    ('G', ["Trf.", "Krt.", "Aw.", "KA."], "KRITISCH!", ["KEIN SCHADEN!", "DANEBEN!"]),
+    ('I', ["Clp", "Trpl", "Scv", "Elud"], "TRIPLO!", ["DANNO NULLO!", "MANCATO!"]),
+    ('S', ["Gol", "Crí", "Esq", "Evit"], "¡CRÍTICO!", ["¡SIN DAÑO!", "¡FALLO!"]),
+    ('U', ["Hit", "Crit", "Avo", "Ddg"], "CRITICAL!", ["NO DAMAGE!", "MISS!"]),
+];
+
+/// The words written on the big buttons of the menus, such as the fight and leave buttons of the preparations, as a language letter and the words from the top.
+pub const BUTTON_WORDS: &[(char, [&str; 6])] = &[
+    ('F', ["Quitter", "Combattre", "Commencer", "Confrontation", "Expédition", "Pourparlers"]),
+    ('G', ["Verlassen", "Kämpfen", "Beginnen", "Gefecht", "Einsatz", "Verhandeln"]),
+    ('I', ["Esci", "Combatti", "Inizia", "Sfida", "Sortita", "Tratta"]),
+    ('S', ["Salir", "Luchar", "Comenzar", "Escaramuza", "Incursión", "Negociar"]),
+    ('U', ["Exit", "Fight", "Begin", "Challenge", "Sortie", "Parley"]),
+];
+
 pub const TUTORIAL_WORDS: &[(char, &str)] = &[('F', "Fermer"), ('G', "Schließen"), ('I', "Chiudi"), ('S', "Cerrar"), ('U', "Close")];
 
 /// The words of the battle forecast and the help marks for each language, indexed by the forecast table of the words module.

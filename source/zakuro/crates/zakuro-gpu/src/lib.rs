@@ -1256,8 +1256,15 @@ impl Gpu {
         // frame interpolation draws it again in between, where it moved
         let geometry = self.internal[REG_GEOSTAGE_CONFIG] & 0x3 == 2;
         let twins = self.resources.twins();
+        // A small draw that reads other vertex arrays than the frame before keeps its vertices, for the draw in between of the next frame to blend.
+        let small = (1..=interpolation::KEPT_VERTICES).contains(&self.internal[REG_VERTEX_COUNT]) && !geometry;
+        let keeps = small && self.interpolation.as_mut().is_some_and(|interpolation| interpolation.reads_new_arrays(&self.internal, &self.vertex_shader));
+        let inputs = match keeps {
+            true => raster::vertex_inputs(&self.internal, &self.fixed_attributes, memory, &mut self.resources, indexed),
+            false => Vec::new(),
+        };
         let between = match self.interpolation.as_mut() {
-            Some(interpolation) => interpolation.draw(&self.internal, &self.vertex_shader, geometry.then_some(&self.geometry_shader), twins),
+            Some(interpolation) => interpolation.draw(&self.internal, &self.vertex_shader, geometry.then_some(&self.geometry_shader), inputs, twins),
             None => None,
         };
         self.resources.set_pass(if between.is_some() { raster::Pass::Twinned } else { raster::Pass::Real });
@@ -1272,21 +1279,28 @@ impl Gpu {
             handed,
         );
         if let Some(mut between) = between {
-            self.swap_uniforms(&mut between);
+            self.swap_uniforms(&mut between.uniforms);
             self.resources.set_pass(raster::Pass::Twin);
-            raster::draw(
-                &self.internal,
-                &self.vertex_shader,
-                &self.geometry_shader,
-                &self.fixed_attributes,
-                memory,
-                &mut self.resources,
-                indexed,
-                None,
-            );
-            self.swap_uniforms(&mut between);
+            match &between.inputs {
+                Some(inputs) => {
+                    raster::draw_inputs(&self.internal, &self.vertex_shader, &self.geometry_shader, memory, &mut self.resources, inputs);
+                }
+                None => {
+                    raster::draw(
+                        &self.internal,
+                        &self.vertex_shader,
+                        &self.geometry_shader,
+                        &self.fixed_attributes,
+                        memory,
+                        &mut self.resources,
+                        indexed,
+                        None,
+                    );
+                }
+            }
+            self.swap_uniforms(&mut between.uniforms);
             if let Some(interpolation) = &mut self.interpolation {
-                interpolation.give_back(between);
+                interpolation.give_back(between.uniforms);
             }
         }
         self.resources.set_pass(raster::Pass::Real);

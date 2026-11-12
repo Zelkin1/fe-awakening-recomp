@@ -2712,6 +2712,12 @@ impl Hardware {
         self.twins
     }
 
+    /// Forgets the vertices that the last draw staged for its draw in between.
+    /// A draw in between with vertices of its own stages them anew.
+    pub(crate) fn forget_staged_inputs(&mut self) {
+        self.twinned_inputs = None;
+    }
+
     /// draws pictures in between into twins of the surfaces from now on,
     /// for frame interpolation, or stops, the twins no longer different.
     pub(crate) fn set_twins(&mut self, twins: bool) {

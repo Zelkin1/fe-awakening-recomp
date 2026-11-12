@@ -20,6 +20,75 @@ pub const MENU_BOXES: [Box4; 8] = [[0, 0, 170, 24], [0, 24, 170, 50], [0, 50, 17
 pub const MENU_KEEP: [Box4; 2] = [[170, 0, 256, 26], [170, 40, 256, 67]];
 /// The box of the copyright line.
 pub const COPYRIGHT_BOX: Box4 = [0, 0, 512, 32];
+/// The offset of the texture of the battle pictures that holds the numbers and the words shown over a fight.
+pub const BATTLE_TEXT_AT: usize = 0x100;
+/// The slant of the italic numbers and words of a fight.
+const BATTLE_SLANT: f32 = 0.18;
+/// The share of the height of the old digits of the damage that the new digits take.
+const BATTLE_DIGIT_SIZE: f32 = 0.92;
+/// The letters of the battle picture that every language shares, as a box and a text.
+/// The digits of the damage come first, in cells of 24 pixels that end above the gauges on row 26, then the letters of "NO DAMAGE!" and "MISS!" in cells of 16 pixels, then the bonus of a skill.
+const BATTLE_SHARED: [(Box4, &str); 26] = [
+    ([0, 0, 24, 26], "0"),
+    ([24, 0, 48, 26], "1"),
+    ([48, 0, 72, 26], "2"),
+    ([72, 0, 96, 26], "3"),
+    ([96, 0, 120, 26], "4"),
+    ([120, 0, 144, 26], "5"),
+    ([144, 0, 168, 26], "6"),
+    ([168, 0, 192, 26], "7"),
+    ([192, 0, 216, 26], "8"),
+    ([216, 0, 240, 26], "9"),
+    ([0, 32, 16, 48], "N"),
+    ([16, 32, 32, 48], "O"),
+    ([32, 32, 48, 48], "D"),
+    ([48, 32, 64, 48], "A"),
+    ([64, 32, 80, 48], "M"),
+    ([80, 32, 96, 48], "G"),
+    ([96, 32, 112, 48], "E"),
+    ([112, 32, 128, 48], "!"),
+    ([0, 48, 16, 64], "M"),
+    ([16, 48, 32, 64], "I"),
+    ([32, 48, 48, 64], "S"),
+    ([48, 48, 64, 64], "!"),
+    ([64, 48, 72, 64], "+"),
+    ([72, 48, 96, 64], "10"),
+    ([96, 48, 120, 64], "15"),
+    ([120, 48, 144, 64], "20"),
+];
+/// The boxes of the four names of the stats that a skill raises: hit, critical, avoid and dodge.
+const BATTLE_LABELS: [Box4; 4] = [[168, 32, 200, 48], [224, 32, 256, 48], [168, 48, 200, 64], [224, 48, 256, 64]];
+/// The box of the word of a critical hit.
+const BATTLE_CRITICAL: Box4 = [0, 68, 128, 100];
+/// The rows of the words of no damage and of a miss, which are spaced out with one letter per cell of 16 pixels.
+/// The letters of the first row end on row 118, and the accents of the second start on row 119.
+const BATTLE_SPACED_ROWS: [(usize, usize); 2] = [(100, 119), (119, 137)];
+/// The width of a cell of a spaced out word.
+const BATTLE_CELL: usize = 16;
+
+/// The words of the battle picture of one language, from the names of the four stats, the word of a critical hit, and the words of no damage and of a miss.
+pub fn battle_text(labels: &[&'static str; 4], critical: &'static str, spaced: [&'static str; 2]) -> Vec<Word> {
+    let painted = |at: Box4, text: &'static str, slant: f32| Word { at, text, ink: Ink::Opaque, look: Look::GradedOutline, align: Align::Centre, slant, size: 1.0 };
+    // The word of a critical hit is read from the left edge of the picture, so it stays there.
+    let critical = Word { align: Align::Left, ..painted(BATTLE_CRITICAL, critical, BATTLE_SLANT) };
+    // The digits of the damage are smaller than the old ones, whose thick outline adds to their height.
+    let shared = BATTLE_SHARED.iter().map(|&(at, text)| Word { size: if at[1] == 0 { BATTLE_DIGIT_SIZE } else { 1.0 }, ..painted(at, text, BATTLE_SLANT) });
+    let names = BATTLE_LABELS.iter().zip(labels).map(|(&at, &text)| painted(at, text, 0.0));
+    // Each letter of a spaced out word sits in a cell of its own, so it is redrawn there alone.
+    let letters = spaced.into_iter().zip(BATTLE_SPACED_ROWS).flat_map(|(word, (top, bottom))| {
+        word.char_indices().enumerate().filter(|(_, (_, c))| *c != ' ').map(move |(cell, (at, c))| {
+            painted([cell * BATTLE_CELL, top, (cell + 1) * BATTLE_CELL, bottom], &word[at..at + c.len_utf8()], BATTLE_SLANT)
+        })
+    });
+    shared.chain(names).chain(std::iter::once(critical)).chain(letters).collect()
+}
+
+/// The offset of the texture of the system pictures that holds the words of the big buttons.
+pub const BUTTON_WORDS_AT: usize = 0x1300;
+/// The part of that texture that holds only the words of the big buttons.
+pub const BUTTON_WORD_AREA: Box4 = [104, 331, 220, 475];
+/// The boxes of the six words of the big buttons, one per row of 24 pixels from the top.
+pub const BUTTON_WORD_BOXES: [Box4; 6] = [[104, 331, 220, 353], [104, 355, 220, 377], [104, 379, 220, 401], [104, 403, 220, 425], [104, 427, 220, 449], [104, 451, 220, 473]];
 /// The buttons of the world map that hold words, as a box, an index into the words of the map and the ink.
 pub const GMAP_BUTTONS: [(Box4, usize, Ink); 8] = [
     ([147, 11, 181, 30], 0, Ink::Dark),
@@ -379,12 +448,14 @@ pub struct Word {
     pub align: Align,
     /// The slant of the letters, where 0 is upright.
     pub slant: f32,
+    /// The share of the height of the old word that the new one takes, 1 for all of it.
+    pub size: f32,
 }
 
 impl Word {
     /// Creates a flat, centred and upright word.
     pub fn flat(at: Box4, text: &'static str, ink: Ink) -> Word {
-        Word { at, text, ink, look: Look::Flat, align: Align::Centre, slant: 0.0 }
+        Word { at, text, ink, look: Look::Flat, align: Align::Centre, slant: 0.0, size: 1.0 }
     }
 }
 
@@ -649,7 +720,7 @@ pub fn buttons(image: &Rgba, words: &[Word], face: &Face, enlarge: fn(&Rgba) -> 
         };
         let room = (((b[2] - b[0]) * SCALE) as f32 - 2.0 * FIT_MARGIN, ((b[3] - b[1]) * SCALE) as f32 - 2.0 * FIT_MARGIN);
         let face = if w.slant > 0.0 { face.slanted(w.slant) } else { face.clone() };
-        let Some(ink) = word(&face, w.text, ((y1 - y0) as f32 - above - below) * SCALE as f32, room) else { continue };
+        let Some(ink) = word(&face, w.text, ((y1 - y0) as f32 - above - below) * SCALE as f32 * w.size, room) else { continue };
         let x = match w.align {
             Align::Centre => b[0] * SCALE + ((b[2] - b[0]) * SCALE - ink.w) / 2,
             Align::Left => {
@@ -769,8 +840,9 @@ fn strokes(image: &Rgba, core: &Plane) -> Rgba {
 
 /// Redraws the text of a picture in the boxes of the given words, at four times the size.
 /// The strokes inside the keep boxes are not redrawn but only enlarged.
+/// The kind says how the letters are filled and what goes around them.
 /// Returns `None` when a box has no letters or a word does not fit.
-pub fn redraw(image: &Rgba, words: &[(Box4, &str)], keep: &[Box4], tone: banners::Tone, face: &Face) -> Option<Rgba> {
+pub fn redraw(image: &Rgba, words: &[(Box4, &str)], keep: &[Box4], tone: banners::Tone, kind: banners::Kind, face: &Face) -> Option<Rgba> {
     let core = banners::core(image);
     let keep_mask = kept(&core, keep);
     // The text is the core of the letters without the parts that are kept.
@@ -794,7 +866,7 @@ pub fn redraw(image: &Rgba, words: &[(Box4, &str)], keep: &[Box4], tone: banners
             *p = [0.0; 4];
         }
     }
-    let mut out = banners::redraw(&cleared, &text, banners::Kind::Plain, tone, &big);
+    let mut out = banners::redraw(&cleared, &text, kind, tone, &big);
     if keep_mask.any() {
         let enlarged = strokes(image, &core);
         for (i, p) in out.v.iter_mut().enumerate() {

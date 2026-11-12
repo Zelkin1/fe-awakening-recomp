@@ -1386,7 +1386,8 @@ impl App {
             return;
         }
         // Without a unit under the cursor or selected there is nothing to show, unless the level up screen is up.
-        let on_unit = !game.system.follows_cursor() || game.system.cursor_on_unit() || game.system.unit_selected();
+        // The menus of the preparations always show a unit on the bottom screen.
+        let on_unit = !game.system.follows_cursor() || game.system.cursor_on_unit() || game.system.unit_selected() || game.system.preparations();
         if !self.bottom_over_key && self.scene == Scene::Plain && !on_unit && !self.showing_level_up() {
             return;
         }

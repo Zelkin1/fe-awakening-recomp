@@ -144,7 +144,7 @@ index 4446175..d74671f 100644
  pub mod result;
  
 diff --git a/crates/zakuro-core/examples/boot.rs b/crates/zakuro-core/examples/boot.rs
-index 3c63b6c..35a24c5 100644
+index 3c63b6c..f47bd34 100644
 --- a/crates/zakuro-core/examples/boot.rs
 +++ b/crates/zakuro-core/examples/boot.rs
 @@ -53,6 +53,10 @@ fn main() {
@@ -234,7 +234,7 @@ index 3c63b6c..35a24c5 100644
      println!("instructions:  {}", system.cpu.cycles);
      if system.idle.skipped > 0 {
          println!("idle skipped:  {} cycles of loops that changed nothing", system.idle.skipped);
-@@ -594,6 +643,55 @@ const SCREENS: [(zakuro_common::Screen, &str); 2] = [
+@@ -594,6 +643,56 @@ const SCREENS: [(zakuro_common::Screen, &str); 2] = [
      (zakuro_common::Screen::Bottom, "bottom"),
  ];
  
@@ -275,6 +275,7 @@ index 3c63b6c..35a24c5 100644
 +        (system.title_pieces().is_some(), "the title screen"),
 +        (system.world_pieces().is_some(), "the world map's parts of the bottom screen"),
 +        (system.unit_view(), "a unit's 3D view"),
++        (system.preparations(), "the preparations"),
 +    ];
 +    for (_, scene) in scenes.iter().filter(|(shown, _)| *shown) {
 +        println!("frame {frame}: {scene}");
@@ -685,10 +686,10 @@ index 7daa922..15b614f 100644
  204E3BA0 00000000
 diff --git a/crates/zakuro-core/src/game_ui.rs b/crates/zakuro-core/src/game_ui.rs
 new file mode 100644
-index 0000000..def6d35
+index 0000000..0f5f8d0
 --- /dev/null
 +++ b/crates/zakuro-core/src/game_ui.rs
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,214 @@
 +//! The description of the screens of Fire Emblem Awakening that the renderer needs.
 +//!
 +//! It lists the markers that find the draws of the game by their texture and place, and the pieces of the bottom screen that are shown over the top screen.
@@ -696,7 +697,7 @@ index 0000000..def6d35
 +
 +use zakuro_gpu::{Anchor, BannerSide, Banners, Ground, Marker, Piece, Place, Rounded};
 +
-+use crate::scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
++use crate::scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, PREPARATIONS, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
 +
 +/// The program id of Fire Emblem Awakening.
 +pub const FIRE_EMBLEM_AWAKENING: u64 = 0x0004_0000_0009_F100;
@@ -771,7 +772,10 @@ index 0000000..def6d35
 +    marker(FORECAST, ETC1A4, 256, 512, TOP_SCREEN, place([-0.03, 0.03], [0.03, 0.12], [0.95, 1.05], [0.7, 0.85])),
 +    marker(BRIEF_FORECAST, ETC1A4, 256, 512, TOP_SCREEN, place([-0.03, 0.03], [0.67, 0.695], [0.95, 1.05], [0.31, 0.335])),
 +    marker(BATTLE, ETC1A4, 256, 512, BOTTOM_SCREEN, place([-0.1, 0.1], [0.0, 0.14], [0.95, 1.05], [0.5, 0.65])),
-+    marker(EXP, ETC1A4, 256, 512, TOP_SCREEN, place([0.18, 0.31], [0.4, 0.47], [0.4, 0.6], [0.11, 0.16])),
++    // The menus of the preparations draw a bar across the top of the screen, which no other scene draws.
++    marker(PREPARATIONS, ETC1A4, 256, 512, TOP_SCREEN, place([-0.02, 0.02], [-0.02, 0.02], [0.97, 1.03], [0.12, 0.15])),
++    // A duo shows two gauges, one above and one below the place of a single gauge.
++    marker(EXP, ETC1A4, 256, 512, TOP_SCREEN, place([0.18, 0.31], [0.33, 0.51], [0.4, 0.6], [0.11, 0.16])),
 +    marker(LEFT_BANNER, ETC1A4, 256, 512, BOTTOM_SCREEN, place([0.0, 0.15], [-0.05, 0.08], [0.33, 0.37], [0.08, 0.12])),
 +    marker(RIGHT_BANNER, ETC1A4, 256, 512, BOTTOM_SCREEN, place([0.5, 0.65], [-0.05, 0.08], [0.33, 0.37], [0.08, 0.12])),
 +    marker(TITLE, LA8, 256, 32, BOTTOM_SCREEN, place([0.05, 0.15], [0.38, 0.48], [0.75, 0.85], [0.1, 0.17])),
@@ -863,9 +867,12 @@ index 0000000..def6d35
 +    rounded([184, 6, 112, 22], [8; 4]),
 +];
 +/// The shapes of the stats panel of a battle.
++/// The strip left of the stat labels is mirrored over the shaded strip right of them, which would look like a seam.
++/// The row of the attack is left out, because the badge of a double attack sits there on either side and would be copied or hidden.
 +const STATS: &[Rounded] = &[
 +    rounded([70, 88, 180, 52], [4; 4]),
-+    Rounded { shift: [39, 0], mirror: true, shadow: false, ..rounded([136, 88, 9, 52], [0; 4]) },
++    Rounded { shift: [39, 0], mirror: true, shadow: false, ..rounded([136, 88, 9, 3], [0; 4]) },
++    Rounded { shift: [39, 0], mirror: true, shadow: false, ..rounded([136, 105, 9, 35], [0; 4]) },
 +];
 +
 +/// The row of buttons of a battle, at the bottom of the top screen.
@@ -898,7 +905,7 @@ index 0000000..def6d35
 +    labels: [[146, 92, 28, 14], [146, 108, 28, 14], [146, 124, 28, 14]],
 +};
 diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
-index a9d239c..37d6696 100644
+index a9d239c..50a469b 100644
 --- a/crates/zakuro-core/src/lib.rs
 +++ b/crates/zakuro-core/src/lib.rs
 @@ -4,6 +4,7 @@
@@ -1006,7 +1013,7 @@ index a9d239c..37d6696 100644
 +    twinning: bool,
 +}
 +
-+pub use scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
++pub use scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, PREPARATIONS, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
 +
 +/// The counts of the pictures shown on the top screen, split by where they come from.
 +#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -1105,7 +1112,7 @@ index a9d239c..37d6696 100644
      }
  
      /// draws a picture in between each two of the title's own from now on,
-@@ -783,6 +857,87 @@ impl System {
+@@ -783,6 +857,92 @@ impl System {
          self.pacing.between
      }
  
@@ -1137,6 +1144,11 @@ index a9d239c..37d6696 100644
 +    /// Whether the view of a unit is showing.
 +    pub fn unit_view(&self) -> bool {
 +        self.scenes.shown(UNIT_VIEW, self.frames)
++    }
++
++    /// Whether a menu of the preparations between two battles is showing.
++    pub fn preparations(&self) -> bool {
++        self.scenes.shown(PREPARATIONS, self.frames)
 +    }
 +
 +    /// Whether a unit is selected on the map.
@@ -1193,7 +1205,7 @@ index a9d239c..37d6696 100644
      /// the DSP finishing an audio frame, it plays its voices one frame on and
      /// interrupts the title, whose sound library does one update per interrupt.
      fn audio_frame(&mut self) {
-@@ -843,6 +998,10 @@ impl System {
+@@ -843,6 +1003,10 @@ impl System {
          stride: u32,
          format: u32,
      ) {
@@ -1204,7 +1216,7 @@ index a9d239c..37d6696 100644
          self.gpu
              .set_framebuffer(screen, active, left, right, stride, format);
      }
-@@ -995,6 +1154,14 @@ impl System {
+@@ -995,6 +1159,14 @@ impl System {
          memory::config::set_slider_3d(self.memory.phys.shared_page_mut(), value);
      }
  
@@ -1219,7 +1231,7 @@ index a9d239c..37d6696 100644
      /// where a screen's picture is on the host's GPU, for a presenter sharing
      /// its device to draw straight from, none when the GPU does not show the
      /// screens itself or did not draw what the screen shows, read_screen_scaled
-@@ -1088,6 +1255,16 @@ impl System {
+@@ -1088,6 +1260,16 @@ impl System {
          self.gpu.scaled_screen(base, (height, width), stride / bpp, format, &bytes)
      }
  
@@ -1638,10 +1650,10 @@ index ba9a394..d960ffa 100644
  }
 diff --git a/crates/zakuro-core/src/scenes.rs b/crates/zakuro-core/src/scenes.rs
 new file mode 100644
-index 0000000..8601fd2
+index 0000000..6d47ef0
 --- /dev/null
 +++ b/crates/zakuro-core/src/scenes.rs
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,195 @@
 +//! Tracks which screens of the game are showing, from the markers that the renderer reports each frame.
 +//!
 +//! It also follows whether a unit is selected on the map, from the button A and the pictures of the game.
@@ -1671,6 +1683,8 @@ index 0000000..8601fd2
 +pub const RIGHT_BANNER: u32 = 10;
 +/// The view of a unit.
 +pub const UNIT_VIEW: u32 = 11;
++/// The menus that prepare the army between two battles.
++pub const PREPARATIONS: u32 = 12;
 +
 +/// The number of frames for which a marker still counts as shown after its last draw.
 +const RECENT_FRAMES: u64 = 4;
@@ -4835,10 +4849,24 @@ index 3a90135..177aabe 100644
      pub(crate) dynamic: crate::raster::hardware::Dynamic,
  }
 diff --git a/crates/zakuro-gpu/src/interpolation.rs b/crates/zakuro-gpu/src/interpolation.rs
-index af12308..fee2e23 100644
+index af12308..a83aad8 100644
 --- a/crates/zakuro-gpu/src/interpolation.rs
 +++ b/crates/zakuro-gpu/src/interpolation.rs
-@@ -17,16 +17,10 @@ use crate::shader::{ShaderUnit, Vec4, FLOAT_UNIFORMS};
+@@ -8,25 +8,36 @@
+ //! the matrices of a draw are mostly what changes, and halfway between two
+ //! of them is close to the transform halfway between, for the little a
+ //! thirtieth of a second moves things.
++//! Small draws, such as sprites, numbers and particles, mostly move by their vertices instead.
++//! A title writes those vertices anew every frame, often into another buffer each time.
++//! Their vertices are kept, and the draw in between blends them halfway too.
+ 
+-use std::collections::HashMap;
++use std::collections::{HashMap, HashSet};
+ 
+ use crate::registers::*;
+-use crate::shader::{ShaderUnit, Vec4, FLOAT_UNIFORMS};
++use crate::shader::{ShaderUnit, Vec4, FLOAT_UNIFORMS, INPUT_REGISTERS};
+ 
  /// the vertex shader's float uniforms at a draw.
  pub(crate) type Uniforms = [Vec4; FLOAT_UNIFORMS];
  
@@ -4852,6 +4880,20 @@ index af12308..fee2e23 100644
 -/// quarter of its distance again.
 -const JUMP: f32 = 0.5;
 -const JUMP_PART: f32 = 0.25;
++/// The shader inputs of each vertex of a draw, in the order that the draw takes them.
++pub(crate) type Inputs = Vec<[Vec4; INPUT_REGISTERS]>;
++
++/// The most vertices a draw may have for its vertices to be kept and blended in between.
++pub(crate) const KEPT_VERTICES: u32 = 1024;
++
++/// What the draw in between draws differently from the draw of the title.
++pub(crate) struct Between {
++    /// The float uniforms of the vertex shader.
++    pub(crate) uniforms: Box<Uniforms>,
++    /// The vertices halfway between the two frames, when they moved.
++    pub(crate) inputs: Option<Inputs>,
++}
++
 +/// How much a component may differ from its expected move before it counts as a jump.
 +const JUMP: f32 = 1.0;
 +/// The size above which a component is taken as a translation, which never counts as a jump. Rotation components stay within it.
@@ -4859,7 +4901,7 @@ index af12308..fee2e23 100644
  
  /// whether a component a texture's coordinates may read steps from one
  /// round value to another, sixty-fourths, as a sprite's offset into its
-@@ -36,6 +30,11 @@ fn steps(before: f32, now: f32) -> bool {
+@@ -36,6 +47,11 @@ fn steps(before: f32, now: f32) -> bool {
      round(before) && round(now)
  }
  
@@ -4871,7 +4913,186 @@ index af12308..fee2e23 100644
  /// how many draws of the frame before drawn the same way a draw's match is
  /// looked for among, around its own place among them.
  const NEAREST: usize = 32;
-@@ -188,9 +187,10 @@ impl Interpolation {
+@@ -50,12 +66,40 @@ const RESTLESS: u8 = 4;
+ /// for one it had not, how many frames on a jump still counts as one more
+ /// of its jumps, see RESTLESS, and which of them a draw of the next frame
+ /// took for its own.
++/// For small draws, the lists also hold the vertex arrays that each draw read, see arrays, and its vertices, which are empty for the other draws.
+ #[derive(Default)]
+ struct Drawn {
+     uniforms: Vec<Uniforms>,
+     moves: Vec<Uniforms>,
+     restless: Vec<u8>,
+     taken: Vec<bool>,
++    arrays: Vec<u64>,
++    inputs: Vec<Inputs>,
++}
++
++/// How far apart the inputs that blend are in two lists of vertices, as a sum over every component.
++/// Lists of different lengths are as far as anything gets.
++fn vertices_apart(before: &[[Vec4; INPUT_REGISTERS]], now: &[[Vec4; INPUT_REGISTERS]], blending: u16) -> f32 {
++    if before.len() != now.len() {
++        return f32::INFINITY;
++    }
++    let mut total = 0.0f32;
++    for (before, now) in before.iter().zip(now) {
++        for register in (0..INPUT_REGISTERS).filter(|r| blending & (1 << r) != 0) {
++            total += before[register].iter().zip(&now[register]).map(|(before, now)| (before - now).abs()).sum::<f32>();
++        }
++    }
++    if total.is_nan() { f32::INFINITY } else { total }
++}
++
++/// The vertices halfway between two lists of them, for the inputs that blend.
++/// The other inputs are as the frame has them.
++fn halfway(before: &Inputs, now: &Inputs, blending: u16) -> Inputs {
++    let blend = |register: usize, before: &Vec4, now: &Vec4| match blending & (1 << register) != 0 {
++        true => std::array::from_fn(|i| before[i] + (now[i] - before[i]) * 0.5),
++        false => *now,
++    };
++    before.iter().zip(now).map(|(before, now)| std::array::from_fn(|register| blend(register, &before[register], &now[register]))).collect()
+ }
+ 
+ /// the draw of the frame before, among those drawn the same way and not
+@@ -64,8 +108,12 @@ struct Drawn {
+ /// a title can draw a model twice in an order of its own each frame,
+ /// Majora's Mask 3D draws the two eyes of the 3D the other way round every
+ /// other frame, and in the order they came they would swap places.
+-fn nearest(drawn: &Drawn, place: usize, now: &Uniforms, placing: u128) -> Option<usize> {
+-    let distance = |before: &Uniforms| {
++/// A small draw comes first among those that read its own vertex arrays, and its first vertex counts in how near it is.
++/// The first vertex alone is cheap to compare, and it tells sprites apart.
++fn nearest(drawn: &Drawn, place: usize, now: &Uniforms, placing: u128, (arrays, inputs): (u64, &Inputs), blending: u16) -> Option<usize> {
++    let first = |list: &Inputs| list.len().min(1);
++    let distance = |i: usize| {
++        let before = &drawn.uniforms[i];
+         let mut total = 0.0f32;
+         let mut uniforms = placing;
+         while uniforms != 0 {
+@@ -73,20 +121,23 @@ fn nearest(drawn: &Drawn, place: usize, now: &Uniforms, placing: u128) -> Option
+             uniforms &= uniforms - 1;
+             total += before[uniform].iter().zip(&now[uniform]).map(|(before, now)| (before - now).abs()).sum::<f32>();
+         }
++        let before_inputs = &drawn.inputs[i];
++        total += vertices_apart(&before_inputs[..first(before_inputs)], &inputs[..first(inputs)], blending);
+         // NaN as far as anything gets
+-        if total.is_nan() { f32::INFINITY } else { total }
++        let total = if total.is_nan() { f32::INFINITY } else { total };
++        (drawn.arrays[i] != arrays, total)
+     };
+     let count = drawn.uniforms.len();
+     let around = match count <= NEAREST {
+         true => 0..count,
+         false => place.saturating_sub(NEAREST / 2)..(place + NEAREST / 2).min(count),
+     };
+-    let own = (place < count && !drawn.taken[place]).then(|| (place, distance(&drawn.uniforms[place])));
+-    if own.is_some_and(|(_, distance)| distance == 0.0) {
++    let own = (place < count && !drawn.taken[place]).then(|| (place, distance(place)));
++    if own.is_some_and(|(_, distance)| distance == (false, 0.0)) {
+         return own.map(|(place, _)| place);
+     }
+-    let others = around.filter(|&i| i != place && !drawn.taken[i]).map(|i| (i, distance(&drawn.uniforms[i])));
+-    own.into_iter().chain(others).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
++    let others = around.filter(|&i| i != place && !drawn.taken[i]).map(|i| (i, distance(i)));
++    own.into_iter().chain(others).min_by(|a, b| a.1 .0.cmp(&b.1 .0).then(a.1 .1.total_cmp(&b.1 .1))).map(|(i, _)| i)
+ }
+ 
+ /// what frame interpolation keeps of the draws of a frame and the one before.
+@@ -105,7 +156,12 @@ pub(crate) struct Interpolation {
+     /// it may read for the coordinates too second. only those move in
+     /// between, a texture's offset into a sheet of sprites or a flag are as
+     /// the frame's.
+-    placing: HashMap<(u64, u32, u16, u16), (u128, u128)>,
++    /// The input registers that blend come third, see ShaderUnit::inputs_blending.
++    placing: HashMap<(u64, u32, u16, u16), (u128, u128, u16)>,
++    /// What the small draws of the frame before drew, with where their vertex arrays start, see reads_new_arrays.
++    arrays_before: HashSet<u64>,
++    /// The same for this frame so far.
++    arrays_now: HashSet<u64>,
+     /// this frame's counts, see Matches.
+     draws: u32,
+     matched: u32,
+@@ -137,19 +193,37 @@ impl Matches {
+ }
+ 
+ impl Interpolation {
++    /// Whether a small draw reads other vertex arrays than any draw drawn the same way the frame before, and notes them for the next frame.
++    /// Such a draw has vertices that the title writes anew every frame into another buffer, so it gives them to draw.
++    /// The other small draws read the same vertices as before, which move by the uniforms alone.
++    pub(crate) fn reads_new_arrays(&mut self, registers: &[u32], vertex: &ShaderUnit) -> bool {
++        let drawn = mix(key(registers, vertex, None), arrays(registers));
++        self.arrays_now.insert(drawn);
++        !self.arrays_before.contains(&drawn)
++    }
++
+     /// the uniforms halfway between the draw's and those of the frame
+     /// before's draw that matches it, for drawing it again in between, none
+     /// when they are the same or it has no match or it jumped, or nothing
+     /// is drawn in between. the draw's own are kept for the next frame's to
+     /// match. a draw through a geometry shader is left as it is. give the
+     /// uniforms back once drawn with.
+-    pub(crate) fn draw(&mut self, registers: &[u32], vertex: &ShaderUnit, geometry: Option<&ShaderUnit>, between: bool) -> Option<Box<Uniforms>> {
++    /// A small draw gives its vertices too, see KEPT_VERTICES, and the others give none.
++    /// When the vertices of a small draw moved, the draw in between has vertices halfway as well.
++    pub(crate) fn draw(&mut self, registers: &[u32], vertex: &ShaderUnit, geometry: Option<&ShaderUnit>, inputs: Inputs, between: bool) -> Option<Between> {
+         self.draws += 1;
+-        let key = key(registers, vertex, geometry);
++        // A small draw matches whichever vertex arrays it reads, and another draw only matches those that read its own.
++        let arrays = arrays(registers);
++        let key = match inputs.is_empty() {
++            true => mix(key(registers, vertex, geometry), arrays),
++            false => key(registers, vertex, geometry),
++        };
+         let drawn = self.now.entry(key).or_default();
+         drawn.uniforms.push(*vertex.float_uniforms);
+         drawn.moves.push([[0.0; 4]; FLOAT_UNIFORMS]);
+         drawn.restless.push(0);
++        drawn.arrays.push(arrays);
++        drawn.inputs.push(inputs);
+         let place = drawn.uniforms.len() - 1;
+         if !between {
+             return None;
+@@ -159,16 +233,20 @@ impl Interpolation {
+             return None;
+         }
+         let (outputs, coordinates) = crate::raster::placing_outputs(registers);
+-        let (placing, shared) = *self
+-            .placing
+-            .entry((vertex.fingerprint(), vertex.entry_point, outputs, coordinates))
+-            .or_insert_with(|| vertex.uniforms_feeding(outputs, coordinates));
++        let (placing, shared, blending) = *self.placing.entry((vertex.fingerprint(), vertex.entry_point, outputs, coordinates)).or_insert_with(|| {
++            let (placing, shared) = vertex.uniforms_feeding(outputs, coordinates);
++            (placing, shared, vertex.inputs_blending(coordinates))
++        });
+         let drawn = self.before.get_mut(&key)?;
+         let now = self.now.get_mut(&key)?;
+-        let found = nearest(drawn, place, &now.uniforms[place], placing | shared)?;
++        let found = nearest(drawn, place, &now.uniforms[place], placing | shared, (now.arrays[place], &now.inputs[place]), blending)?;
+         drawn.taken[found] = true;
+         let (before, moved_before, restless) = (&drawn.uniforms[found], &drawn.moves[found], drawn.restless[found]);
++        let (vertices_before, vertices_now) = (&drawn.inputs[found], &now.inputs[place]);
+         let (now, moved_now, still_restless) = (&now.uniforms[place], &mut now.moves[place], &mut now.restless[place]);
++        // The vertices moved when the inputs that blend changed.
++        let apart = vertices_apart(vertices_before, vertices_now, blending);
++        let vertices_move = !vertices_now.is_empty() && apart > 0.0 && apart.is_finite();
+         *still_restless = restless.saturating_sub(1);
+         for ((moved, now), before) in moved_now.iter_mut().zip(now).zip(before) {
+             *moved = std::array::from_fn(|i| now[i] - before[i]);
+@@ -180,20 +258,26 @@ impl Interpolation {
+         // the vertices, but for steps of those the coordinates may read
+         let moves = |uniform: usize, before: f32, now: f32| placed(uniform) && before != now && !(shared(uniform) && steps(before, now));
+         let changes = |uniform: usize, before: &Vec4, now: &Vec4| (0..4).any(|i| moves(uniform, before[i], now[i]));
+-        if !before.iter().zip(now.iter()).enumerate().any(|(uniform, (before, now))| changes(uniform, before, now)) {
++        let uniforms_move = before.iter().zip(now.iter()).enumerate().any(|(uniform, (before, now))| changes(uniform, before, now));
++        if !uniforms_move && !vertices_move {
+             return None;
+         }
+         let mut between = self.spare.take().unwrap_or_else(|| Box::new([[0.0; 4]; FLOAT_UNIFORMS]));
++        // Uniforms that stay are as the frame has them.
++        if !uniforms_move {
++            *between = *now;
++        }
+         let mut jumped = false;
          // a component jumps when its move differs from its move the frame
          // before by more than JUMP says. NaN and infinity compare false,
          // and jump
@@ -4882,8 +5103,12 @@ index af12308..fee2e23 100644
 +            !(before.is_finite() && now.is_finite() && (change <= JUMP || before.abs().max(now.abs()) > TURN))
          };
          let mut lerped = false;
-         let uniforms = between.iter_mut().zip(before.iter()).zip(now.iter()).zip(moved_before.iter());
-@@ -201,15 +201,19 @@ impl Interpolation {
+-        let uniforms = between.iter_mut().zip(before.iter()).zip(now.iter()).zip(moved_before.iter());
++        let uniforms = between.iter_mut().zip(before.iter()).zip(now.iter()).zip(moved_before.iter()).filter(|_| uniforms_move);
+         for (uniform, (((out, before), now), moved_before)) in uniforms.enumerate() {
+             let moving: [bool; 4] = std::array::from_fn(|i| moves(uniform, before[i], now[i]));
+             let jumping: [bool; 4] = std::array::from_fn(|i| moving[i] && jumps(before[i], now[i], moved_before[i]));
+@@ -201,17 +285,21 @@ impl Interpolation {
                  // one the coordinates may read too is as the frame has it,
                  // whatever it is, one that only places the vertices says
                  // the draw is another than the one before
@@ -4904,20 +5129,154 @@ index af12308..fee2e23 100644
 +            *out = std::array::from_fn(|i| if lerping[i] { before[i] + (now[i] - before[i]) * 0.5 } else { now[i] });
 +            lerped |= lerping.contains(&true);
          }
-         if !jumped && !lerped {
+-        if !jumped && !lerped {
++        if !jumped && !lerped && !vertices_move {
              // what moved jumped, and is as the frame has it
-@@ -314,8 +318,8 @@ mod tests {
+             self.spare = Some(between);
+             return None;
+@@ -226,7 +314,8 @@ impl Interpolation {
+             return None;
+         }
+         self.moved += 1;
+-        Some(between)
++        let inputs = vertices_move.then(|| halfway(vertices_before, vertices_now, blending));
++        Some(Between { uniforms: between, inputs })
+     }
+ 
+     /// takes back the uniforms draw gave.
+@@ -238,6 +327,8 @@ impl Interpolation {
+     /// and how they matched the frame before's.
+     pub(crate) fn frame_done(&mut self) -> Matches {
+         let matches = Matches { draws: self.draws, matched: self.matched, moved: self.moved, jumped: self.jumped, jumping: self.jumping };
++        std::mem::swap(&mut self.arrays_before, &mut self.arrays_now);
++        self.arrays_now.clear();
+         let mut older = std::mem::replace(&mut self.before, std::mem::take(&mut self.now));
+         for drawn in self.before.values_mut() {
+             drawn.taken.clear();
+@@ -250,6 +341,8 @@ impl Interpolation {
+             drawn.uniforms.clear();
+             drawn.moves.clear();
+             drawn.restless.clear();
++            drawn.arrays.clear();
++            drawn.inputs.clear();
+             kept
+         });
+         self.now = older;
+@@ -258,17 +351,41 @@ impl Interpolation {
+     }
+ }
+ 
++/// Mixes a word into a hash.
++fn mix(hash: u64, word: u64) -> u64 {
++    (hash.rotate_left(5) ^ word).wrapping_mul(0x517C_C1B7_2722_0A95)
++}
++
++/// Whether a register holds where the vertex arrays or the indices start, rather than how they are laid out.
++fn array_offset(register: usize) -> bool {
++    let loaders = REG_ATTRIBUTE_LOADER..REG_ATTRIBUTE_LOADER + REG_ATTRIBUTE_LOADER_COUNT * REG_ATTRIBUTE_LOADER_STRIDE;
++    register == REG_INDEX_ARRAY || (loaders.contains(&register) && (register - REG_ATTRIBUTE_LOADER) % REG_ATTRIBUTE_LOADER_STRIDE == 0)
++}
++
++/// The low bits of the index array register hold the offset of the indices, and the top bits hold their format.
++const INDEX_OFFSET: u32 = 0x0FFF_FFFF;
++
++/// A hash of where the vertex arrays and the indices of a draw start.
++fn arrays(registers: &[u32]) -> u64 {
++    let offsets = (REG_ATTRIBUTE_BASE..=REG_INDEX_ARRAY).filter(|&register| array_offset(register));
++    offsets.fold(0x9E37_79B9_7F4A_7C15, |hash, register| {
++        let word = if register == REG_INDEX_ARRAY { registers[register] & INDEX_OFFSET } else { registers[register] };
++        mix(hash, word as u64)
++    })
++}
++
+ /// what a draw draws, the same from frame to frame for a model drawn the
+-/// same way, its programs, its vertex arrays and the buffers it draws into
++/// same way, its programs, how its vertex arrays are laid out and the buffers it draws into
+ /// and its first texture.
++/// Where the arrays start is left out, see arrays.
+ fn key(registers: &[u32], vertex: &ShaderUnit, geometry: Option<&ShaderUnit>) -> u64 {
+-    let mix = |hash: u64, word: u64| (hash.rotate_left(5) ^ word).wrapping_mul(0x517C_C1B7_2722_0A95);
+     // from an odd start, so that words of zero still count
+     let mut hash = mix(mix(0x9E37_79B9_7F4A_7C15, vertex.fingerprint()), vertex.entry_point as u64);
+     if let Some(geometry) = geometry {
+         hash = mix(mix(mix(hash, 1), geometry.fingerprint()), geometry.entry_point as u64);
+     }
+-    let arrays = REG_ATTRIBUTE_BASE..=REG_INDEX_ARRAY;
++    let arrays = (REG_ATTRIBUTE_BASE..REG_INDEX_ARRAY).filter(|&register| !array_offset(register));
++    hash = mix(hash, (registers[REG_INDEX_ARRAY] & !INDEX_OFFSET) as u64);
+     let others = [
+         REG_VERTEX_COUNT,
+         REG_VERTEX_OFFSET,
+@@ -307,22 +424,22 @@ mod tests {
+     #[test]
+     fn draws_match_the_frame_before_in_order() {
+         let mut interpolation = Interpolation::default();
+-        assert!(interpolation.draw(&registers(3), &unit(0.0), None, true).is_none(), "nothing before");
+-        assert!(interpolation.draw(&registers(3), &unit(4.0), None, true).is_none());
+-        assert!(interpolation.draw(&registers(6), &unit(1.0), None, true).is_none());
++        assert!(interpolation.draw(&registers(3), &unit(0.0), None, Vec::new(), true).is_none(), "nothing before");
++        assert!(interpolation.draw(&registers(3), &unit(4.0), None, Vec::new(), true).is_none());
++        assert!(interpolation.draw(&registers(6), &unit(1.0), None, Vec::new(), true).is_none());
+         let first = interpolation.frame_done();
          assert_eq!(first, Matches { draws: 3, matched: 0, moved: 0, jumped: 0, jumping: 0 });
          assert!(!first.smooth());
  
 -        let between = interpolation.draw(&registers(3), &unit(0.5), None, true).expect("moved");
 -        assert_eq!(between[0], [1.0, 0.0, 0.0, 0.25]);
-+        let between = interpolation.draw(&registers(3), &unit(0.4), None, true).expect("moved");
-+        assert_eq!(between[0], [1.0, 0.0, 0.0, 0.2]);
-         assert_eq!(between[1], [0.0, 1.0, 0.0, 2.0]);
-         interpolation.give_back(between);
-         let between = interpolation.draw(&registers(3), &unit(4.2), None, true).expect("the second matches the second");
-@@ -381,7 +385,25 @@ mod tests {
+-        assert_eq!(between[1], [0.0, 1.0, 0.0, 2.0]);
+-        interpolation.give_back(between);
+-        let between = interpolation.draw(&registers(3), &unit(4.2), None, true).expect("the second matches the second");
+-        assert!((between[0][3] - 4.1).abs() < 1e-6);
+-        interpolation.give_back(between);
+-        assert!(interpolation.draw(&registers(6), &unit(1.0), None, true).is_none(), "stayed");
+-        assert!(interpolation.draw(&registers(9), &unit(1.0), None, true).is_none(), "new");
++        let between = interpolation.draw(&registers(3), &unit(0.4), None, Vec::new(), true).expect("moved");
++        assert_eq!(between.uniforms[0], [1.0, 0.0, 0.0, 0.2]);
++        assert_eq!(between.uniforms[1], [0.0, 1.0, 0.0, 2.0]);
++        interpolation.give_back(between.uniforms);
++        let between = interpolation.draw(&registers(3), &unit(4.2), None, Vec::new(), true).expect("the second matches the second");
++        assert!((between.uniforms[0][3] - 4.1).abs() < 1e-6);
++        interpolation.give_back(between.uniforms);
++        assert!(interpolation.draw(&registers(6), &unit(1.0), None, Vec::new(), true).is_none(), "stayed");
++        assert!(interpolation.draw(&registers(9), &unit(1.0), None, Vec::new(), true).is_none(), "new");
+         let second = interpolation.frame_done();
+         assert_eq!(second, Matches { draws: 4, matched: 3, moved: 2, jumped: 0, jumping: 0 });
+         assert!(second.smooth());
+@@ -354,17 +471,17 @@ mod tests {
+         };
+         let mut interpolation = Interpolation::default();
+         for (x, shared) in [(0.0, 0.3), (0.1, 5.0)] {
+-            if let Some(between) = interpolation.draw(&registers, &at(x, shared), None, true) {
+-                interpolation.give_back(between);
++            if let Some(between) = interpolation.draw(&registers, &at(x, shared), None, Vec::new(), true) {
++                interpolation.give_back(between.uniforms);
+             }
+             interpolation.frame_done();
+         }
+-        let between = interpolation.draw(&registers, &at(0.2, -5.0), None, true).expect("its place moved");
+-        assert!((between[0][3] - 0.15).abs() < 1e-6);
+-        assert_eq!(between[20][0], -5.0, "the shared one as the frame has it");
+-        interpolation.give_back(between);
++        let between = interpolation.draw(&registers, &at(0.2, -5.0), None, Vec::new(), true).expect("its place moved");
++        assert!((between.uniforms[0][3] - 0.15).abs() < 1e-6);
++        assert_eq!(between.uniforms[20][0], -5.0, "the shared one as the frame has it");
++        interpolation.give_back(between.uniforms);
+         assert_eq!(interpolation.frame_done().jumped, 0);
+-        assert!(interpolation.draw(&registers, &at(0.2, 6.0), None, true).is_none(), "only the shared one changed, and jumped");
++        assert!(interpolation.draw(&registers, &at(0.2, 6.0), None, Vec::new(), true).is_none(), "only the shared one changed, and jumped");
+     }
+ 
+     /// a model going on as it went moves in between however fast, through
+@@ -374,14 +491,32 @@ mod tests {
+         let mut interpolation = Interpolation::default();
+         let mut moved = Vec::new();
+         for x in [-16.3, -5.7, 5.1, 16.2, 27.5] {
+-            let between = interpolation.draw(&registers(3), &unit(x), None, true);
++            let between = interpolation.draw(&registers(3), &unit(x), None, Vec::new(), true);
+             moved.push(between.is_some());
+             if let Some(between) = between {
+-                interpolation.give_back(between);
++                interpolation.give_back(between.uniforms);
              }
              interpolation.frame_done();
          }
@@ -4929,10 +5288,10 @@ index af12308..fee2e23 100644
 +    fn a_round_step_from_standing_still_and_back_toggles() {
 +        let mut interpolation = Interpolation::default();
 +        let mut frame = |x: f32| {
-+            let between = interpolation.draw(&registers(3), &unit(x), None, true);
-+            let shown = between.as_ref().map(|between| between[0][3]);
++            let between = interpolation.draw(&registers(3), &unit(x), None, Vec::new(), true);
++            let shown = between.as_ref().map(|between| between.uniforms[0][3]);
 +            if let Some(between) = between {
-+                interpolation.give_back(between);
++                interpolation.give_back(between.uniforms);
 +            }
 +            assert_eq!(interpolation.frame_done().jumped, 0);
 +            shown
@@ -4944,7 +5303,18 @@ index af12308..fee2e23 100644
      }
  
      /// a draw that jumps frame after frame, a batch of sprites sorted anew
-@@ -400,14 +422,14 @@ mod tests {
+@@ -392,26 +527,26 @@ mod tests {
+     fn draws_that_keep_jumping_count_apart() {
+         let mut interpolation = Interpolation::default();
+         let mut frame = |batch: f32, model: f32| {
+-            let batch = interpolation.draw(&registers(3), &unit(batch), None, true);
+-            let model = interpolation.draw(&registers(4), &unit(model), None, true);
++            let batch = interpolation.draw(&registers(3), &unit(batch), None, Vec::new(), true);
++            let model = interpolation.draw(&registers(4), &unit(model), None, Vec::new(), true);
+             for between in [batch, model].into_iter().flatten() {
+-                interpolation.give_back(between);
++                interpolation.give_back(between.uniforms);
+             }
              interpolation.frame_done()
          };
          frame(0.0, 0.0);
@@ -4963,8 +5333,34 @@ index af12308..fee2e23 100644
 +        let jumps: Vec<(u32, u32)> = [0.0, 0.0, 1.2, 1.2, 0.0, 0.0, 1.2]
              .into_iter()
              .map(|x| {
-                 if let Some(between) = interpolation.draw(&registers(3), &unit(x), None, true) {
-@@ -437,23 +459,16 @@ mod tests {
+-                if let Some(between) = interpolation.draw(&registers(3), &unit(x), None, true) {
+-                    interpolation.give_back(between);
++                if let Some(between) = interpolation.draw(&registers(3), &unit(x), None, Vec::new(), true) {
++                    interpolation.give_back(between.uniforms);
+                 }
+                 let matches = interpolation.frame_done();
+                 (matches.jumped, matches.jumping)
+@@ -425,35 +560,28 @@ mod tests {
+     #[test]
+     fn draws_drawn_the_other_way_round_match_the_nearest() {
+         let mut interpolation = Interpolation::default();
+-        interpolation.draw(&registers(3), &unit(-3.7), None, true);
+-        interpolation.draw(&registers(3), &unit(3.7), None, true);
++        interpolation.draw(&registers(3), &unit(-3.7), None, Vec::new(), true);
++        interpolation.draw(&registers(3), &unit(3.7), None, Vec::new(), true);
+         interpolation.frame_done();
+-        let right = interpolation.draw(&registers(3), &unit(3.8), None, true).expect("the right eye");
+-        assert!((right[0][3] - 3.75).abs() < 1e-6);
+-        interpolation.give_back(right);
+-        let left = interpolation.draw(&registers(3), &unit(-3.6), None, true).expect("the left eye");
+-        assert!((left[0][3] + 3.65).abs() < 1e-6);
+-        interpolation.give_back(left);
++        let right = interpolation.draw(&registers(3), &unit(3.8), None, Vec::new(), true).expect("the right eye");
++        assert!((right.uniforms[0][3] - 3.75).abs() < 1e-6);
++        interpolation.give_back(right.uniforms);
++        let left = interpolation.draw(&registers(3), &unit(-3.6), None, Vec::new(), true).expect("the left eye");
++        assert!((left.uniforms[0][3] + 3.65).abs() < 1e-6);
++        interpolation.give_back(left.uniforms);
          assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 2, moved: 2, jumped: 0, jumping: 0 });
      }
  
@@ -4974,26 +5370,121 @@ index af12308..fee2e23 100644
      #[test]
      fn jumps_are_not_drawn_in_between() {
          let mut interpolation = Interpolation::default();
-         interpolation.draw(&registers(3), &unit(100.0), None, true);
+-        interpolation.draw(&registers(3), &unit(100.0), None, true);
 -        interpolation.draw(&registers(4), &unit(0.0), None, true);
-+        interpolation.draw(&registers(4), &unit(0.9), None, true);
++        interpolation.draw(&registers(3), &unit(100.0), None, Vec::new(), true);
++        interpolation.draw(&registers(4), &unit(0.9), None, Vec::new(), true);
          interpolation.frame_done();
 -        let between = interpolation.draw(&registers(3), &unit(120.0), None, true).expect("a fifth of its distance");
-+        let between = interpolation.draw(&registers(3), &unit(160.3), None, true).expect("far, however far");
-         interpolation.give_back(between);
+-        interpolation.give_back(between);
 -        assert!(interpolation.draw(&registers(4), &unit(1.0), None, true).is_none(), "a flag flipped");
 -        let matches = interpolation.frame_done();
 -        assert_eq!(matches, Matches { draws: 2, matched: 2, moved: 1, jumped: 1, jumping: 0 });
 -        assert!(!matches.smooth());
 -        interpolation.draw(&registers(3), &unit(200.0), None, true);
 -        assert_eq!(interpolation.frame_done().jumped, 1, "five sixths of its distance");
-+        assert!(interpolation.draw(&registers(4), &unit(-1.2), None, true).is_none(), "turned around");
++        let between = interpolation.draw(&registers(3), &unit(160.3), None, Vec::new(), true).expect("far, however far");
++        interpolation.give_back(between.uniforms);
++        assert!(interpolation.draw(&registers(4), &unit(-1.2), None, Vec::new(), true).is_none(), "turned around");
 +        assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 2, moved: 1, jumped: 1, jumping: 0 });
      }
  
      /// a draw through a geometry shader is drawn as it is, and never
+@@ -462,10 +590,10 @@ mod tests {
+     fn geometry_shaders_are_drawn_as_they_are() {
+         let mut interpolation = Interpolation::default();
+         let geometry = unit(0.0);
+-        interpolation.draw(&registers(3), &unit(0.0), Some(&geometry), true);
++        interpolation.draw(&registers(3), &unit(0.0), Some(&geometry), Vec::new(), true);
+         interpolation.frame_done();
+-        assert!(interpolation.draw(&registers(3), &unit(0.2), None, true).is_none(), "no geometry stage");
+-        assert!(interpolation.draw(&registers(3), &unit(0.2), Some(&geometry), true).is_none());
++        assert!(interpolation.draw(&registers(3), &unit(0.2), None, Vec::new(), true).is_none(), "no geometry stage");
++        assert!(interpolation.draw(&registers(3), &unit(0.2), Some(&geometry), Vec::new(), true).is_none());
+         assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 1, moved: 0, jumped: 0, jumping: 0 });
+     }
+ 
+@@ -493,16 +621,52 @@ mod tests {
+             unit
+         };
+         let mut interpolation = Interpolation::default();
+-        interpolation.draw(&registers, &at(0.0, 0.25), None, true);
++        interpolation.draw(&registers, &at(0.0, 0.25), None, Vec::new(), true);
++        interpolation.frame_done();
++        let between = interpolation.draw(&registers, &at(0.4, 0.5), None, Vec::new(), true).expect("moved");
++        assert_eq!(between.uniforms[0], [1.0, 0.0, 0.0, 0.2]);
++        assert_eq!(between.uniforms[1], [0.5, 0.0, 0.0, 0.0], "the next sprite, not half of each");
++        interpolation.give_back(between.uniforms);
+         interpolation.frame_done();
+-        let between = interpolation.draw(&registers, &at(0.4, 0.5), None, true).expect("moved");
+-        assert_eq!(between[0], [1.0, 0.0, 0.0, 0.2]);
+-        assert_eq!(between[1], [0.5, 0.0, 0.0, 0.0], "the next sprite, not half of each");
+-        interpolation.give_back(between);
++        assert!(interpolation.draw(&registers, &at(0.4, 0.75), None, Vec::new(), true).is_none(), "only the sprite changed");
++        interpolation.frame_done();
++        assert!(interpolation.draw(&registers, &at(0.6, 9.0), None, Vec::new(), true).is_some(), "the sprite's jump does not count");
++    }
++
++    /// A small draw that the title writes into another buffer every frame matches the draw of the frame before.
++    /// Its vertices go halfway, but for the inputs that the texture coordinates read.
++    #[test]
++    fn vertices_written_anew_move_halfway() {
++        // o0 = c0 . v0, o2 = v1, with o0 the position and o2 a texture's coordinates.
++        let mut unit = ShaderUnit::new();
++        unit.program[0] = (0x02 << 26) | (0x20 << 12);
++        unit.program[1] = (0x13 << 26) | (0x02 << 21) | (0x01 << 12);
++        unit.program[2] = 0x22 << 26;
++        unit.descriptors[0] = 0xF | (0b00_01_10_11 << 5) | (0b00_01_10_11 << 14);
++        unit.prepare();
++        unit.float_uniforms[0] = [1.0, 0.0, 0.0, 0.0];
++        let mut registers = registers(3);
++        registers[REG_SHADER_OUTPUT_TOTAL] = 3;
++        registers[REG_SHADER_OUTPUT_MAP] = 0x0302_0100;
++        registers[REG_SHADER_OUTPUT_MAP + 2] = 0x1F1F_0D0C;
++        let at = |offset: u32| {
++            let mut registers = registers.clone();
++            registers[REG_ATTRIBUTE_LOADER] = offset;
++            registers
++        };
++        let vertices = |x: f32| -> Inputs { vec![std::array::from_fn(|register| if register == 0 { [x, 0.0, 0.0, 1.0] } else { [x; 4] }); 3] };
++        let mut interpolation = Interpolation::default();
++        assert!(interpolation.reads_new_arrays(&at(0x100), &unit));
++        assert!(interpolation.draw(&at(0x100), &unit, None, vertices(0.0), true).is_none(), "nothing before");
+         interpolation.frame_done();
+-        assert!(interpolation.draw(&registers, &at(0.4, 0.75), None, true).is_none(), "only the sprite changed");
++        assert!(interpolation.reads_new_arrays(&at(0x200), &unit), "another buffer");
++        let between = interpolation.draw(&at(0x200), &unit, None, vertices(2.0), true).expect("moved");
++        let inputs = between.inputs.expect("the vertices moved");
++        assert_eq!(inputs[0][0], [1.0, 0.0, 0.0, 1.0]);
++        assert_eq!(inputs[0][1], [2.0; 4], "the coordinates as the frame has them");
++        assert_eq!(between.uniforms[0], [1.0, 0.0, 0.0, 0.0], "the uniforms stayed");
+         interpolation.frame_done();
+-        assert!(interpolation.draw(&registers, &at(0.6, 9.0), None, true).is_some(), "the sprite's jump does not count");
++        assert!(!interpolation.reads_new_arrays(&at(0x200), &unit), "the buffer of the frame before");
+     }
+ 
+     /// uniforms the coordinates may read through an address register too,
+@@ -527,13 +691,13 @@ mod tests {
+             unit
+         };
+         let mut interpolation = Interpolation::default();
+-        interpolation.draw(&registers, &at(0.25), None, true);
++        interpolation.draw(&registers, &at(0.25), None, Vec::new(), true);
+         interpolation.frame_done();
+-        assert!(interpolation.draw(&registers, &at(0.5), None, true).is_none(), "a step between round values");
++        assert!(interpolation.draw(&registers, &at(0.5), None, Vec::new(), true).is_none(), "a step between round values");
+         interpolation.frame_done();
+-        interpolation.draw(&registers, &at(0.3), None, true);
++        interpolation.draw(&registers, &at(0.3), None, Vec::new(), true);
+         interpolation.frame_done();
+-        let between = interpolation.draw(&registers, &at(0.4), None, true).expect("a move");
+-        assert!((between[20][3] - 0.35).abs() < 1e-6);
++        let between = interpolation.draw(&registers, &at(0.4), None, Vec::new(), true).expect("a move");
++        assert!((between.uniforms[20][3] - 0.35).abs() < 1e-6);
+     }
+ }
 diff --git a/crates/zakuro-gpu/src/lib.rs b/crates/zakuro-gpu/src/lib.rs
-index f294442..e6ade9d 100644
+index f294442..389d09d 100644
 --- a/crates/zakuro-gpu/src/lib.rs
 +++ b/crates/zakuro-gpu/src/lib.rs
 @@ -22,7 +22,8 @@ pub mod texture;
@@ -5172,7 +5663,66 @@ index f294442..e6ade9d 100644
          renderer.draw(DrawCall {
              indexed,
              registers: &self.internal,
-@@ -1475,6 +1592,25 @@ fn external_index(gsp_offset: u32) -> Option<usize> {
+@@ -1139,8 +1256,15 @@ impl Gpu {
+         // frame interpolation draws it again in between, where it moved
+         let geometry = self.internal[REG_GEOSTAGE_CONFIG] & 0x3 == 2;
+         let twins = self.resources.twins();
++        // A small draw that reads other vertex arrays than the frame before keeps its vertices, for the draw in between of the next frame to blend.
++        let small = (1..=interpolation::KEPT_VERTICES).contains(&self.internal[REG_VERTEX_COUNT]) && !geometry;
++        let keeps = small && self.interpolation.as_mut().is_some_and(|interpolation| interpolation.reads_new_arrays(&self.internal, &self.vertex_shader));
++        let inputs = match keeps {
++            true => raster::vertex_inputs(&self.internal, &self.fixed_attributes, memory, &mut self.resources, indexed),
++            false => Vec::new(),
++        };
+         let between = match self.interpolation.as_mut() {
+-            Some(interpolation) => interpolation.draw(&self.internal, &self.vertex_shader, geometry.then_some(&self.geometry_shader), twins),
++            Some(interpolation) => interpolation.draw(&self.internal, &self.vertex_shader, geometry.then_some(&self.geometry_shader), inputs, twins),
+             None => None,
+         };
+         self.resources.set_pass(if between.is_some() { raster::Pass::Twinned } else { raster::Pass::Real });
+@@ -1155,21 +1279,28 @@ impl Gpu {
+             handed,
+         );
+         if let Some(mut between) = between {
+-            self.swap_uniforms(&mut between);
++            self.swap_uniforms(&mut between.uniforms);
+             self.resources.set_pass(raster::Pass::Twin);
+-            raster::draw(
+-                &self.internal,
+-                &self.vertex_shader,
+-                &self.geometry_shader,
+-                &self.fixed_attributes,
+-                memory,
+-                &mut self.resources,
+-                indexed,
+-                None,
+-            );
+-            self.swap_uniforms(&mut between);
++            match &between.inputs {
++                Some(inputs) => {
++                    raster::draw_inputs(&self.internal, &self.vertex_shader, &self.geometry_shader, memory, &mut self.resources, inputs);
++                }
++                None => {
++                    raster::draw(
++                        &self.internal,
++                        &self.vertex_shader,
++                        &self.geometry_shader,
++                        &self.fixed_attributes,
++                        memory,
++                        &mut self.resources,
++                        indexed,
++                        None,
++                    );
++                }
++            }
++            self.swap_uniforms(&mut between.uniforms);
+             if let Some(interpolation) = &mut self.interpolation {
+-                interpolation.give_back(between);
++                interpolation.give_back(between.uniforms);
+             }
+         }
+         self.resources.set_pass(raster::Pass::Real);
+@@ -1475,6 +1606,25 @@ fn external_index(gsp_offset: u32) -> Option<usize> {
      Some(byte_offset as usize / 4)
  }
  
@@ -5291,7 +5841,7 @@ index b87b030..5864d8f 100644
              }
          }
 diff --git a/crates/zakuro-gpu/src/raster.rs b/crates/zakuro-gpu/src/raster.rs
-index 2e71e86..7814c33 100644
+index 2e71e86..9fb717f 100644
 --- a/crates/zakuro-gpu/src/raster.rs
 +++ b/crates/zakuro-gpu/src/raster.rs
 @@ -1110,6 +1110,24 @@ pub(super) fn upside_down(registers: &[u32]) -> bool {
@@ -5668,7 +6218,54 @@ index 2e71e86..7814c33 100644
          let index_short = registers[REG_INDEX_ARRAY] & 0x8000_0000 != 0;
          let first_vertex = registers[REG_VERTEX_OFFSET];
          let (first, span) = if indexed {
-@@ -3109,6 +3367,18 @@ fn assemble(topology: u32, count: usize) -> Vec<(usize, usize, usize)> {
+@@ -3001,6 +3259,46 @@ pub fn draw_immediate<M: GpuMemory>(
+     rasterize(registers, memory, resources, vertices).unwrap_or(0)
+ }
+ 
++/// The shader inputs of each vertex of a draw, in the order that the draw takes them.
++/// Frame interpolation keeps them, to blend them with those of the next frame.
++pub(crate) fn vertex_inputs<M: GpuMemory>(
++    registers: &[u32],
++    fixed_attributes: &[Vec4; 16],
++    memory: &mut M,
++    resources: &mut Resources,
++    indexed: bool,
++) -> Vec<[Vec4; shader::INPUT_REGISTERS]> {
++    let mut scratch = std::mem::take(&mut resources.scratch);
++    read_indices(registers, memory, &mut scratch, indexed);
++    scratch.plans.update(registers, fixed_attributes);
++    fetch(registers, memory, &mut scratch, indexed);
++    let inputs = match indexed {
++        true => scratch.order.iter().map(|&i| scratch.inputs[i]).collect(),
++        false => scratch.inputs.clone(),
++    };
++    resources.scratch = scratch;
++    inputs
++}
++
++/// Draws the vertices given, in the order given.
++/// The draw in between does this with the vertices that it blended.
++pub(crate) fn draw_inputs<M: GpuMemory>(
++    registers: &[u32],
++    vertex_shader: &ShaderUnit,
++    geometry_shader: &ShaderUnit,
++    memory: &mut M,
++    resources: &mut Resources,
++    inputs: &[[Vec4; shader::INPUT_REGISTERS]],
++) -> u32 {
++    // The GPU stages these vertices, rather than reading those that its own draw staged.
++    #[cfg(feature = "vulkan")]
++    if let Some(hardware) = resources.hardware.as_mut() {
++        hardware.forget_staged_inputs();
++    }
++    let vertices = Vertices::Unshaded { vertex_shader, geometry_shader, inputs, order: None };
++    rasterize(registers, memory, resources, vertices).unwrap_or(0)
++}
++
+ /// puts a draw's arrays for the GPU to decode in raw, from the first
+ /// vertex the draw uses on. false when they cost more to hand over than to
+ /// decode on the CPU or do not lie in one piece of memory.
+@@ -3109,6 +3407,18 @@ fn assemble(topology: u32, count: usize) -> Vec<(usize, usize, usize)> {
      }
  }
  
@@ -5687,7 +6284,7 @@ index 2e71e86..7814c33 100644
  /// assembles shaded vertices into triangles the way the primitive configuration
  /// says, and fills them with the current back-end state.
  /// the triangles drawn, none for arrays the GPU could not decode, which the
-@@ -3129,9 +3399,15 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3129,9 +3439,15 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
      let viewport_top = (viewport_y + viewport_height).round() as i32;
      let (buffer_width, buffer_height) = buffer_size(registers, viewport);
      let (target_width, target_height) = (buffer_width, buffer_height);
@@ -5706,7 +6303,7 @@ index 2e71e86..7814c33 100644
      let (bottom, top) = match upside_down(registers) {
          true => (buffer_height as i32 - top, buffer_height as i32 - bottom),
          false => (bottom, top),
-@@ -3145,11 +3421,16 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3145,11 +3461,16 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
              "draw: {vertex_count} vertices, topology reg 0x{:X}, viewport \
               {viewport_width}x{viewport_height} @({viewport_x},{viewport_y}), color buffer raw \
               0x{color_buffer_raw:08X} -> 0x{target_addr:08X} {target_format:?}, \
@@ -5724,7 +6321,7 @@ index 2e71e86..7814c33 100644
          );
      }
  
-@@ -3167,33 +3448,64 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3167,33 +3488,64 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
      #[cfg(feature = "vulkan")]
      if let Some(hardware) = resources.hardware.as_mut() {
          for (unit, drawn) in drawn.iter_mut().enumerate() {
@@ -5797,7 +6394,7 @@ index 2e71e86..7814c33 100644
              top,
              buffer_width,
              buffer_height,
-@@ -3357,6 +3669,12 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
+@@ -3357,6 +3709,12 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
  
      if log::log_enabled!(log::Level::Trace) {
          let first_screen = shaded.first().and_then(|v| to_screen(v, viewport));
@@ -5810,7 +6407,7 @@ index 2e71e86..7814c33 100644
          log::trace!(
              "draw result: {vertex_count} verts, {triangle_count} tris ({clipped_away} clipped \
               away, {culled} culled), {} pixels written ({} failed depth, {} failed stencil, {} failed alpha), \
-@@ -3408,6 +3726,68 @@ mod tests {
+@@ -3408,6 +3766,68 @@ mod tests {
          [&vertex.clip[..], &vertex.color, texcoords, &vertex.quaternion, &vertex.view, &[vertex.texcoord0_w]].concat().iter().map(|v| v.to_bits()).collect()
      }
  
@@ -5879,7 +6476,7 @@ index 2e71e86..7814c33 100644
      /// placing a vertex's fields gives the bits reading each component
      /// does, for every type and count.
      #[test]
-@@ -3656,6 +4036,29 @@ mod tests {
+@@ -3656,6 +4076,29 @@ mod tests {
      const GREEN: Vec4 = [0.0, 1.0, 0.0, 1.0];
      const BLUE: Vec4 = [0.0, 0.0, 1.0, 1.0];
  
@@ -5909,7 +6506,7 @@ index 2e71e86..7814c33 100644
      /// titles map depth with a scale of -1, so near is 1, and keep the
      /// nearer surface with a GREATER test against a buffer cleared to 0.
      #[test]
-@@ -4580,10 +4983,6 @@ mod tests {
+@@ -4580,10 +5023,6 @@ mod tests {
          assert!(!hardware.holds_unchanged(&mut memory, &texture), "the CPU wrote over it");
      }
  
@@ -5920,7 +6517,7 @@ index 2e71e86..7814c33 100644
      #[cfg(feature = "vulkan")]
      #[test]
      fn a_buffer_written_back_read_with_smaller_sizes_comes_from_memory() {
-@@ -4627,6 +5026,101 @@ mod tests {
+@@ -4627,6 +5066,101 @@ mod tests {
          assert!(pixels(&mut memory).iter().all(|&p| p == [0, 255, 0, 255]), "{:?}", pixels(&mut memory)[0]);
      }
  
@@ -6022,7 +6619,7 @@ index 2e71e86..7814c33 100644
      /// a narrower buffer drawn over rows a fill left of a wider one does not
      /// cost the wider one the rows it drew elsewhere, which memory lacks,
      /// when it is used again.
-@@ -5761,6 +6255,11 @@ mod tests {
+@@ -5761,6 +6295,11 @@ mod tests {
              ]
          });
          let inputs = random_inputs(&mut random);
@@ -6035,7 +6632,7 @@ index 2e71e86..7814c33 100644
          let mut draws = 0;
          loop {
 diff --git a/crates/zakuro-gpu/src/raster/hardware.rs b/crates/zakuro-gpu/src/raster/hardware.rs
-index b3cd447..5e948f2 100644
+index b3cd447..ff05e30 100644
 --- a/crates/zakuro-gpu/src/raster/hardware.rs
 +++ b/crates/zakuro-gpu/src/raster/hardware.rs
 @@ -14,7 +14,6 @@
@@ -6579,7 +7176,20 @@ index b3cd447..5e948f2 100644
                          Some(self.image(width, height, format, usage, aspect)?)
                      }
                  };
-@@ -2512,7 +2730,7 @@ impl Hardware {
+@@ -2494,6 +2712,12 @@ impl Hardware {
+         self.twins
+     }
+ 
++    /// Forgets the vertices that the last draw staged for its draw in between.
++    /// A draw in between with vertices of its own stages them anew.
++    pub(crate) fn forget_staged_inputs(&mut self) {
++        self.twinned_inputs = None;
++    }
++
+     /// draws pictures in between into twins of the surfaces from now on,
+     /// for frame interpolation, or stops, the twins no longer different.
+     pub(crate) fn set_twins(&mut self, twins: bool) {
+@@ -2512,7 +2736,7 @@ impl Hardware {
  
      /// whether a texture is rows of a surface with a twin.
      fn reads_twin(&self, texture: &DrawnTexture) -> bool {
@@ -6588,7 +7198,7 @@ index b3cd447..5e948f2 100644
      }
  
      /// gives a surface a twin holding what the surface does, before a draw
-@@ -2680,8 +2898,17 @@ impl Hardware {
+@@ -2680,8 +2904,17 @@ impl Hardware {
      /// a surface with no such image, a depth buffer on a GPU that can't blit
      /// them, is scaled on the CPU instead, see scale_up and scale_down_depth.
      fn blit(&mut self, index: usize, up: bool) {
@@ -6606,7 +7216,7 @@ index b3cd447..5e948f2 100644
          let aspect = match s.kind {
              Kind::Color(_) => vk::ImageAspectFlags::COLOR,
              Kind::Depth(_) => vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
-@@ -2691,7 +2918,7 @@ impl Hardware {
+@@ -2691,7 +2924,7 @@ impl Hardware {
          let small = corner(s.width, s.height);
          let big = corner(s.width * self.scale, s.height * self.scale);
          let (from, to, from_corner, to_corner) =
@@ -6615,7 +7225,7 @@ index b3cd447..5e948f2 100644
          let region = [vk::ImageBlit::default()
              .src_subresource(layers)
              .src_offsets(from_corner)
-@@ -2708,7 +2935,7 @@ impl Hardware {
+@@ -2708,7 +2941,7 @@ impl Hardware {
                  to,
                  vk::ImageLayout::GENERAL,
                  &region,
@@ -6624,7 +7234,7 @@ index b3cd447..5e948f2 100644
              )
          };
      }
-@@ -2884,7 +3111,9 @@ impl Hardware {
+@@ -2884,7 +3117,9 @@ impl Hardware {
  
      /// a sampler for a unit.
      fn sampler(&mut self, filtering: Filtering) -> Result<vk::Sampler, String> {
@@ -6635,7 +7245,7 @@ index b3cd447..5e948f2 100644
              return Ok(sampler);
          }
          // the border is the shader's to draw, past the edge it clamps
-@@ -2904,10 +3133,12 @@ impl Hardware {
+@@ -2904,10 +3139,12 @@ impl Hardware {
              .address_mode_v(mode(filtering.t))
              .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
              .min_lod(filtering.levels.0 as f32)
@@ -6650,7 +7260,7 @@ index b3cd447..5e948f2 100644
          Ok(sampler)
      }
  
-@@ -2989,46 +3220,66 @@ impl Hardware {
+@@ -2989,46 +3226,66 @@ impl Hardware {
      /// the pipeline a draw goes through. until the one made for its key is
      /// ready the compiler makes it, and the draw goes through one that
      /// draws the same, the interpreter's with the same fragment stages when
@@ -6731,7 +7341,7 @@ index b3cd447..5e948f2 100644
      }
  
      /// raster.frag leaving depth to the rasterizer, and working it out.
-@@ -3172,6 +3423,33 @@ impl Hardware {
+@@ -3172,6 +3429,33 @@ impl Hardware {
  
      /// makes sure guest memory holds what the GPU drew over a range, before
      /// something reads it.
@@ -6765,7 +7375,7 @@ index b3cd447..5e948f2 100644
      pub(crate) fn prepare_read<M: GpuMemory>(&mut self, memory: &mut M, addr: u32, len: u32) -> Result<(), String> {
          if self.surfaces.iter().any(|s| s.dirty_overlaps(addr, len)) {
              self.sync(memory, addr, len)?;
-@@ -3285,6 +3563,16 @@ impl Hardware {
+@@ -3285,6 +3569,16 @@ impl Hardware {
          self.translated.values().filter(|translation| matches!(translation, Translation::Done(_))).count()
      }
  
@@ -6782,7 +7392,7 @@ index b3cd447..5e948f2 100644
      /// the pipelines made for translated programs so far.
      #[cfg(test)]
      pub(super) fn translated_pipelines(&self) -> usize {
-@@ -3347,6 +3635,11 @@ impl Hardware {
+@@ -3347,6 +3641,11 @@ impl Hardware {
                  None => return,
              },
          };
@@ -6794,7 +7404,7 @@ index b3cd447..5e948f2 100644
          let made = work(job, &self.device, self.pipeline_cache, self.layout, self.fragment_modules(), self.dynamic, self.depth_format);
          self.take(made);
      }
-@@ -3391,15 +3684,33 @@ impl Hardware {
+@@ -3391,15 +3690,33 @@ impl Hardware {
              Made::Translated(key, Err(_)) => {
                  self.translated.insert(key, Translation::Failed);
              }
@@ -6836,7 +7446,7 @@ index b3cd447..5e948f2 100644
                  // a translated program the driver turns down goes back to
                  // the interpreter
                  VertexStage::Translated(failed) => {
-@@ -3627,6 +3938,8 @@ impl Hardware {
+@@ -3627,6 +3944,8 @@ impl Hardware {
          let real = pass != Pass::Twin;
          let twin = twinned && pass != Pass::Twinned;
  
@@ -6845,7 +7455,7 @@ index b3cd447..5e948f2 100644
          let mut views = [self.blank.view; 3];
          let mut twin_views = [self.blank.view; 3];
          let mut samplers = [vk::Sampler::null(); 3];
-@@ -3647,6 +3960,7 @@ impl Hardware {
+@@ -3647,6 +3966,7 @@ impl Hardware {
                          None => {
                              let (view, picture) = self.texture(bound)?;
                              (views[unit], twin_views[unit]) = (view, view);
@@ -6853,7 +7463,7 @@ index b3cd447..5e948f2 100644
                              match picture {
                                  Some(smallest) => Filtering::picture(bound, smallest),
                                  None => Filtering::of(bound),
-@@ -3688,8 +4002,8 @@ impl Hardware {
+@@ -3688,8 +4008,8 @@ impl Hardware {
          }
          let texture_config = (r[REG_TEXTURE_CONFIG] & !7) | enabled;
          words.extend([r[REG_UPDATE_BUFFER], r[REG_BUFFER_COLOR], r[REG_ALPHA_TEST], texture_config]);
@@ -6864,7 +7474,7 @@ index b3cd447..5e948f2 100644
          }
          let depth_flags = depth_map.w_buffer as u32 | (shaded.is_some() as u32) << 1;
          // the depth map goes through the viewport where it fits, and what
-@@ -3776,7 +4090,10 @@ impl Hardware {
+@@ -3776,7 +4096,10 @@ impl Hardware {
              vertex,
              fragment,
          };
@@ -6876,7 +7486,7 @@ index b3cd447..5e948f2 100644
  
          self.mark(Work::Draw, false);
          if self.uploads {
-@@ -4081,12 +4398,112 @@ impl Hardware {
+@@ -4081,12 +4404,112 @@ impl Hardware {
          Ok(())
      }
  
@@ -6989,7 +7599,7 @@ index b3cd447..5e948f2 100644
          let t = transfer;
          let input_kind = Kind::Color(t.input_format);
          let output_kind = Kind::Color(t.output_format);
-@@ -4111,14 +4528,29 @@ impl Hardware {
+@@ -4111,14 +4534,29 @@ impl Hardware {
              let offset = t.input.checked_sub(s.addr).filter(|offset| offset % step_bytes == 0)? / step_bytes * step;
              (offset + rows <= s.height).then_some(offset)
          };
@@ -7023,7 +7633,7 @@ index b3cd447..5e948f2 100644
              return Ok(false);
          };
          // rows read where the output goes, the CPU does in order. the rest
-@@ -4126,7 +4558,8 @@ impl Hardware {
+@@ -4126,7 +4564,8 @@ impl Hardware {
          // Ultimate puts the bottom screen right before the rows it reads, and
          // the output drawn over them is the overdrawn below
          let row_bytes = (input_size.0 * input_kind.bytes()) as u64;
@@ -7033,7 +7643,7 @@ index b3cd447..5e948f2 100644
          let read_end = read_start + rows as u64 * row_bytes;
          let output_end = t.output as u64 + (t.output_width * t.output_height * output_kind.bytes()) as u64;
          if read_start < output_end && (t.output as u64) < read_end {
-@@ -4134,34 +4567,55 @@ impl Hardware {
+@@ -4134,34 +4573,55 @@ impl Hardware {
          }
          self.begin()?;
          // a flush looking one of them up drops what the other had checked
@@ -7109,7 +7719,7 @@ index b3cd447..5e948f2 100644
          let twinned = twinned
              && match self.make_twin(target) {
                  Ok(()) => true,
-@@ -4171,11 +4625,21 @@ impl Hardware {
+@@ -4171,11 +4631,21 @@ impl Hardware {
                      false
                  }
              };
@@ -7135,7 +7745,7 @@ index b3cd447..5e948f2 100644
              self.surfaces[target].twin_changed();
          }
          self.surfaces[target].changed();
-@@ -4188,10 +4652,27 @@ impl Hardware {
+@@ -4188,10 +4658,27 @@ impl Hardware {
          if twinned && self.direct {
              self.upright_image(target, true)?;
          }
@@ -7164,7 +7774,7 @@ index b3cd447..5e948f2 100644
      /// records the transfer shader going over size pixels, from one image
      /// to another, as the constants say.
      fn dispatch_transfer(&mut self, (source, target): (vk::ImageView, vk::ImageView), constants: [i32; 11], size: (u32, u32)) -> Result<(), String> {
-@@ -4234,7 +4715,7 @@ impl Hardware {
+@@ -4234,7 +4721,7 @@ impl Hardware {
      /// texture's sides are powers of two and the buffer drawn into it need
      /// not be, Inazuma Eleven GO reads 800 rows drawn as 1024, one holding
      /// all of it goes first.
@@ -7173,7 +7783,7 @@ index b3cd447..5e948f2 100644
          let depth = match texture.format {
              ColorFormat::Rgba8 => Some(Kind::Depth(4)),
              ColorFormat::Rgb8 => Some(Kind::Depth(3)),
-@@ -4248,16 +4729,42 @@ impl Hardware {
+@@ -4248,16 +4735,42 @@ impl Hardware {
                  if !(kinds.contains(&Some(s.kind)) && s.tiled && s.width == texture.width) {
                      return None;
                  }
@@ -7221,7 +7831,7 @@ index b3cd447..5e948f2 100644
      }
  
      /// whether a texture is rows of a surface the GPU drew and guest memory
-@@ -4266,10 +4773,12 @@ impl Hardware {
+@@ -4266,10 +4779,12 @@ impl Hardware {
      /// changed there since, or another surface drew over them, the texture
      /// comes from memory once what was drawn is written back.
      pub(crate) fn holds(&self, texture: &DrawnTexture) -> bool {
@@ -7236,7 +7846,7 @@ index b3cd447..5e948f2 100644
              let at = surface.addr + from * surface.row_bytes();
              from < to
                  && (!surface.checked
-@@ -4277,7 +4786,7 @@ impl Hardware {
+@@ -4277,7 +4792,7 @@ impl Hardware {
          });
          // nor where a fill wrote over what it drew
          let row_bytes = surface.row_bytes();
@@ -7245,7 +7855,7 @@ index b3cd447..5e948f2 100644
          surface.dirty.is_some() && !changed && !stale
      }
  
-@@ -4289,13 +4798,13 @@ impl Hardware {
+@@ -4289,13 +4804,13 @@ impl Hardware {
      /// width, would otherwise have the console's resolution in memory take
      /// the place of the scaled frame.
      pub(crate) fn holds_unchanged<M: GpuMemory>(&self, memory: &mut M, texture: &DrawnTexture) -> bool {
@@ -7261,7 +7871,7 @@ index b3cd447..5e948f2 100644
          let (at, len) = (surface.addr + row * row_bytes, rows * row_bytes);
          // memory behind another surface drawn over it says nothing of this one
          if (0..self.surfaces.len()).any(|i| i != index && self.surfaces[i].dirty_overlaps(at, len)) {
-@@ -4316,54 +4825,109 @@ impl Hardware {
+@@ -4316,54 +4831,109 @@ impl Hardware {
      /// one is copied from the surface's twin, when it has one.
      fn copy_texture(&mut self, texture: &DrawnTexture, bound: &BoundTexture, twin: bool) -> Result<vk::ImageView, String> {
          self.mark(Work::Copy, false);
@@ -7386,7 +7996,7 @@ index b3cd447..5e948f2 100644
              // SAFETY: recording, outside rendering, between two color images
              // in the general layout made for transfers, both their size
              unsafe {
-@@ -4380,7 +4944,7 @@ impl Hardware {
+@@ -4380,7 +4950,7 @@ impl Hardware {
              };
          }
          if let Kind::Depth(bytes) = self.surfaces[source].kind {
@@ -7395,7 +8005,7 @@ index b3cd447..5e948f2 100644
          } else {
              // the texture's rows run top first, the surface's bottom first,
              // so the copy flips them, and its pixels round to the format as
-@@ -4389,22 +4953,81 @@ impl Hardware {
+@@ -4389,22 +4959,81 @@ impl Hardware {
              let n = self.scale;
              let (width, height) = ((texture.width * n) as i32, (rows * n) as i32);
              let (row, source_height) = ((row * n) as i32, (self.surfaces[source].height * n) as i32);
@@ -7481,7 +8091,7 @@ index b3cd447..5e948f2 100644
          match twin {
              true => &mut self.twin_copies,
              false => &mut self.copies,
-@@ -4809,13 +5432,38 @@ impl Hardware {
+@@ -4809,13 +5438,38 @@ impl Hardware {
              return Ok(crop(image));
          }
          // its batch finished before a screen showed the surface
@@ -7524,7 +8134,7 @@ index b3cd447..5e948f2 100644
          let buffer = &capture.buffer;
          if buffer.incoherent {
              let range = [vk::MappedMemoryRange::default().memory(buffer.memory).offset(0).size(vk::WHOLE_SIZE)];
-@@ -5014,10 +5662,10 @@ impl Hardware {
+@@ -5014,10 +5668,10 @@ impl Hardware {
              }
          }
          for twin in [false, true] {
@@ -7537,7 +8147,7 @@ index b3cd447..5e948f2 100644
                  }
              }
          }
-@@ -5136,11 +5784,13 @@ impl Hardware {
+@@ -5136,11 +5790,13 @@ impl Hardware {
              }
          }
          // pictures for screens are read out before a later batch can draw
@@ -7555,7 +8165,7 @@ index b3cd447..5e948f2 100644
              }
          }
          Ok(())
-@@ -5415,7 +6065,7 @@ impl Drop for Hardware {
+@@ -5415,7 +6071,7 @@ impl Drop for Hardware {
                  self.destroy_image(&texture.image);
              }
              for copy in self.copies.values().chain(self.twin_copies.values()) {
@@ -7564,7 +8174,7 @@ index b3cd447..5e948f2 100644
              }
              for replaced in self.replaced.values() {
                  self.destroy_image(&replaced.image);
-@@ -5431,6 +6081,12 @@ impl Drop for Hardware {
+@@ -5431,6 +6087,12 @@ impl Drop for Hardware {
                  }
              }
              self.destroy_image(&self.blank);
@@ -7577,7 +8187,7 @@ index b3cd447..5e948f2 100644
              let captures = self.surfaces.iter().flat_map(|s| [&s.capture, &s.screen]).filter_map(|c| c.as_ref().map(|c| &c.buffer));
              let rings = self.free.iter().chain(&self.in_flight).map(|frame| &frame.ring);
              let buffers = [Some(&self.ring), self.readback.as_ref()].into_iter().flatten().chain(rings);
-@@ -5448,7 +6104,7 @@ impl Drop for Hardware {
+@@ -5448,7 +6110,7 @@ impl Drop for Hardware {
                  self.device.destroy_buffer(samples.buffer, None);
                  self.device.free_memory(samples.memory, None);
              }
@@ -7586,7 +8196,7 @@ index b3cd447..5e948f2 100644
                  self.device.destroy_pipeline(pipeline, None);
              }
              for &sampler in self.samplers.values() {
-@@ -5630,6 +6286,7 @@ pub(crate) fn render_device(
+@@ -5630,6 +6292,7 @@ pub(crate) fn render_device(
      // SAFETY: the physical device came from this instance
      let supported = unsafe { instance.get_physical_device_features(physical) };
      let logic_ops = supported.logic_op == vk::TRUE;
@@ -7594,7 +8204,7 @@ index b3cd447..5e948f2 100644
      let dynamic = dynamic_state(instance, physical, logic_ops);
      if dynamic.blend {
          extensions.push(ash::ext::extended_dynamic_state3::NAME.as_ptr());
-@@ -5648,6 +6305,7 @@ pub(crate) fn render_device(
+@@ -5648,6 +6311,7 @@ pub(crate) fn render_device(
      let features = vk::PhysicalDeviceFeatures::default()
          .depth_clamp(true)
          .logic_op(logic_ops)
@@ -7602,7 +8212,7 @@ index b3cd447..5e948f2 100644
          .pipeline_statistics_query(statistics);
      // the cache control, to make a pipeline only when the cache on disk
      // has it, every Vulkan 1.3 device does
-@@ -5671,7 +6329,7 @@ pub(crate) fn render_device(
+@@ -5671,7 +6335,7 @@ pub(crate) fn render_device(
      // SAFETY: a queue the device was made with
      let queue = unsafe { device.get_device_queue(family, 0) };
      let (_entry, instance) = (entry.clone(), instance.clone());
@@ -7611,7 +8221,7 @@ index b3cd447..5e948f2 100644
  }
  
  /// which of the blend state the device lets draws set as they go, none
-@@ -5798,7 +6456,7 @@ mod tests {
+@@ -5798,7 +6462,7 @@ mod tests {
          let kinds = [Kind::Color(ColorFormat::Rgba8), Kind::Color(ColorFormat::Rgb8), Kind::Color(ColorFormat::Rgb565), Kind::Depth(2), Kind::Depth(3), Kind::Depth(4)];
          for kind in kinds {
              let (width, height) = (16, 24);
@@ -7651,6 +8261,68 @@ index 88477db..dc9f3ee 100644
      ];
      for (name, value) in flagged {
          flags.set(name, value).map_err(|error| format!("{name}, {error}"))?;
+diff --git a/crates/zakuro-gpu/src/shader/mod.rs b/crates/zakuro-gpu/src/shader/mod.rs
+index 305c9cd..720e85e 100644
+--- a/crates/zakuro-gpu/src/shader/mod.rs
++++ b/crates/zakuro-gpu/src/shader/mod.rs
+@@ -573,6 +573,41 @@ impl Program {
+         }
+     }
+ 
++    /// The input registers that what lands in the output registers given can come from, in what the program can run from its entry point, one bit each.
++    /// The inputs that the address registers and the conditions read are among them too, because they pick what runs.
++    pub(crate) fn inputs_feeding(&self, entry: u32, outputs: u16) -> u16 {
++        let reached = self.reached(entry);
++        // The outputs and the temporaries are numbered as uniforms_feeding numbers them.
++        let mut wanted = outputs as u32;
++        let mut inputs = 0u16;
++        loop {
++            let before = (wanted, inputs);
++            for op in self.ops.iter().zip(&reached).filter(|&(_, &reached)| reached).map(|(op, _)| op) {
++                let sources = match op.opcode {
++                    OpCode::Mad | OpCode::MadI => 3,
++                    OpCode::Mov | OpCode::Rcp | OpCode::Rsq | OpCode::Ex2 | OpCode::Lg2 | OpCode::Flr | OpCode::LitP | OpCode::Mova => 1,
++                    OpCode::Cmp => 2,
++                    opcode if opcode.writes() => 2,
++                    _ => continue,
++                };
++                let steers = matches!(op.opcode, OpCode::Mova | OpCode::Cmp);
++                if !steers && (op.destination >= 0x20 || wanted & (1 << op.destination) == 0) {
++                    continue;
++                }
++                for source in &op.sources[..sources] {
++                    match source.register {
++                        0x00..=0x0F => inputs |= 1 << source.register,
++                        0x10..=0x1F => wanted |= 1 << source.register,
++                        _ => {}
++                    }
++                }
++            }
++            if (wanted, inputs) == before {
++                return inputs;
++            }
++        }
++    }
++
+     /// the instructions the program can run from its entry point, through
+     /// whichever way each branch goes.
+     fn reached(&self, entry: u32) -> Vec<bool> {
+@@ -636,6 +671,15 @@ impl ShaderUnit {
+         let own = direct | (indexed & !(textured | textured_indexed));
+         (own, indexed & textured_indexed & !textured & !own)
+     }
++
++    /// The input registers that a draw in between may blend halfway between two frames, one bit each.
++    /// These are the inputs that the program reads, but not for the texture coordinates, the address registers or the conditions.
++    /// A sprite keeps its place in its sheet this way, and a flag keeps its value.
++    /// None are blended until the program is prepared.
++    pub(crate) fn inputs_blending(&self, coordinates: u16) -> u16 {
++        let Some(program) = &self.decoded else { return 0 };
++        program.inputs & !program.inputs_feeding(self.entry_point, coordinates)
++    }
+ }
+ 
+ /// runs the vertex shader over many vertices, a batch of them at a time,
 diff --git a/crates/zakuro-gpu/src/texture.rs b/crates/zakuro-gpu/src/texture.rs
 index 9949307..5249109 100644
 --- a/crates/zakuro-gpu/src/texture.rs
@@ -9264,10 +9936,10 @@ index a5b4c18..e43c663 100644
      /// Japanese names have every character to draw with the system's
 diff --git a/crates/zakuro/src/hdtext/banners.rs b/crates/zakuro/src/hdtext/banners.rs
 new file mode 100644
-index 0000000..32f8cbd
+index 0000000..cc4e37e
 --- /dev/null
 +++ b/crates/zakuro/src/hdtext/banners.rs
-@@ -0,0 +1,258 @@
+@@ -0,0 +1,263 @@
 +//! Redraws the banner pictures in the new font.
 +//!
 +//! A banner is a picture of lettering, sometimes with a glow or a stone texture. The new text is fitted to the old letters, and the colours around the letters are rebuilt from a profile that is measured by the distance to the edge of the letters.
@@ -9298,6 +9970,8 @@ index 0000000..32f8cbd
 +pub enum Kind {
 +    /// The letters have a flat fill and a profile around them.
 +    Plain,
++    /// The letters have a flat fill and nothing around them.
++    Bare,
 +    /// The letters have a glow, which is rebuilt as a bloom.
 +    Glow,
 +    /// The letters are filled with the texture of the old letters.
@@ -9497,11 +10171,14 @@ index 0000000..32f8cbd
 +    let ours = signed_distance(&Mask::from(big, |v| v >= 0.5));
 +    let texture = (kind == Kind::Stone).then(|| stone_texture(image, big));
 +    // The halo is the colour around the new letters, read from the measured profile at the distance of every pixel.
++    // Bare letters keep a clear halo.
 +    let mut halo: [Plane; 4] = [0, 1, 2, 3].map(|_| Plane::new(big.w, big.h));
-+    for (i, d) in ours.v.iter().enumerate() {
-+        let p = profile.at(d.max(HOLD));
-+        for k in 0..4 {
-+            halo[k].v[i] = p[k];
++    if kind != Kind::Bare {
++        for (i, d) in ours.v.iter().enumerate() {
++            let p = profile.at(d.max(HOLD));
++            for k in 0..4 {
++                halo[k].v[i] = p[k];
++            }
 +        }
 +    }
 +    // For a glow, the halo colour is replaced by the fill colour times a bloom of the new letters.
@@ -10045,10 +10722,10 @@ index 0000000..02021ec
 +}
 diff --git a/crates/zakuro/src/hdtext/data.rs b/crates/zakuro/src/hdtext/data.rs
 new file mode 100644
-index 0000000..6c740f9
+index 0000000..b60b112
 --- /dev/null
 +++ b/crates/zakuro/src/hdtext/data.rs
-@@ -0,0 +1,435 @@
+@@ -0,0 +1,481 @@
 +//! The texts that the HD text draws, and the places in the pictures where they go.
 +//! The tables are keyed by the language letter of the file names: F, G, I, S and U.
 +
@@ -10183,9 +10860,10 @@ index 0000000..6c740f9
 +    pub size: &'static str,
 +}
 +
-+/// The labels of the status atlases, as a language letter, the offset of the texture in the file and the labels of that texture.
-+pub const LABELS: &[(char, usize, &[Label])] = &[
-+    ('F', 0x20100, &[
++/// The labels drawn in pictures of the menus, as the name of the file in `ui`, a language letter, the offset of the texture in the file and the labels of that texture.
++/// The file is `ui/<name>_<language>.ctpk.lz`.
++pub const LABELS: &[(&str, char, usize, &[Label])] = &[
++    ("status", 'F', 0x20100, &[
 +        Label { box_: [192, 4, 221, 21], text: "Atq", group: "combat", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [192, 22, 221, 39], text: "Prc", group: "combat", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [192, 40, 221, 57], text: "Crit", group: "combat", button: false, letters: "", shine: false, size: "" },
@@ -10210,7 +10888,7 @@ index 0000000..6c740f9
 +        Label { box_: [419, 44, 451, 75], text: "Détail.", group: "button pressed", button: true, letters: "light", shine: false, size: "buttons" },
 +        Label { box_: [419, 82, 451, 114], text: "Détail.", group: "button", button: true, letters: "dark", shine: false, size: "buttons" },
 +    ]),
-+    ('F', 0x40100, &[
++    ("status", 'F', 0x40100, &[
 +        Label { box_: [193, 5, 243, 20], text: "Éval.", group: "level", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [193, 66, 280, 82], text: "Faiblesses", group: "headers", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [193, 106, 280, 121], text: "Techniques", group: "headers", button: false, letters: "", shine: false, size: "" },
@@ -10224,7 +10902,7 @@ index 0000000..6c740f9
 +        Label { box_: [401, 233, 439, 250], text: "Femme", group: "family", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [441, 233, 479, 250], text: "Proche", group: "family", button: false, letters: "", shine: false, size: "" },
 +    ]),
-+    ('G', 0x20100, &[
++    ("status", 'G', 0x20100, &[
 +        Label { box_: [192, 4, 221, 21], text: "Agr.", group: "combat", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [192, 22, 221, 39], text: "Trf.", group: "combat", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [192, 40, 221, 57], text: "Krt.", group: "combat", button: false, letters: "", shine: false, size: "" },
@@ -10249,7 +10927,7 @@ index 0000000..6c740f9
 +        Label { box_: [419, 44, 451, 75], text: "Info", group: "button pressed", button: true, letters: "light", shine: false, size: "buttons" },
 +        Label { box_: [419, 82, 451, 114], text: "Info", group: "button", button: true, letters: "dark", shine: false, size: "buttons" },
 +    ]),
-+    ('G', 0x40100, &[
++    ("status", 'G', 0x40100, &[
 +        Label { box_: [193, 5, 243, 20], text: "Macht", group: "level", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [193, 66, 280, 82], text: "Verwundbarkeit", group: "headers", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [193, 106, 280, 121], text: "Fähigkeiten", group: "headers", button: false, letters: "", shine: false, size: "" },
@@ -10263,7 +10941,7 @@ index 0000000..6c740f9
 +        Label { box_: [401, 233, 439, 250], text: "Ehefrau", group: "family", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [441, 233, 479, 250], text: "Partner", group: "family", button: false, letters: "", shine: false, size: "" },
 +    ]),
-+    ('I', 0x20100, &[
++    ("status", 'I', 0x20100, &[
 +        Label { box_: [192, 4, 221, 21], text: "Att", group: "combat", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [192, 22, 221, 39], text: "Clp", group: "combat", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [192, 40, 221, 57], text: "Trpl", group: "combat", button: false, letters: "", shine: false, size: "" },
@@ -10288,7 +10966,7 @@ index 0000000..6c740f9
 +        Label { box_: [419, 44, 451, 75], text: "DATI", group: "button pressed", button: true, letters: "light", shine: false, size: "buttons" },
 +        Label { box_: [419, 82, 451, 114], text: "DATI", group: "button", button: true, letters: "dark", shine: false, size: "buttons" },
 +    ]),
-+    ('I', 0x40100, &[
++    ("status", 'I', 0x40100, &[
 +        Label { box_: [193, 5, 243, 20], text: "Valore", group: "level", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [193, 66, 280, 82], text: "Vulnerabilità", group: "headers", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [193, 106, 280, 121], text: "Abilità", group: "headers", button: false, letters: "", shine: false, size: "" },
@@ -10302,7 +10980,7 @@ index 0000000..6c740f9
 +        Label { box_: [401, 233, 439, 250], text: "Sposa", group: "family", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [441, 233, 479, 250], text: "Partner", group: "family", button: false, letters: "", shine: false, size: "" },
 +    ]),
-+    ('S', 0x20100, &[
++    ("status", 'S', 0x20100, &[
 +        Label { box_: [192, 4, 221, 21], text: "Atc", group: "combat", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [192, 22, 221, 39], text: "Gol", group: "combat", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [192, 40, 221, 57], text: "Crí", group: "combat", button: false, letters: "", shine: false, size: "" },
@@ -10327,7 +11005,7 @@ index 0000000..6c740f9
 +        Label { box_: [419, 44, 451, 75], text: "Ficha", group: "button pressed", button: true, letters: "light", shine: false, size: "buttons" },
 +        Label { box_: [419, 82, 451, 114], text: "Ficha", group: "button", button: true, letters: "dark", shine: false, size: "buttons" },
 +    ]),
-+    ('S', 0x40100, &[
++    ("status", 'S', 0x40100, &[
 +        Label { box_: [193, 5, 243, 20], text: "Valoración", group: "level", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [193, 66, 280, 82], text: "Debilidades", group: "headers", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [193, 106, 280, 121], text: "Habilidades", group: "headers", button: false, letters: "", shine: false, size: "" },
@@ -10341,7 +11019,7 @@ index 0000000..6c740f9
 +        Label { box_: [401, 233, 439, 250], text: "Cónyuge", group: "family", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [441, 233, 479, 250], text: "Pareja", group: "family", button: false, letters: "", shine: false, size: "" },
 +    ]),
-+    ('U', 0x20100, &[
++    ("status", 'U', 0x20100, &[
 +        Label { box_: [192, 4, 221, 21], text: "Atk", group: "combat", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [192, 22, 221, 39], text: "Hit", group: "combat", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [192, 40, 221, 57], text: "Crit", group: "combat", button: false, letters: "", shine: false, size: "" },
@@ -10366,7 +11044,7 @@ index 0000000..6c740f9
 +        Label { box_: [419, 44, 451, 75], text: "FULL", group: "button pressed", button: true, letters: "light", shine: false, size: "buttons" },
 +        Label { box_: [419, 82, 451, 114], text: "FULL", group: "button", button: true, letters: "dark", shine: false, size: "buttons" },
 +    ]),
-+    ('U', 0x40100, &[
++    ("status", 'U', 0x40100, &[
 +        Label { box_: [193, 5, 243, 20], text: "Rating", group: "level", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [193, 66, 280, 82], text: "Weaknesses", group: "headers", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [193, 106, 280, 121], text: "Skills", group: "headers", button: false, letters: "", shine: false, size: "" },
@@ -10380,7 +11058,33 @@ index 0000000..6c740f9
 +        Label { box_: [401, 233, 439, 250], text: "Wife", group: "family", button: false, letters: "", shine: false, size: "" },
 +        Label { box_: [441, 233, 479, 250], text: "Companion", group: "family", button: false, letters: "", shine: false, size: "" },
 +    ]),
++    ("dialog_lvup", 'F', 0x80, &level_up(["PV", "Frc", "Mag", "Tec", "Vit", "Cha", "Déf", "Rés"])),
++    ("dialog_lvup", 'G', 0x80, &level_up(["KP", "Stä.", "Mag.", "Fäh.", "Ges.", "Glk.", "Ver.", "Res."])),
++    ("dialog_lvup", 'I', 0x80, &level_up(["PS", "Forz", "Mag", "Abil", "Vel", "Fort", "Dif", "Res"])),
++    ("dialog_lvup", 'S', 0x80, &level_up(["PV", "Fue", "Mag", "Hab", "Vel", "Sue", "Def", "Res"])),
++    ("dialog_lvup", 'U', 0x80, &level_up(["HP", "Str", "Mag", "Skill", "Spd", "Lck", "Def", "Res"])),
 +];
++
++/// The labels of the level-up panel, from its eight words: the HP, then the seven stats from the top.
++/// The panel is the same picture in every language, with its words in boxes 18 pixels apart.
++const fn level_up(words: [&'static str; 8]) -> [Label; 8] {
++    [
++        Label { box_: [32, 39, 62, 56], text: words[0], group: "level", button: false, letters: "", shine: true, size: "" },
++        level_up_stat(words[1], 59),
++        level_up_stat(words[2], 77),
++        level_up_stat(words[3], 95),
++        level_up_stat(words[4], 113),
++        level_up_stat(words[5], 131),
++        level_up_stat(words[6], 149),
++        level_up_stat(words[7], 167),
++    ]
++}
++
++/// One stat label of the level-up panel, with the top row of its box.
++const fn level_up_stat(text: &'static str, top: usize) -> Label {
++    Label { box_: [32, top, 64, top + 17], text, group: "stats", button: false, letters: "", shine: false, size: "" }
++}
++
 +
 +/// The "press any button" text of the title screen for each language.
 +pub const PRESS_ANY_BUTTON: &[(char, &str)] = &[('F', "Appuyez sur un bouton"), ('G', "KNOPF DRÜCKEN"), ('I', "PREMI UN PULSANTE"), ('S', "PULSA UN BOTÓN"), ('U', "PRESS ANY BUTTON")];
@@ -10447,6 +11151,25 @@ index 0000000..6c740f9
 +];
 +
 +/// The word of the close button of the tutorials for each language.
++/// The words shown over a fight, as a language letter, the names of the hit, critical, avoid and dodge stats, the word of a critical hit, and the words of no damage and of a miss.
++/// The last two are spelled with their spaces, since each letter keeps its own cell in the picture.
++pub const BATTLE_WORDS: &[(char, [&str; 4], &str, [&str; 2])] = &[
++    ('F', ["Prc", "Crit", "Esq", "Évit"], "CRITIQUE!", ["SANS EFFET!", "RATÉ!"]),
++    ('G', ["Trf.", "Krt.", "Aw.", "KA."], "KRITISCH!", ["KEIN SCHADEN!", "DANEBEN!"]),
++    ('I', ["Clp", "Trpl", "Scv", "Elud"], "TRIPLO!", ["DANNO NULLO!", "MANCATO!"]),
++    ('S', ["Gol", "Crí", "Esq", "Evit"], "¡CRÍTICO!", ["¡SIN DAÑO!", "¡FALLO!"]),
++    ('U', ["Hit", "Crit", "Avo", "Ddg"], "CRITICAL!", ["NO DAMAGE!", "MISS!"]),
++];
++
++/// The words written on the big buttons of the menus, such as the fight and leave buttons of the preparations, as a language letter and the words from the top.
++pub const BUTTON_WORDS: &[(char, [&str; 6])] = &[
++    ('F', ["Quitter", "Combattre", "Commencer", "Confrontation", "Expédition", "Pourparlers"]),
++    ('G', ["Verlassen", "Kämpfen", "Beginnen", "Gefecht", "Einsatz", "Verhandeln"]),
++    ('I', ["Esci", "Combatti", "Inizia", "Sfida", "Sortita", "Tratta"]),
++    ('S', ["Salir", "Luchar", "Comenzar", "Escaramuza", "Incursión", "Negociar"]),
++    ('U', ["Exit", "Fight", "Begin", "Challenge", "Sortie", "Parley"]),
++];
++
 +pub const TUTORIAL_WORDS: &[(char, &str)] = &[('F', "Fermer"), ('G', "Schließen"), ('I', "Chiudi"), ('S', "Cerrar"), ('U', "Close")];
 +
 +/// The words of the battle forecast and the help marks for each language, indexed by the forecast table of the words module.
@@ -11987,10 +12710,10 @@ index 0000000..2d8ea06
 +
 diff --git a/crates/zakuro/src/hdtext/mod.rs b/crates/zakuro/src/hdtext/mod.rs
 new file mode 100644
-index 0000000..58f84f7
+index 0000000..ff0ca34
 --- /dev/null
 +++ b/crates/zakuro/src/hdtext/mod.rs
-@@ -0,0 +1,546 @@
+@@ -0,0 +1,574 @@
 +//! The HD text mod.
 +//! It redraws the text in the pictures of the game in a new font at four times the resolution, using the copy of the game of the player.
 +//! The pictures can first be cleaned of compression artifacts by an AI model.
@@ -12238,12 +12961,32 @@ index 0000000..58f84f7
 +    })
 +}
 +
-+/// Builds the job that redraws the labels of one status atlas.
++/// Builds the job that redraws the labels of one menu picture, such as a status atlas or the level-up panel.
 +fn label_job<'a>(face: &'a text::Face, texture: rom::Texture, list: &'static [data::Label], cleaned: &'a Cleaned) -> Job<'a> {
 +    Box::new(move || {
 +        let image = source(&texture, cleaned);
 +        let mut out = labels::redraw(&image, list, face);
 +        labels::mirror_copies(&texture.texels, texture.width, texture.height, &mut out, list, &labels::sharp_enlarge(&image, 8.0));
++        Made { pictures: vec![Picture { name: texture.name(), image: out }], files: Vec::new() }
++    })
++}
++
++/// Builds the job that redraws the words of the big buttons in one system picture.
++/// The words are white on a clear background, among buttons and icons that the redraw of words would change, so only the part with the words is redrawn.
++/// The new words are flat, because the old ones have no glow around them.
++/// The rest of the picture is enlarged as the labels of a picture are.
++fn button_words_job<'a>(face: &'a text::Face, texture: rom::Texture, texts: &'static [&'static str; 6], cleaned: &'a Cleaned) -> Job<'a> {
++    Box::new(move || {
++        let image = source(&texture, cleaned);
++        let mut out = labels::redraw(&image, &[], face);
++        let [x0, y0, x1, y1] = words::BUTTON_WORD_AREA;
++        let part = image.crop(x0, y0, x1, y1);
++        // The boxes are given within the part.
++        let boxes: Vec<(words::Box4, &str)> = words::BUTTON_WORD_BOXES.iter().zip(texts).map(|(b, &t)| ([b[0] - x0, b[1] - y0, b[2] - x0, b[3] - y0], t)).collect();
++        match words::redraw(&part, &boxes, &[], words::SOFT, banners::Kind::Bare, face) {
++            Some(redrawn) => out.paste(&redrawn, x0 * titles::SCALE, y0 * titles::SCALE),
++            None => log::info!("the HD text keeps the words of the big buttons of {}, their letters were not found", texture.name()),
++        }
 +        Made { pictures: vec![Picture { name: texture.name(), image: out }], files: Vec::new() }
 +    })
 +}
@@ -12256,7 +12999,7 @@ index 0000000..58f84f7
 +        let pictures = rom::textures_in(&bytes)
 +            .into_iter()
 +            .filter(|(offset, _)| at.is_none_or(|at| *offset == at))
-+            .filter_map(|(_, texture)| Some(Picture { name: texture.name(), image: words::redraw(&texture.rgba(), &words, keep, words::SOFT, face)? }))
++            .filter_map(|(_, texture)| Some(Picture { name: texture.name(), image: words::redraw(&texture.rgba(), &words, keep, words::SOFT, banners::Kind::Plain, face)? }))
 +            .collect();
 +        Made { pictures, files: Vec::new() }
 +    })
@@ -12295,7 +13038,7 @@ index 0000000..58f84f7
 +            let rows = (texture.height / 32).min(CLASS_ROWS);
 +            let words: Vec<(words::Box4, &str)> = (0..rows).filter_map(|r| Some(([0, r * 32, texture.width, r * 32 + 32], names.get(next + r)?.as_str()))).collect();
 +            next += rows;
-+            if let Some(image) = words::redraw(&texture.rgba(), &words, &[], banners::VIVID, &slanted) {
++            if let Some(image) = words::redraw(&texture.rgba(), &words, &[], banners::VIVID, banners::Kind::Plain, &slanted) {
 +                pictures.push(Picture { name: texture.name(), image });
 +            }
 +        }
@@ -12379,12 +13122,20 @@ index 0000000..58f84f7
 +    let cleaned: Cleaned = OnceLock::new();
 +    let messages: HashMap<char, HashMap<String, String>> = LANGUAGES.iter().map(|&lang| (lang, game.read(&format!("m/{lang}/GameData.bin.lz")).map(|d| rom::messages(&d)).unwrap_or_default())).collect();
 +    let mut jobs: Vec<Job> = Vec::new();
-+    for lang in LANGUAGES {
-+        let atlases = game.read(&format!("ui/status_{lang}.ctpk.lz")).map(|bytes| rom::textures_in(&bytes)).unwrap_or_default();
-+        for (at, texture) in atlases {
-+            if let Some((_, _, list)) = data::LABELS.iter().find(|(l, offset, _)| *l == lang && *offset == at) {
-+                jobs.push(label_job(&face, texture, list, &cleaned));
-+            }
++    for (lang, labels, critical, spaced) in data::BATTLE_WORDS {
++        let entries = words::battle_text(labels, critical, *spaced);
++        jobs.push(buttons_job(&game, &face, format!("bs/btl_{lang}.tp.lz"), words::BATTLE_TEXT_AT, entries, words::faithful_art, &cleaned));
++    }
++    for (lang, texts) in data::BUTTON_WORDS {
++        let textures = game.read(&format!("ui/system_{lang}.ctpk.lz")).map(|bytes| rom::textures_in(&bytes)).unwrap_or_default();
++        if let Some((_, texture)) = textures.into_iter().find(|(offset, _)| *offset == words::BUTTON_WORDS_AT) {
++            jobs.push(button_words_job(&face, texture, texts, &cleaned));
++        }
++    }
++    for &(file, lang, at, list) in data::LABELS {
++        let textures = game.read(&format!("ui/{file}_{lang}.ctpk.lz")).map(|bytes| rom::textures_in(&bytes)).unwrap_or_default();
++        if let Some((_, texture)) = textures.into_iter().find(|(offset, _)| *offset == at) {
++            jobs.push(label_job(&face, texture, list, &cleaned));
 +        }
 +    }
 +    jobs.push(logo_job(&game, &face));
@@ -12413,19 +13164,19 @@ index 0000000..58f84f7
 +        }
 +        if let Some((_, names)) = data::FORECAST_WORDS.iter().find(|(l, _)| *l == lang) {
 +            let icons = words::SYSTEM_ICONS.iter().map(|&(b, text)| words::Word::flat(b, text, words::Ink::Light));
-+            let forecast = words::FORECAST.iter().map(|&(at, i, ink, look)| words::Word { at, text: names[i], ink, look, align: words::Align::Centre, slant: 0.0 });
++            let forecast = words::FORECAST.iter().map(|&(at, i, ink, look)| words::Word { at, text: names[i], ink, look, align: words::Align::Centre, slant: 0.0, size: 1.0 });
 +            jobs.push(buttons_job(&game, &face, format!("ui/system_{lang}.ctpk.lz"), 0x46300, icons.chain(forecast).collect(), words::faithful_art, &cleaned));
 +        }
 +        if let Some((_, names)) = data::UNIT_WORDS.iter().find(|(l, _)| *l == lang) {
-+            let entries = words::UNIT.iter().map(|&(at, i, ink, look, align, slant)| words::Word { at, text: names[i], ink, look, align, slant }).collect();
++            let entries = words::UNIT.iter().map(|&(at, i, ink, look, align, slant)| words::Word { at, text: names[i], ink, look, align, slant, size: 1.0 }).collect();
 +            jobs.push(buttons_job(&game, &face, format!("ui/system_{lang}.ctpk.lz"), 0x26300, entries, words::unit_art, &cleaned));
 +        }
 +        if let Some((_, names)) = data::RADAR_WORDS.iter().find(|(l, _)| *l == lang) {
-+            let entries = words::RADAR.iter().map(|&(at, i, align)| words::Word { at, text: names[i], ink: words::Ink::Light, look: words::Look::Flat, align, slant: 0.0 }).collect();
++            let entries = words::RADAR.iter().map(|&(at, i, align)| words::Word { at, text: names[i], ink: words::Ink::Light, look: words::Look::Flat, align, slant: 0.0, size: 1.0 }).collect();
 +            jobs.push(buttons_job(&game, &face, format!("bs/intro_{lang}.tp.lz"), 0x900, entries, words::faithful_art, &cleaned));
 +        }
 +        if let Some((_, names)) = data::CARD_WORDS.iter().find(|(l, _)| *l == lang) {
-+            let entries = words::CARDS.iter().map(|&(at, i, align)| words::Word { at, text: names[i], ink: words::Ink::Light, look: words::Look::Shadow, align, slant: 0.0 }).collect();
++            let entries = words::CARDS.iter().map(|&(at, i, align)| words::Word { at, text: names[i], ink: words::Ink::Light, look: words::Look::Shadow, align, slant: 0.0, size: 1.0 }).collect();
 +            jobs.push(buttons_job(&game, &face, format!("ui/filemenu_{lang}.ctpk.lz"), 0x80180, entries, words::faithful_art, &cleaned));
 +        }
 +        for file in game.list(&format!("chapter/title/{lang}")) {
@@ -14315,10 +15066,10 @@ index 0000000..a85c691
 +}
 diff --git a/crates/zakuro/src/hdtext/words.rs b/crates/zakuro/src/hdtext/words.rs
 new file mode 100644
-index 0000000..1792e34
+index 0000000..ff7b492
 --- /dev/null
 +++ b/crates/zakuro/src/hdtext/words.rs
-@@ -0,0 +1,836 @@
+@@ -0,0 +1,908 @@
 +//! Redraws words in the pictures of the menus, the buttons and the title screen.
 +//! A word is found in a box of a picture, its letters are erased, and the same text is drawn again in the new font at four times the size.
 +//! The tables hold the boxes of the words in the pictures of the game, in pixels of the original pictures.
@@ -14341,6 +15092,75 @@ index 0000000..1792e34
 +pub const MENU_KEEP: [Box4; 2] = [[170, 0, 256, 26], [170, 40, 256, 67]];
 +/// The box of the copyright line.
 +pub const COPYRIGHT_BOX: Box4 = [0, 0, 512, 32];
++/// The offset of the texture of the battle pictures that holds the numbers and the words shown over a fight.
++pub const BATTLE_TEXT_AT: usize = 0x100;
++/// The slant of the italic numbers and words of a fight.
++const BATTLE_SLANT: f32 = 0.18;
++/// The share of the height of the old digits of the damage that the new digits take.
++const BATTLE_DIGIT_SIZE: f32 = 0.92;
++/// The letters of the battle picture that every language shares, as a box and a text.
++/// The digits of the damage come first, in cells of 24 pixels that end above the gauges on row 26, then the letters of "NO DAMAGE!" and "MISS!" in cells of 16 pixels, then the bonus of a skill.
++const BATTLE_SHARED: [(Box4, &str); 26] = [
++    ([0, 0, 24, 26], "0"),
++    ([24, 0, 48, 26], "1"),
++    ([48, 0, 72, 26], "2"),
++    ([72, 0, 96, 26], "3"),
++    ([96, 0, 120, 26], "4"),
++    ([120, 0, 144, 26], "5"),
++    ([144, 0, 168, 26], "6"),
++    ([168, 0, 192, 26], "7"),
++    ([192, 0, 216, 26], "8"),
++    ([216, 0, 240, 26], "9"),
++    ([0, 32, 16, 48], "N"),
++    ([16, 32, 32, 48], "O"),
++    ([32, 32, 48, 48], "D"),
++    ([48, 32, 64, 48], "A"),
++    ([64, 32, 80, 48], "M"),
++    ([80, 32, 96, 48], "G"),
++    ([96, 32, 112, 48], "E"),
++    ([112, 32, 128, 48], "!"),
++    ([0, 48, 16, 64], "M"),
++    ([16, 48, 32, 64], "I"),
++    ([32, 48, 48, 64], "S"),
++    ([48, 48, 64, 64], "!"),
++    ([64, 48, 72, 64], "+"),
++    ([72, 48, 96, 64], "10"),
++    ([96, 48, 120, 64], "15"),
++    ([120, 48, 144, 64], "20"),
++];
++/// The boxes of the four names of the stats that a skill raises: hit, critical, avoid and dodge.
++const BATTLE_LABELS: [Box4; 4] = [[168, 32, 200, 48], [224, 32, 256, 48], [168, 48, 200, 64], [224, 48, 256, 64]];
++/// The box of the word of a critical hit.
++const BATTLE_CRITICAL: Box4 = [0, 68, 128, 100];
++/// The rows of the words of no damage and of a miss, which are spaced out with one letter per cell of 16 pixels.
++/// The letters of the first row end on row 118, and the accents of the second start on row 119.
++const BATTLE_SPACED_ROWS: [(usize, usize); 2] = [(100, 119), (119, 137)];
++/// The width of a cell of a spaced out word.
++const BATTLE_CELL: usize = 16;
++
++/// The words of the battle picture of one language, from the names of the four stats, the word of a critical hit, and the words of no damage and of a miss.
++pub fn battle_text(labels: &[&'static str; 4], critical: &'static str, spaced: [&'static str; 2]) -> Vec<Word> {
++    let painted = |at: Box4, text: &'static str, slant: f32| Word { at, text, ink: Ink::Opaque, look: Look::GradedOutline, align: Align::Centre, slant, size: 1.0 };
++    // The word of a critical hit is read from the left edge of the picture, so it stays there.
++    let critical = Word { align: Align::Left, ..painted(BATTLE_CRITICAL, critical, BATTLE_SLANT) };
++    // The digits of the damage are smaller than the old ones, whose thick outline adds to their height.
++    let shared = BATTLE_SHARED.iter().map(|&(at, text)| Word { size: if at[1] == 0 { BATTLE_DIGIT_SIZE } else { 1.0 }, ..painted(at, text, BATTLE_SLANT) });
++    let names = BATTLE_LABELS.iter().zip(labels).map(|(&at, &text)| painted(at, text, 0.0));
++    // Each letter of a spaced out word sits in a cell of its own, so it is redrawn there alone.
++    let letters = spaced.into_iter().zip(BATTLE_SPACED_ROWS).flat_map(|(word, (top, bottom))| {
++        word.char_indices().enumerate().filter(|(_, (_, c))| *c != ' ').map(move |(cell, (at, c))| {
++            painted([cell * BATTLE_CELL, top, (cell + 1) * BATTLE_CELL, bottom], &word[at..at + c.len_utf8()], BATTLE_SLANT)
++        })
++    });
++    shared.chain(names).chain(std::iter::once(critical)).chain(letters).collect()
++}
++
++/// The offset of the texture of the system pictures that holds the words of the big buttons.
++pub const BUTTON_WORDS_AT: usize = 0x1300;
++/// The part of that texture that holds only the words of the big buttons.
++pub const BUTTON_WORD_AREA: Box4 = [104, 331, 220, 475];
++/// The boxes of the six words of the big buttons, one per row of 24 pixels from the top.
++pub const BUTTON_WORD_BOXES: [Box4; 6] = [[104, 331, 220, 353], [104, 355, 220, 377], [104, 379, 220, 401], [104, 403, 220, 425], [104, 427, 220, 449], [104, 451, 220, 473]];
 +/// The buttons of the world map that hold words, as a box, an index into the words of the map and the ink.
 +pub const GMAP_BUTTONS: [(Box4, usize, Ink); 8] = [
 +    ([147, 11, 181, 30], 0, Ink::Dark),
@@ -14700,12 +15520,14 @@ index 0000000..1792e34
 +    pub align: Align,
 +    /// The slant of the letters, where 0 is upright.
 +    pub slant: f32,
++    /// The share of the height of the old word that the new one takes, 1 for all of it.
++    pub size: f32,
 +}
 +
 +impl Word {
 +    /// Creates a flat, centred and upright word.
 +    pub fn flat(at: Box4, text: &'static str, ink: Ink) -> Word {
-+        Word { at, text, ink, look: Look::Flat, align: Align::Centre, slant: 0.0 }
++        Word { at, text, ink, look: Look::Flat, align: Align::Centre, slant: 0.0, size: 1.0 }
 +    }
 +}
 +
@@ -14970,7 +15792,7 @@ index 0000000..1792e34
 +        };
 +        let room = (((b[2] - b[0]) * SCALE) as f32 - 2.0 * FIT_MARGIN, ((b[3] - b[1]) * SCALE) as f32 - 2.0 * FIT_MARGIN);
 +        let face = if w.slant > 0.0 { face.slanted(w.slant) } else { face.clone() };
-+        let Some(ink) = word(&face, w.text, ((y1 - y0) as f32 - above - below) * SCALE as f32, room) else { continue };
++        let Some(ink) = word(&face, w.text, ((y1 - y0) as f32 - above - below) * SCALE as f32 * w.size, room) else { continue };
 +        let x = match w.align {
 +            Align::Centre => b[0] * SCALE + ((b[2] - b[0]) * SCALE - ink.w) / 2,
 +            Align::Left => {
@@ -15090,8 +15912,9 @@ index 0000000..1792e34
 +
 +/// Redraws the text of a picture in the boxes of the given words, at four times the size.
 +/// The strokes inside the keep boxes are not redrawn but only enlarged.
++/// The kind says how the letters are filled and what goes around them.
 +/// Returns `None` when a box has no letters or a word does not fit.
-+pub fn redraw(image: &Rgba, words: &[(Box4, &str)], keep: &[Box4], tone: banners::Tone, face: &Face) -> Option<Rgba> {
++pub fn redraw(image: &Rgba, words: &[(Box4, &str)], keep: &[Box4], tone: banners::Tone, kind: banners::Kind, face: &Face) -> Option<Rgba> {
 +    let core = banners::core(image);
 +    let keep_mask = kept(&core, keep);
 +    // The text is the core of the letters without the parts that are kept.
@@ -15115,7 +15938,7 @@ index 0000000..1792e34
 +            *p = [0.0; 4];
 +        }
 +    }
-+    let mut out = banners::redraw(&cleared, &text, banners::Kind::Plain, tone, &big);
++    let mut out = banners::redraw(&cleared, &text, kind, tone, &big);
 +    if keep_mask.any() {
 +        let enlarged = strokes(image, &core);
 +        for (i, p) in out.v.iter_mut().enumerate() {
@@ -15156,7 +15979,7 @@ index 0000000..1792e34
 +    out
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 6cf00db..176304a 100644
+index 6cf00db..9721ecd 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -3,22 +3,34 @@
@@ -15665,7 +16488,7 @@ index 6cf00db..176304a 100644
              }
              // a full screen or maximized window keeps its size, resizing
              // it would take it out of that, full screen fits it on leaving
-@@ -958,6 +1177,223 @@ impl App {
+@@ -958,6 +1177,224 @@ impl App {
          }
      }
  
@@ -15877,7 +16700,8 @@ index 6cf00db..176304a 100644
 +            return;
 +        }
 +        // Without a unit under the cursor or selected there is nothing to show, unless the level up screen is up.
-+        let on_unit = !game.system.follows_cursor() || game.system.cursor_on_unit() || game.system.unit_selected();
++        // The menus of the preparations always show a unit on the bottom screen.
++        let on_unit = !game.system.follows_cursor() || game.system.cursor_on_unit() || game.system.unit_selected() || game.system.preparations();
 +        if !self.bottom_over_key && self.scene == Scene::Plain && !on_unit && !self.showing_level_up() {
 +            return;
 +        }
@@ -15889,7 +16713,7 @@ index 6cf00db..176304a 100644
      /// the window size that fits the screens at the chosen scale.
      fn window_size(&self) -> winit::dpi::Size {
          let (width, height) = self.layout.screens().size(self.top_shape.width());
-@@ -975,9 +1411,9 @@ impl App {
+@@ -975,9 +1412,9 @@ impl App {
      /// set, with Zig downloaded first. with none of those it asks whether
      /// to download it.
      fn recompile(&mut self, index: usize, download: bool) {
@@ -15902,7 +16726,7 @@ index 6cf00db..176304a 100644
              return;
          }
          let tools = zig::tools_dir(self.data_dir.as_deref());
-@@ -1003,24 +1439,96 @@ impl App {
+@@ -1003,24 +1440,96 @@ impl App {
                  },
              },
          };
@@ -16003,7 +16827,7 @@ index 6cf00db..176304a 100644
                      let installed = zakuro_core::recompiled::installed(program_id);
                      if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                          // from here on the game runs on the new code, no reset needed
-@@ -1033,9 +1541,7 @@ impl App {
+@@ -1033,9 +1542,7 @@ impl App {
                          }
                      }
                  }
@@ -16014,7 +16838,7 @@ index 6cf00db..176304a 100644
                  _ => {}
              }
          }
-@@ -1049,6 +1555,21 @@ impl App {
+@@ -1049,6 +1556,21 @@ impl App {
                  }
              }
              Action::Recompile(index) => self.recompile(index, false),
@@ -16036,7 +16860,7 @@ index 6cf00db..176304a 100644
              Action::DownloadCompiler(index) => self.recompile(index, true),
              Action::Mods(program_id) => {
                  if let Some(data_dir) = &self.data_dir {
-@@ -1065,13 +1586,22 @@ impl App {
+@@ -1065,13 +1587,22 @@ impl App {
                      job.cancel();
                  }
              }
@@ -16064,7 +16888,7 @@ index 6cf00db..176304a 100644
              Action::SaveState => self.save_state(),
              Action::LoadState => self.load_state(),
              Action::HostRoom => self.host_room(),
-@@ -1087,32 +1617,6 @@ impl App {
+@@ -1087,32 +1618,6 @@ impl App {
                  }
                  self.dlp_own = None;
              }
@@ -16097,7 +16921,7 @@ index 6cf00db..176304a 100644
              Action::Resume => {
                  self.menus.menu_open = false;
                  self.keyboard.release();
-@@ -1150,6 +1654,15 @@ impl App {
+@@ -1150,6 +1655,15 @@ impl App {
                      self.save_cheats();
                  }
              }
@@ -16113,7 +16937,7 @@ index 6cf00db..176304a 100644
              Action::AddCheat(name, code) => {
                  let lines: Vec<String> = code.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_owned).collect();
                  if lines.iter().any(|line| !zakuro_core::cheats::is_code(line)) {
-@@ -1202,7 +1715,35 @@ impl App {
+@@ -1202,7 +1716,35 @@ impl App {
          }
          self.library.poll();
          self.poll_jobs();
@@ -16149,7 +16973,7 @@ index 6cf00db..176304a 100644
          // a room that went away takes the game's local wireless with it
          if self.room.as_ref().is_some_and(|room| !room.open()) {
              self.leave_room();
-@@ -1304,10 +1845,57 @@ impl App {
+@@ -1304,10 +1846,57 @@ impl App {
      /// runs one frame of the game.
      fn emulate(&mut self) {
          let Some(game) = &mut self.game else { return };
@@ -16208,7 +17032,7 @@ index 6cf00db..176304a 100644
          game.frame += 1;
          if let Some(recorder) = &mut game.recorder {
              recorder.record(input);
-@@ -1539,16 +2127,37 @@ impl App {
+@@ -1539,16 +2128,37 @@ impl App {
      /// the menus, and the actions they asked for, done.
      fn interface(&mut self, event_loop: &ActiveEventLoop) -> Overlay {
          // when the slot chosen was saved to, while the menu shows it
@@ -16254,7 +17078,7 @@ index 6cf00db..176304a 100644
          let fast = self.fast_forwarding;
          let keyboard = self.game.as_ref().and_then(|game| game.system.keyboard_request().cloned());
          let room = self.room.as_ref().filter(|_| self.menus.multiplayer_open).map(|connection| {
-@@ -1561,18 +2170,45 @@ impl App {
+@@ -1561,18 +2171,45 @@ impl App {
              }
          });
          let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
@@ -16302,7 +17126,7 @@ index 6cf00db..176304a 100644
                  }
                  None => actions.extend(menus.library(ui, library, settings, jobs)),
              }
-@@ -1581,13 +2217,17 @@ impl App {
+@@ -1581,13 +2218,17 @@ impl App {
                  actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
              }
              if let Some(cheats) = &cheats {
@@ -16321,7 +17145,7 @@ index 6cf00db..176304a 100644
          });
          self.library.changed = false;
          for action in actions {
-@@ -1596,7 +2236,85 @@ impl App {
+@@ -1596,7 +2237,85 @@ impl App {
          overlay
      }
  
@@ -16407,7 +17231,7 @@ index 6cf00db..176304a 100644
          let overlay = self.interface(event_loop);
          let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
          // the right eye's picture only while the 3D shows
-@@ -1697,6 +2415,12 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
+@@ -1697,6 +2416,12 @@ fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuSc
  /// keeps the renderer kind referenced even when a backend feature is off.
  const _: RendererKind = RendererKind::Software;
  
@@ -20744,7 +21568,7 @@ index 0000000..af1abea
 +
 diff --git a/crates/zakuro/src/update.rs b/crates/zakuro/src/update.rs
 new file mode 100644
-index 0000000..180d806
+index 0000000..6eadba0
 --- /dev/null
 +++ b/crates/zakuro/src/update.rs
 @@ -0,0 +1,219 @@
@@ -20759,7 +21583,7 @@ index 0000000..180d806
 +use crate::zig::{fetch, windowless, Fetcher};
 +
 +/// The tag of the release this build belongs to.
-+pub const RELEASE: &str = "v1.0.15";
++pub const RELEASE: &str = "v1.0.16";
 +/// The GitHub API address that describes the latest release.
 +const LATEST: &str = "https://api.github.com/repos/Zelkin1/fe-awakening-recomp/releases/latest";
 +/// The end of the file name of the release asset that holds the launcher for this system: a zip on Windows, an AppImage on Linux.

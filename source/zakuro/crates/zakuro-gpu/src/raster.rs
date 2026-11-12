@@ -3259,6 +3259,46 @@ pub fn draw_immediate<M: GpuMemory>(
     rasterize(registers, memory, resources, vertices).unwrap_or(0)
 }
 
+/// The shader inputs of each vertex of a draw, in the order that the draw takes them.
+/// Frame interpolation keeps them, to blend them with those of the next frame.
+pub(crate) fn vertex_inputs<M: GpuMemory>(
+    registers: &[u32],
+    fixed_attributes: &[Vec4; 16],
+    memory: &mut M,
+    resources: &mut Resources,
+    indexed: bool,
+) -> Vec<[Vec4; shader::INPUT_REGISTERS]> {
+    let mut scratch = std::mem::take(&mut resources.scratch);
+    read_indices(registers, memory, &mut scratch, indexed);
+    scratch.plans.update(registers, fixed_attributes);
+    fetch(registers, memory, &mut scratch, indexed);
+    let inputs = match indexed {
+        true => scratch.order.iter().map(|&i| scratch.inputs[i]).collect(),
+        false => scratch.inputs.clone(),
+    };
+    resources.scratch = scratch;
+    inputs
+}
+
+/// Draws the vertices given, in the order given.
+/// The draw in between does this with the vertices that it blended.
+pub(crate) fn draw_inputs<M: GpuMemory>(
+    registers: &[u32],
+    vertex_shader: &ShaderUnit,
+    geometry_shader: &ShaderUnit,
+    memory: &mut M,
+    resources: &mut Resources,
+    inputs: &[[Vec4; shader::INPUT_REGISTERS]],
+) -> u32 {
+    // The GPU stages these vertices, rather than reading those that its own draw staged.
+    #[cfg(feature = "vulkan")]
+    if let Some(hardware) = resources.hardware.as_mut() {
+        hardware.forget_staged_inputs();
+    }
+    let vertices = Vertices::Unshaded { vertex_shader, geometry_shader, inputs, order: None };
+    rasterize(registers, memory, resources, vertices).unwrap_or(0)
+}
+
 /// puts a draw's arrays for the GPU to decode in raw, from the first
 /// vertex the draw uses on. false when they cost more to hand over than to
 /// decode on the CPU or do not lie in one piece of memory.

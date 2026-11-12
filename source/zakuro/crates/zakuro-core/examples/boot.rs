@@ -680,6 +680,7 @@ fn print_scenes(system: &zakuro_core::System, frame: u64) {
         (system.title_pieces().is_some(), "the title screen"),
         (system.world_pieces().is_some(), "the world map's parts of the bottom screen"),
         (system.unit_view(), "a unit's 3D view"),
+        (system.preparations(), "the preparations"),
     ];
     for (_, scene) in scenes.iter().filter(|(shown, _)| *shown) {
         println!("frame {frame}: {scene}");

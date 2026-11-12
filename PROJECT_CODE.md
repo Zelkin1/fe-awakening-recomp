@@ -6,23 +6,23 @@ This list separates the project's code from Zakuro's and 3dsrecomp's. Paths star
 
 | File | Lines | What it holds |
 |---|---|---|
-| `zakuro/crates/zakuro-core/src/game_ui.rs` | 208 | Awakening's screen data: the markers that tell its scenes apart, and the rectangles of the battle panels, battle buttons, FE3H banners, title and world-map pieces. |
-| `zakuro/crates/zakuro-core/src/scenes.rs` | 193 | Scene detection from the markers the GPU sees: which scene shows, the end of a battle, marker positions, and the unit selection. |
+| `zakuro/crates/zakuro-core/src/game_ui.rs` | 214 | Awakening's screen data: the markers that tell its scenes apart, and the rectangles of the battle panels, battle buttons, FE3H banners, title and world-map pieces. |
+| `zakuro/crates/zakuro-core/src/scenes.rs` | 195 | Scene detection from the markers the GPU sees: which scene shows, the end of a battle, marker positions, and the unit selection. |
 | `zakuro/crates/zakuro/src/banners.rs` | 270 | Reads the text of the FE3H-style banners (names, HP, weapon, stats) off the bottom screen. |
 | `zakuro/crates/zakuro/src/console.rs` | 96 | The optional console window with Zakuro's log (Settings, System). |
 | `zakuro/crates/zakuro/src/downloads.rs` | 259 |  |
-| `zakuro/crates/zakuro/src/hdtext/banners.rs` | 258 | The phase, mission and result banners: lettering fitted with its spacing, glow, outline or stone fill drawn again. |
+| `zakuro/crates/zakuro/src/hdtext/banners.rs` | 263 | The phase, mission and result banners: lettering fitted with its spacing, glow, outline or stone fill drawn again. |
 | `zakuro/crates/zakuro/src/hdtext/clean.rs` | 511 |  |
-| `zakuro/crates/zakuro/src/hdtext/data.rs` | 435 | The words the redrawn pictures spell, in each language: banners, inventory labels, title screen and main menu. |
+| `zakuro/crates/zakuro/src/hdtext/data.rs` | 481 | The words the redrawn pictures spell, in each language: banners, inventory labels, title screen and main menu. |
 | `zakuro/crates/zakuro/src/hdtext/esrgan.rs` | 406 |  |
 | `zakuro/crates/zakuro/src/hdtext/labels.rs` | 1083 | The inventory's labels: letters taken off their plates, plates and cells evened with their grain given back, words drawn again with shadow, shine or engraving. |
-| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 546 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
+| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 574 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
 | `zakuro/crates/zakuro/src/hdtext/ops.rs` | 771 | Image operations for the redraws: planes, masks, blurs, resizing, labelling and distance transforms. |
 | `zakuro/crates/zakuro/src/hdtext/rom.rs` | 161 | Finds textures in the game's files and reads its message files. |
 | `zakuro/crates/zakuro/src/hdtext/sheets.rs` | 386 | Reads and writes the game's font files: each letter drawn at its natural width from an open font, packed into new sheets, with the 4x pictures. |
 | `zakuro/crates/zakuro/src/hdtext/text.rs` | 198 | Draws letters and lines from an open font. |
 | `zakuro/crates/zakuro/src/hdtext/titles.rs` | 230 | Chapter titles: each line fitted to where the original's lettering is, its fill and glow measured and drawn again. |
-| `zakuro/crates/zakuro/src/hdtext/words.rs` | 836 | The title screen's words, its copyright line and the main menu's buttons, drawn again with their icons kept. |
+| `zakuro/crates/zakuro/src/hdtext/words.rs` | 908 | The title screen's words, its copyright line and the main menu's buttons, drawn again with their icons kept. |
 | `zakuro/crates/zakuro/src/lz.rs` | 182 | LZ11 and LZ13 compression of the game's files, for the mods' build steps. |
 | `zakuro/crates/zakuro/src/overlays.rs` | 751 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
 | `zakuro/crates/zakuro/src/sounds.rs` | 390 | Reads the bottom screen's open and close sounds from the game's sound archive. |
@@ -154,6 +154,7 @@ Added:
 - `fn System::forecast`
 - `fn System::brief_forecast`
 - `fn System::unit_view`
+- `fn System::preparations`
 - `fn System::unit_selected`
 - `fn System::battle_pieces`
 - `fn System::battle_banners`
@@ -351,24 +352,48 @@ Changed:
 
 Added:
 
+- `type Inputs`
+- `const KEPT_VERTICES`
+- `struct Between`
 - `const TURN`
 - `fn toggles`
+- `fn vertices_apart`
+- `fn halfway`
+- `fn Interpolation::reads_new_arrays`
+- `fn mix`
+- `fn array_offset`
+- `const INDEX_OFFSET`
+- `fn arrays`
 - `fn tests::a_round_step_from_standing_still_and_back_toggles`
+- `fn tests::vertices_written_anew_move_halfway`
 
 Changed:
 
 - `code outside any item`
 - `const JUMP`
+- `struct Drawn`
+- `fn nearest`
+- `struct Interpolation`
+- `impl Interpolation`
 - `fn Interpolation::draw`
+- `fn Interpolation::frame_done`
+- `fn key`
 - `mod tests`
 - `fn tests::draws_match_the_frame_before_in_order`
+- `fn tests::a_shared_uniform_that_jumps_stays_as_the_frame_has_it`
 - `fn tests::going_on_as_before_moves_however_fast`
 - `fn tests::draws_that_keep_jumping_count_apart`
+- `fn tests::draws_drawn_the_other_way_round_match_the_nearest`
 - `fn tests::jumps_are_not_drawn_in_between`
+- `fn tests::geometry_shaders_are_drawn_as_they_are`
+- `fn tests::only_what_places_the_vertices_moves`
+- `fn tests::shared_uniforms_move_but_for_round_steps`
 
 Removed:
 
 - `const JUMP_PART`
+
+Its imports change too.
 
 ### `zakuro/crates/zakuro-gpu/src/lib.rs`
 
@@ -441,6 +466,8 @@ Added:
 - `impl EdgeCache`
 - `const EdgeCache::CAPACITY`
 - `fn EdgeCache::extended`
+- `fn vertex_inputs`
+- `fn draw_inputs`
 - `fn cpu_shaded_vertices`
 - `fn tests::placed_at`
 - `fn tests::a_picture_shown_texel_for_pixel_is_found`
@@ -483,6 +510,7 @@ Added:
 - `fn Hardware::destroy_copy`
 - `fn Hardware::first_level`
 - `fn Hardware::level_view`
+- `fn Hardware::forget_staged_inputs`
 - `fn Hardware::blit_with`
 - `fn Hardware::generic_pipeline`
 - `fn Hardware::levels_from_memory`
@@ -565,6 +593,18 @@ Changed:
 Changed:
 
 - `fn compile`
+
+### `zakuro/crates/zakuro-gpu/src/shader/mod.rs`
+
+Added:
+
+- `fn Program::inputs_feeding`
+- `fn ShaderUnit::inputs_blending`
+
+Changed:
+
+- `impl Program`
+- `impl ShaderUnit`
 
 ### `zakuro/crates/zakuro-gpu/src/texture.rs`
 

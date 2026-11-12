@@ -5,7 +5,7 @@
 
 use zakuro_gpu::{Anchor, BannerSide, Banners, Ground, Marker, Piece, Place, Rounded};
 
-use crate::scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
+use crate::scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, PREPARATIONS, RIGHT_BANNER, TALKING, TITLE, UNIT_VIEW, WORLD_MAP};
 
 /// The program id of Fire Emblem Awakening.
 pub const FIRE_EMBLEM_AWAKENING: u64 = 0x0004_0000_0009_F100;
@@ -80,7 +80,10 @@ const MARKERS: &[Marker] = &[
     marker(FORECAST, ETC1A4, 256, 512, TOP_SCREEN, place([-0.03, 0.03], [0.03, 0.12], [0.95, 1.05], [0.7, 0.85])),
     marker(BRIEF_FORECAST, ETC1A4, 256, 512, TOP_SCREEN, place([-0.03, 0.03], [0.67, 0.695], [0.95, 1.05], [0.31, 0.335])),
     marker(BATTLE, ETC1A4, 256, 512, BOTTOM_SCREEN, place([-0.1, 0.1], [0.0, 0.14], [0.95, 1.05], [0.5, 0.65])),
-    marker(EXP, ETC1A4, 256, 512, TOP_SCREEN, place([0.18, 0.31], [0.4, 0.47], [0.4, 0.6], [0.11, 0.16])),
+    // The menus of the preparations draw a bar across the top of the screen, which no other scene draws.
+    marker(PREPARATIONS, ETC1A4, 256, 512, TOP_SCREEN, place([-0.02, 0.02], [-0.02, 0.02], [0.97, 1.03], [0.12, 0.15])),
+    // A duo shows two gauges, one above and one below the place of a single gauge.
+    marker(EXP, ETC1A4, 256, 512, TOP_SCREEN, place([0.18, 0.31], [0.33, 0.51], [0.4, 0.6], [0.11, 0.16])),
     marker(LEFT_BANNER, ETC1A4, 256, 512, BOTTOM_SCREEN, place([0.0, 0.15], [-0.05, 0.08], [0.33, 0.37], [0.08, 0.12])),
     marker(RIGHT_BANNER, ETC1A4, 256, 512, BOTTOM_SCREEN, place([0.5, 0.65], [-0.05, 0.08], [0.33, 0.37], [0.08, 0.12])),
     marker(TITLE, LA8, 256, 32, BOTTOM_SCREEN, place([0.05, 0.15], [0.38, 0.48], [0.75, 0.85], [0.1, 0.17])),
@@ -172,9 +175,12 @@ const HP_RIGHT: &[Rounded] = &[
     rounded([184, 6, 112, 22], [8; 4]),
 ];
 /// The shapes of the stats panel of a battle.
+/// The strip left of the stat labels is mirrored over the shaded strip right of them, which would look like a seam.
+/// The row of the attack is left out, because the badge of a double attack sits there on either side and would be copied or hidden.
 const STATS: &[Rounded] = &[
     rounded([70, 88, 180, 52], [4; 4]),
-    Rounded { shift: [39, 0], mirror: true, shadow: false, ..rounded([136, 88, 9, 52], [0; 4]) },
+    Rounded { shift: [39, 0], mirror: true, shadow: false, ..rounded([136, 88, 9, 3], [0; 4]) },
+    Rounded { shift: [39, 0], mirror: true, shadow: false, ..rounded([136, 105, 9, 35], [0; 4]) },
 ];
 
 /// The row of buttons of a battle, at the bottom of the top screen.

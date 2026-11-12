@@ -267,7 +267,7 @@ index 0000000..2a51b02
 +    }
 +}
 diff --git a/crates/zakuro-core/src/lib.rs b/crates/zakuro-core/src/lib.rs
-index 37d6696..8e5477c 100644
+index 50a469b..7b1a8b6 100644
 --- a/crates/zakuro-core/src/lib.rs
 +++ b/crates/zakuro-core/src/lib.rs
 @@ -4,6 +4,7 @@
@@ -2412,7 +2412,7 @@ index 0000000..01e52e9
 +    Ok(out)
 +}
 diff --git a/crates/zakuro/src/lib.rs b/crates/zakuro/src/lib.rs
-index 176304a..9c59ff5 100644
+index 9721ecd..cb2641c 100644
 --- a/crates/zakuro/src/lib.rs
 +++ b/crates/zakuro/src/lib.rs
 @@ -8,6 +8,7 @@ mod camera;
