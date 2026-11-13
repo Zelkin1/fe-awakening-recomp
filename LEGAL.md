@@ -81,19 +81,6 @@ the code or the data of the game, changed or not. Do not share or upload them:
   fonts and the pictures of the game, changed.
 - The folder of Zakuro, `%APPDATA%\zakuro`, with your saves, states, settings
   and mods.
-- In a development copy:
-  - `FireEmblemAwakeningRecomp/`, with the C code that 3dsrecomp generates and
-    the library that the test harness loads.
-  - `_work/`, with the code of the game extracted from your dump, and memory
-    dumps.
-  - `_runs/`, with the screens, dumps, states and saves of the test harness,
-    and the mods that it builds.
-  - Screenshots of the game.
-
-The other work files of a development copy stay offline too: the clones of
-Zakuro and 3dsrecomp, the notes (`notes/`), the hints that Zakuro records
-(`hints/`), the development scripts, the toolchain (`tools/rust/`) and the
-logs.
 
 ## Licenses and trademarks
 
