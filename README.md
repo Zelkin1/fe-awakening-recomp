@@ -39,7 +39,7 @@ states.
 
 ## Features
 
-- The launcher draws the 3D at up to 8 times the resolution of the console.
+- Up to 8 times the resolution of the console.
   Frame interpolation can show the battles at 60 frames per second.
 - You can play on the top screen alone. A button shows the bottom screen over
   the top screen: the right trigger, or E on the keyboard.
