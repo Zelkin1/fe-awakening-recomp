@@ -1110,13 +1110,18 @@ pub(super) fn upside_down(registers: &[u32]) -> bool {
     registers[REG_FRAMEBUFFER_DIMENSIONS] & (1 << 24) == 0
 }
 
-/// The scissor rectangle as the left, top, right and bottom edges, the last two not included, when the draw is kept inside it. None when the scissor is off or keeps the draw out of the rectangle, which is not followed.
+/// The scissor rectangle as the left, top, right and bottom edges, when the draw is kept inside it.
+/// The right and bottom edges are not included.
+/// It is None when the scissor is off, or when the scissor keeps the draw out of the rectangle.
+/// The mode that keeps the draw out is not followed.
 fn scissor(registers: &[u32]) -> Option<[i32; 4]> {
     // Each corner packs x in bits 0 to 9 and y in bits 16 to 25.
     let corner = |packed: u32| [(packed & 0x3FF) as i32, (packed >> 16 & 0x3FF) as i32];
     let [from_x, from_y] = corner(registers[REG_SCISSOR_FROM]);
     let [to_x, to_y] = corner(registers[REG_SCISSOR_TO]);
-    // The mode is in the low two bits. 3 keeps the draw inside the rectangle and 1 outside of it. The corners are both inside the rectangle, so the end gets 1 added.
+    // The mode is in the low two bits.
+    // Mode 3 keeps the draw inside the rectangle, and mode 1 keeps it outside of the rectangle.
+    // The corners are both inside the rectangle, so the end gets 1 added.
     match registers[REG_SCISSOR_MODE] & 3 {
         3 => Some([from_x, from_y, to_x + 1, to_y + 1]),
         1 => {
@@ -1399,7 +1404,8 @@ impl Marker {
         self.format == registers[REG_TEXTURE0_FORMAT] & 0xF && self.width == width && self.height == height
     }
 
-    /// Whether the viewport is that of the screen of the marker. The screens are held turned, 240 wide and 400 high for the top one and 320 high for the bottom one.
+    /// Whether the viewport is that of the screen of the marker.
+    /// The screens are held turned, 240 wide and 400 high for the top one and 320 high for the bottom one.
     fn targets(&self, (_, _, width, height): (f32, f32, f32, f32)) -> bool {
         let screen_height = if self.bottom { 320.0 } else { 400.0 };
         (width - 240.0).abs() <= 0.5 && (height - screen_height).abs() <= 0.5
@@ -1439,12 +1445,14 @@ pub(crate) struct MarkerWatch {
 }
 
 impl MarkerWatch {
-    /// Whether a marker reads the texture the draw reads, which is cheap to know before the vertices are shaded.
+    /// Whether a marker reads the texture that the draw reads.
+    /// This is cheap to know before the vertices are shaded.
     fn may_match(&self, registers: &[u32]) -> bool {
         self.markers.iter().any(|marker| marker.matches_texture(registers))
     }
 
-    /// Notes that a marker was drawn. Only the first draw of a marker counts until the lists are taken.
+    /// Notes that a marker was drawn.
+    /// Only the first draw of a marker counts until the lists are taken.
     fn record(&mut self, id: u32, span: [f32; 4]) {
         if !self.drawn.contains(&id) {
             self.drawn.push(id);
@@ -1455,13 +1463,15 @@ impl MarkerWatch {
     }
 }
 
-/// The width and the height of the first texture, which the register holds as height in the low 11 bits and width above bit 16.
+/// The width and the height of the first texture.
+/// The register holds the height in the low 11 bits and the width above bit 16.
 fn texture0_size(registers: &[u32]) -> (u32, u32) {
     let dimensions = registers[REG_TEXTURE0_DIMENSIONS];
     ((dimensions >> 16) & 0x7FF, dimensions & 0x7FF)
 }
 
-/// The box around the vertices as the left, top, right and bottom edges, in fractions of the screen as the player holds it. None when no vertex lands on the screen.
+/// The box around the vertices as the left, top, right and bottom edges, in fractions of the screen as the player holds it.
+/// It is None when no vertex lands on the screen.
 fn screen_span(vertices: &[Vertex], viewport: (f32, f32, f32, f32)) -> Option<[f32; 4]> {
     let (x, y, width, height) = viewport;
     vertices.iter().filter_map(|vertex| to_screen(vertex, viewport)).fold(None, |span: Option<[f32; 4]>, screen| {
@@ -1472,7 +1482,9 @@ fn screen_span(vertices: &[Vertex], viewport: (f32, f32, f32, f32)) -> Option<[f
     })
 }
 
-/// The marker a draw is, with the span of the draw. The marker has to target the viewport, match the texture and cover the place, and the vertices have to be shaded.
+/// The marker that a draw is, with the span of the draw.
+/// The marker must target the viewport, match the texture and cover the place.
+/// The vertices must be shaded.
 fn marker_drawn(registers: &[u32], markers: &[Marker], shaded: Option<&[Vertex]>, viewport: (f32, f32, f32, f32)) -> Option<(u32, [f32; 4])> {
     // The span is only worked out when a marker passes the cheap checks.
     let mut candidates = markers.iter().filter(|marker| marker.targets(viewport) && marker.matches_texture(registers)).peekable();
@@ -1481,15 +1493,17 @@ fn marker_drawn(registers: &[u32], markers: &[Marker], shaded: Option<&[Vertex]>
     candidates.find(|marker| marker.place.contains(span)).map(|marker| (marker.id, span))
 }
 
-/// How far, in texels or pixels, a coordinate may be from a whole value or from a one to one mapping, and still count as one.
+/// How far, in texels or pixels, a coordinate can be from a whole value or from a one to one mapping, and still count as one.
 const SNAP: f32 = 0.07;
 
-/// The rectangle of a texture, as the left, top, right and bottom texels, that a draw shows texel for pixel, straight or turned a quarter. None when the draw scales the texture, shows a part that does not start at a whole texel, or does not look like a plain copy.
+/// The rectangle of a texture, as the left, top, right and bottom texels, that a draw shows texel for pixel, straight or turned a quarter.
+/// It is None when the draw scales the texture, shows a part that does not start at a whole texel, or does not look like a plain copy.
 fn blit_rect(vertices: &[Vertex], viewport: (f32, f32, f32, f32), (width, height): (u32, u32)) -> Option<[u32; 4]> {
     let first_w = vertices.first()?.clip[3];
     let mut points = Vec::with_capacity(vertices.len());
     for vertex in vertices {
-        // A different w means a perspective, which is no plain copy.
+        // A different w means a perspective.
+        // A perspective is not a plain copy.
         if (vertex.clip[3] - first_w).abs() > 1e-4 * first_w.abs().max(1.0) {
             return None;
         }
@@ -1510,7 +1524,7 @@ fn blit_rect(vertices: &[Vertex], viewport: (f32, f32, f32, f32), (width, height
     if !straight && !turned {
         return None;
     }
-    // The edges of the rectangle have to fall on whole texels.
+    // The edges of the rectangle must fall on whole texels.
     let texel_range = |axis: usize| points.iter().fold((f32::MAX, f32::MIN), |(low, high), (_, texel)| (low.min(texel[axis]), high.max(texel[axis])));
     let ((left, right), (top, bottom)) = (texel_range(0), texel_range(1));
     let whole_texel = |coordinate: f32, size: u32| {
@@ -1521,10 +1535,13 @@ fn blit_rect(vertices: &[Vertex], viewport: (f32, f32, f32, f32), (width, height
     (rect[2] > rect[0] && rect[3] > rect[1]).then_some(rect)
 }
 
-/// A copy of the texels in which the texel just outside each edge of the rectangle repeats the one just inside. With the repeat mode, the texel across the border of the texture also takes the texel of the edge, when the rectangle does not span the texture. Filtering then does not blend in texels that are not part of the picture.
+/// A copy of the texels in which the texel just outside each edge of the rectangle repeats the one just inside.
+/// With the repeat mode, the texel across the border of the texture also takes the texel of the edge, when the rectangle does not span the texture.
+/// Filtering then does not blend in texels that are not part of the picture.
 fn extend_edges(texels: &[[u8; 4]], (width, height): (u32, u32), [left, top, right, bottom]: [u32; 4], (wrap_s, wrap_t): (Wrap, Wrap)) -> Vec<[u8; 4]> {
     let mut extended = texels.to_vec();
-    // The column or row whose texel goes outside the start edge, and the one that goes outside the end edge. None when there is none.
+    // The column or row whose texel goes outside the start edge, and the one that goes outside the end edge.
+    // Each is None when there is none.
     let before = |from: u32, to: u32, size: u32, wrap: Wrap| match from {
         0 if wrap == Wrap::Repeat && to + 1 < size => Some(size - 1),
         0 => None,
@@ -1560,7 +1577,8 @@ fn extend_edges(texels: &[[u8; 4]], (width, height): (u32, u32), [left, top, rig
 
 /// A texture with the edges of a rectangle of it extended.
 struct ExtendedPicture {
-    /// The texels it was made from, which tell whether it is still the same texture.
+    /// The texels that it was made from.
+    /// They tell whether it is still the same texture.
     source: Arc<[[u8; 4]]>,
     /// The rectangle that was extended.
     rect: [u32; 4],
@@ -1581,7 +1599,8 @@ impl EdgeCache {
         if let Some(picture) = self.0.iter().find(|picture| Arc::ptr_eq(&picture.source, &texture.texels) && picture.rect == rect) {
             return picture.texels.clone();
         }
-        // Pictures made from a texture that nothing else holds anymore are dropped, then the oldest one if the cache is still full.
+        // Pictures made from a texture that nothing else holds anymore are dropped.
+        // Then, if the cache is still full, the oldest one is dropped.
         self.0.retain(|picture| Arc::strong_count(&picture.source) > 1);
         if self.0.len() >= Self::CAPACITY {
             self.0.remove(0);
@@ -2034,7 +2053,9 @@ impl TextureCache {
                 return (decoded.texels.clone(), decoded.replacement.clone());
             }
         }
-        // The texels of every level go in one zeroed slice, sized from the end of the last level, and the decode fills it.
+        // The texels of every level go in one zeroed slice.
+        // The size of the slice comes from the end of the last level.
+        // The decode fills the slice.
         let total = texture_levels(format, width, height, levels).last().map_or(0, |last| last.texels + (last.width * last.height) as usize);
         // SAFETY: all zero bytes are a valid texel, so the zeroed slice is initialized.
         let mut texels: Arc<[[u8; 4]]> = unsafe { Arc::new_zeroed_slice(total).assume_init() };
@@ -2332,7 +2353,7 @@ fn drawn_texture<M: GpuMemory>(registers: &[u32], memory: &M, unit: usize) -> Op
     (width != 0 && height != 0 && address != 0).then(|| DrawnTexture { addr: memory.translate(address), width, height, format })
 }
 
-/// the guest memory a texture unit reads, when it is on, with the number of its levels.
+/// The guest memory that a texture unit reads when the unit is on, with the number of its levels.
 #[cfg(feature = "vulkan")]
 fn texture_range<M: GpuMemory>(registers: &[u32], memory: &M, unit: usize) -> Option<(u32, u32, u32)> {
     if registers[REG_TEXTURE_CONFIG] & (1 << unit) == 0 {
@@ -3139,7 +3160,8 @@ pub fn draw<M: GpuMemory>(
     // the GPU decodes the arrays itself when it shades the draw, from the
     // first vertex the draw uses to the last
     #[cfg(feature = "vulkan")]
-    // The vertices are shaded on the CPU when the draw may be a copy of a picture at a larger scale or a marker, which have to look at the positions.
+    // The vertices are shaded on the CPU when the draw can be a copy of a picture at a larger scale or a marker.
+    // The checks for a copy and for a marker must look at the positions.
     let needs_cpu_vertices = (vertex_count <= BLIT_VERTICES
         && registers[REG_TEXTURE_CONFIG] & 1 != 0
         && resources.hardware.as_ref().is_some_and(|hardware| hardware.scale() > 1))
@@ -3290,7 +3312,8 @@ pub(crate) fn draw_inputs<M: GpuMemory>(
     resources: &mut Resources,
     inputs: &[[Vec4; shader::INPUT_REGISTERS]],
 ) -> u32 {
-    // The GPU stages these vertices, rather than reading those that its own draw staged.
+    // The GPU stages these vertices.
+    // It does not read the vertices that its own draw staged.
     #[cfg(feature = "vulkan")]
     if let Some(hardware) = resources.hardware.as_mut() {
         hardware.forget_staged_inputs();
@@ -3407,7 +3430,9 @@ fn assemble(topology: u32, count: usize) -> Vec<(usize, usize, usize)> {
     }
 }
 
-/// The shaded vertices of a draw, made on the CPU when they are not yet, and none when the draw has a geometry shader that is not handled here.
+/// The shaded vertices of a draw.
+/// They are made on the CPU when they are not shaded yet.
+/// There are none when the draw has a geometry shader that is not handled here.
 fn cpu_shaded_vertices(registers: &[u32], vertices: Vertices) -> Option<Vec<Vertex>> {
     match vertices {
         Vertices::Unshaded { vertex_shader, geometry_shader, inputs, order } if registers[REG_GEOSTAGE_CONFIG] & 0x3 != 2 => {
@@ -3439,7 +3464,8 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
     let viewport_top = (viewport_y + viewport_height).round() as i32;
     let (buffer_width, buffer_height) = buffer_size(registers, viewport);
     let (target_width, target_height) = (buffer_width, buffer_height);
-    // Drawing stays inside the viewport and then inside the scissor rectangle, and a draw with nothing left is dropped.
+    // Drawing stays inside the viewport and then inside the scissor rectangle.
+    // A draw with nothing left is dropped.
     let (mut left, mut right) = ((viewport_x.round() as i32).max(0), viewport_right.min(buffer_width as i32));
     let (mut bottom, mut top) = ((viewport_y.round() as i32).max(0), viewport_top.min(buffer_height as i32));
     if let Some([from_x, from_y, to_x, to_y]) = scissor(registers) {

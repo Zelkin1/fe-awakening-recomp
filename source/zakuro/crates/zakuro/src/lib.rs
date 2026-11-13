@@ -485,7 +485,8 @@ struct App {
     scene: Scene,
     /// The screen layout that was last given to the backend.
     placed: Option<zakuro_gpu::ScreenLayout>,
-    /// The pieces of the last layout, kept so that they can fade out after the layout changed.
+    /// The pieces of the last layout.
+    /// They are kept so that they can fade out after the layout changed.
     last_pieces: Option<&'static [zakuro_gpu::Piece]>,
     /// The banners that were read last from the bottom screen.
     last_banners: Option<banners::Read>,
@@ -1022,7 +1023,7 @@ impl App {
         }
         let spans = self.marker_spans();
         let mut places = buttons.into_iter().chain(laid).flat_map(|pieces| zakuro_gpu::piece_places(top, pieces, &spans));
-        // Find the first piece under the cursor and map the cursor to a pixel of the bottom screen, which is 320 by 240 pixels.
+        // Find the first piece under the cursor. Map the cursor to a pixel of the bottom screen, which is 320 by 240 pixels.
         let at = places.find_map(|zakuro_gpu::PiecePlace { viewport: place, part: [left, top, width, height], .. }| {
             let (x, y) = ((self.cursor.0 - place.x) / place.width, (self.cursor.1 - place.y) / place.height);
             ((0.0..1.0).contains(&x) && (0.0..1.0).contains(&y)).then(|| (((left + x * width) * 320.0) as u16, ((top + y * height) * 240.0) as u16))
@@ -1187,9 +1188,11 @@ impl App {
         }
     }
 
-    /// Chooses another game file, and removes what the launcher built for the game chosen before when the new file is another game that can be played.
+    /// Chooses another game file.
+    /// When the new file is another game that can be played, it also removes what the launcher built for the game chosen before.
     ///
-    /// Nothing is removed while a game runs, or while the old game is being recompiled, whose job is cancelled instead.
+    /// Nothing is removed while a game runs.
+    /// While the old game is being recompiled, the job of the old game is cancelled instead.
     fn change_game(&mut self, file: PathBuf) {
         let old = self.settings.game_file.as_ref().and_then(|old| self.library.games.iter().find(|game| &game.path == old && game.problem.is_none()));
         let old = old.map(|game| (game.program_id, game.name.clone()));
@@ -1207,7 +1210,7 @@ impl App {
         }
         self.menus.message = Some(match recompile::remove_builds(old, self.data_dir.as_deref()) {
             Ok(()) => format!("The recompiled code and the mods built for {name} are removed."),
-            Err(error) => format!("Some of what was built for {name} could not be removed, {error}"),
+            Err(error) => format!("Zakuro cannot remove some of the things that it built for {name}, {error}"),
         });
     }
 
@@ -1221,7 +1224,9 @@ impl App {
 
     /// Returns the layout of the screens that is actually drawn.
     ///
-    /// It follows the chosen layout, except that the top screen alone can gain pieces of the bottom screen, or the bottom screen laid over it, depending on the scene.
+    /// It follows the chosen layout, with one exception.
+    /// The top screen alone can gain pieces of the bottom screen, or the bottom screen laid over it.
+    /// The scene decides which one.
     /// Original mode always keeps the chosen layout.
     fn shown_layout(&self) -> zakuro_gpu::ScreenLayout {
         use zakuro_gpu::ScreenLayout;
@@ -1320,7 +1325,7 @@ impl App {
         }
         self.scene = scene;
         let shown = self.game.is_some() && self.layout == Screens::TopOnly && !self.settings.original && opens && self.bottom_over_key;
-        // Play the open sound when the bottom screen appears. Play the close sound when it goes away by the choice of the user or because the talk ended, not when the scene simply changed.
+        // Play the open sound when the bottom screen appears. Play the close sound when it goes away by the choice of the user or because the talk ended, not when only the scene changed.
         let sound = match (self.bottom_over, shown) {
             (false, true) if !self.quiet_over => self.bottom_sounds.open.as_ref(),
             (true, false) if !self.quiet_over && (!moved_on || talk_ended || self.closing_by_user) && self.game.is_some() => self.bottom_sounds.close.as_ref(),
@@ -1409,7 +1414,7 @@ impl App {
         if self.layout != Screens::TopOnly || self.settings.original {
             return;
         }
-        // Without a unit under the cursor or selected there is nothing to show, unless the level up screen is up.
+        // Without a unit under the cursor or a selected unit, there is nothing to show, unless the level up screen is up.
         // The menus of the preparations always show a unit on the bottom screen.
         let on_unit = !game.system.follows_cursor() || game.system.cursor_on_unit() || game.system.unit_selected() || game.system.preparations();
         if !self.bottom_over_key && self.scene == Scene::Plain && !on_unit && !self.showing_level_up() {
@@ -1480,7 +1485,7 @@ impl App {
         }
         self.menus.message = Some(match step.uninstall(data_dir) {
             Ok(()) => format!("The {} mod is uninstalled.", step.label),
-            Err(error) => format!("The {} mod could not be uninstalled, {error}", step.label),
+            Err(error) => format!("Zakuro cannot uninstall the {} mod, {error}", step.label),
         });
     }
 
@@ -1491,11 +1496,11 @@ impl App {
     fn install_mod(&mut self, index: usize, choice: Option<bool>) {
         let Some(step) = recompile::MOD_STEPS.get(index) else { return };
         let Some(data_dir) = self.data_dir.clone() else {
-            self.menus.message = Some("The mods need Zakuro's data folder.".to_owned());
+            self.menus.message = Some("The mods need the data folder of Zakuro.".to_owned());
             return;
         };
         let Some((path, name)) = self.library.games.iter().find(|game| game.program_id == step.program_id).map(|game| (game.path.clone(), game.name.clone())) else {
-            self.menus.message = Some(format!("The {} mod is built from your copy of the game. Choose it first, in Settings, System.", step.label));
+            self.menus.message = Some(format!("Zakuro builds the {} mod from your copy of the game. Choose your copy first, in Settings, System.", step.label));
             return;
         };
         self.jobs.retain(|job| job.program_id != step.program_id || !job.stage().finished());
@@ -1524,7 +1529,7 @@ impl App {
         if let Some(result) = self.update_install.as_ref().and_then(|installing| installing.done.try_recv().ok()) {
             self.update_install = None;
             if let Err(error) = result.and_then(|exe| update::restart(&exe).map_err(|error| error.to_string())) {
-                self.menus.message = Some(format!("The update could not be installed, {error}"));
+                self.menus.message = Some(format!("Zakuro cannot install the update, {error}"));
             }
         }
         self.menus.update = match (&self.update_install, &self.update_offer) {
@@ -1586,15 +1591,15 @@ impl App {
             Action::ModEnabled(index, on) => {
                 if let (Some(data_dir), Some(step)) = (&self.data_dir, recompile::MOD_STEPS.get(index)) {
                     if let Err(error) = zakuro_core::mods::set_enabled(&step.folder_in(data_dir), on) {
-                        self.menus.message = Some(format!("{} can't be turned {}, {error}", step.label, if on { "on" } else { "off" }));
+                        self.menus.message = Some(format!("Zakuro cannot turn the {} mod {}, {error}", step.label, if on { "on" } else { "off" }));
                     }
                 }
             }
             Action::Update => match (self.update_offer.clone(), &self.update_install) {
                 (_, Some(_)) => {}
                 (Some(release), None) => self.update_install = Some(update::install_in_background(release)),
-                (None, None) if self.update_check.is_some() => self.menus.message = Some("Looking for an update, try again in a moment.".to_owned()),
-                (None, None) => self.menus.message = Some("No update available.".to_owned()),
+                (None, None) if self.update_check.is_some() => self.menus.message = Some("The search for an update is not finished. Try again in a moment.".to_owned()),
+                (None, None) => self.menus.message = Some("No update is available.".to_owned()),
             },
             Action::DownloadCompiler(index) => self.recompile(index, true),
             Action::Mods(program_id) => {

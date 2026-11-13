@@ -1,5 +1,6 @@
 //! The HD text mod.
-//! It redraws the text in the pictures of the game in a new font at four times the resolution, using the copy of the game of the player.
+//! It redraws the text in the pictures of the game in a new font at four times the resolution.
+//! It uses the copy of the game of the player.
 //! The pictures can first be cleaned of compression artifacts by an AI model.
 //! The result is a texture pack plus a few replacement files for the romfs.
 
@@ -24,15 +25,17 @@ use crate::downloads::{Download, Source};
 use crate::recompile::ModStep;
 use ops::{Plane, Rgba};
 
-/// The program id of the European release of the game, the only one the mod supports.
+/// The program id of the European release of the game.
+/// The mod supports only this release.
 pub const PROGRAM_ID: u64 = 0x0004_0000_0009_F100;
 
 /// The install step that builds the HD text.
-/// On Windows it needs the cleanup tool, and it downloads the fonts quietly.
+/// On Windows, it needs the cleanup tool.
+/// It downloads the fonts quietly.
 pub const STEP: ModStep = ModStep {
     name: "the HD text",
     label: "HD text",
-    about: "The game's fonts and the words painted in its pictures, drawn again at four times the resolution from your copy of the game.",
+    about: "The fonts of the game and the words painted in its pictures, drawn again at four times the resolution from your copy of the game.",
     folder: "hd",
     program_id: PROGRAM_ID,
     needs: if clean::AVAILABLE { &[clean::NEED] } else { &[] },
@@ -41,11 +44,11 @@ pub const STEP: ModStep = ModStep {
 };
 
 /// The progress message while the cleanup model downloads.
-const DOWNLOADING: &str = "Downloading the AI model that cleans the UI.";
+const DOWNLOADING: &str = "Zakuro downloads the AI model that cleans the UI.";
 /// The progress message while the cleanup runs.
-pub const CLEANING: &str = "Real-ESRGAN is removing the compression artifacts from the UI. It runs on your graphics card.";
+pub const CLEANING: &str = "Real-ESRGAN removes the compression artifacts from the UI. It runs on your graphics card.";
 /// The progress message while the text is redrawn.
-const REDRAWING: &str = "Drawing the game's text again in the new font, and enlarging the pictures around it.";
+const REDRAWING: &str = "Zakuro draws the text of the game again in the new font. It also enlarges the pictures around the text.";
 
 /// The two weights of Alegreya Sans that the text is drawn in.
 /// They come from the Google Fonts repository at a fixed commit, so they always match their hashes.
@@ -91,7 +94,8 @@ impl Font {
     }
 }
 
-/// The language letters of the European release, used in the names of the files: French, German, Italian, Spanish and English.
+/// The language letters of the European release: French, German, Italian, Spanish and English.
+/// The names of the files use these letters.
 const LANGUAGES: [char; 5] = ['F', 'G', 'I', 'S', 'U'];
 
 /// The game that is read, as a loaded title.
@@ -112,7 +116,7 @@ impl Game {
     fn list(&self, path: &str) -> Vec<String> {
         let Some(romfs) = self.title.romfs.as_ref() else { return Vec::new() };
         let Ok(mut dir) = romfs.root() else { return Vec::new() };
-        // The files of the game sit in a folder without a name when there is one.
+        // Some RomFS trees have one folder without a name at the root, and the files of the game are inside it.
         if let Some((_, nameless)) = romfs.subdirs(&dir).into_iter().find(|(_, d)| d.name.is_empty()) {
             dir = nameless;
         }
@@ -256,7 +260,9 @@ fn label_job<'a>(face: &'a text::Face, texture: rom::Texture, list: &'static [da
 }
 
 /// Builds the job that redraws the words of the big buttons in one system picture.
-/// The words are white on a clear background, among buttons and icons that the redraw of words would change, so only the part with the words is redrawn.
+/// The words are white on a clear background.
+/// Buttons and icons sit around the words, and the redraw of words changes them.
+/// For this reason, only the part with the words is redrawn.
 /// The new words are flat, because the old ones have no glow around them.
 /// The rest of the picture is enlarged as the labels of a picture are.
 fn button_words_job<'a>(face: &'a text::Face, texture: rom::Texture, texts: &'static [&'static str; 6], cleaned: &'a Cleaned) -> Job<'a> {
@@ -289,7 +295,8 @@ fn words_job<'a>(game: &'a Game, face: &'a text::Face, path: String, at: Option<
     })
 }
 
-/// The number of class names in each texture of the class name pictures, one per row of 32 pixels.
+/// The number of class names in each texture of the class name pictures.
+/// Each name takes one row of 32 pixels.
 const CLASS_ROWS: usize = 16;
 /// The slant of the class names, as a shear factor.
 const CLASS_SLANT: f32 = 0.2;
@@ -379,7 +386,8 @@ fn write_picture(out: &Path, picture: &Picture) -> Result<(), String> {
         .map_err(|error| format!("{}: {error}", path.display()))
 }
 
-/// Writes a file below the root, creating the folders it needs.
+/// Writes a file below the root.
+/// It creates the folders that it needs.
 fn write_file(root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
     let target = root.join(path);
     if let Some(parent) = target.parent() {
@@ -389,8 +397,10 @@ fn write_file(root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Builds the whole HD text from the ROM into the folder `root`, with a `textures` pack and a `romfs` folder.
-/// It cleans the pictures first when there is a cleaner, then runs all the redraw jobs on worker threads.
-/// Returns a short summary, or an error message, and `"cancelled"` when the cancel flag is set.
+/// When there is a cleaner, it cleans the pictures first.
+/// Then it runs all the redraw jobs on worker threads.
+/// Returns a short summary or an error message.
+/// The error message is `"cancelled"` when the cancel flag is set.
 pub fn generate(rom: &Path, root: &Path, font: &Font, cleaner: Option<&clean::Cleaner>, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
     let title = zakuro_fs::Title::load(rom).map_err(|error| format!("{}: {error}", rom.display()))?;
     if title.program_id() != PROGRAM_ID {
@@ -479,7 +489,8 @@ pub fn generate(rom: &Path, root: &Path, font: &Font, cleaner: Option<&clean::Cl
     let pictures = if cleaner.is_some() { cleanup_pictures(&game) } else { Vec::new() };
     let total = pictures.len() + jobs.len();
     progress(if pictures.is_empty() { REDRAWING } else { CLEANING }, 0, total);
-    // A failed cleanup is not fatal: the pictures are then used as they are.
+    // A failed cleanup is not fatal.
+    // The pictures are then used as they are.
     let mut made_clean = HashMap::new();
     if let Some(cleaner) = cleaner.filter(|_| !pictures.is_empty()) {
         match cleaner.clean(&pictures, &|done| progress(CLEANING, done.min(pictures.len()), total), cancel) {
@@ -535,7 +546,8 @@ pub fn generate(rom: &Path, root: &Path, font: &Font, cleaner: Option<&clean::Cl
 }
 
 /// The entry point of the install step.
-/// It downloads the fonts and, on Windows, the cleanup tool, then generates the HD text.
+/// It downloads the fonts and, on Windows, the cleanup tool.
+/// Then it generates the HD text.
 fn build(rom: &Path, data_dir: &Path, cleanup: bool, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
     let tools = crate::zig::tools_dir(Some(data_dir)).ok_or("the HD text has no folder to download into")?;
     let font = Font::read(&FONTS.ensure(&tools, &|_| {}, cancel)?)?;

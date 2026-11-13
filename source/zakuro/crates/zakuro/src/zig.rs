@@ -233,7 +233,9 @@ fn verify(path: &Path, archive: &Archive) -> Result<(), String> {
     Ok(())
 }
 
-/// Stops a child process from opening a console window on Windows. The command is returned so calls can be chained. Does nothing on other systems.
+/// Stops a child process from opening a console window on Windows.
+/// The command is returned so that calls can be chained.
+/// Does nothing on other systems.
 pub(crate) fn windowless(command: &mut Command) -> &mut Command {
     #[cfg(windows)]
     {
@@ -245,7 +247,8 @@ pub(crate) fn windowless(command: &mut Command) -> &mut Command {
 }
 
 /// Stops a child process from opening a console window, and starts it below the normal priority, on Windows.
-/// The computer then stays responsive while the process works, and the command is returned so calls can be chained.
+/// The computer then stays responsive while the process works.
+/// The command is returned so that calls can be chained.
 /// Does nothing on other systems.
 pub(crate) fn in_background(command: &mut Command) -> &mut Command {
     #[cfg(windows)]

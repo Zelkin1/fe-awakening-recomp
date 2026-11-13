@@ -1,12 +1,15 @@
-//! The console window of the launcher on Windows. The launcher has no console of its own, so this module attaches to the console of the parent process and shows or hides a console on request.
+//! The console window of the launcher on Windows.
+//! The launcher has no console of its own, so this module attaches to the console of the parent process and shows or hides a console on request.
 
-/// Attaches to the console of the parent process when this process has none. Does nothing outside Windows.
+/// Attaches to the console of the parent process when this process has none.
+/// Does nothing outside Windows.
 pub fn attach() {
     #[cfg(windows)]
     windows::attach();
 }
 
-/// Shows or hides the console window. Does nothing outside Windows.
+/// Shows or hides the console window.
+/// Does nothing outside Windows.
 pub fn show(on: bool) {
     #[cfg(windows)]
     windows::show(on);
@@ -56,7 +59,8 @@ mod windows {
         }
     }
 
-    /// Shows the console by creating one, or hides it by freeing it. Asking for the state that is already set does nothing.
+    /// Shows the console by creating one, or hides it by freeing it.
+    /// Asking for the state that is already set does nothing.
     pub fn show(on: bool) {
         let wanted = if on { SHOWN } else { HIDDEN };
         if STATE.swap(wanted, Ordering::Relaxed) == wanted {

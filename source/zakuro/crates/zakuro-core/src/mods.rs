@@ -154,7 +154,8 @@ fn decompressed(bytes: Vec<u8>, title: &Title) -> Vec<u8> {
     lz77::decompress(&bytes).unwrap_or(bytes)
 }
 
-/// Lays the mods of the title over it, saying in the log what they changed.
+/// Lays the mods of the title over it.
+/// It says in the log what they changed.
 pub fn lay(title: &mut Title, data_dir: Option<&Path>) {
     let Some(data_dir) = data_dir else {
         return;

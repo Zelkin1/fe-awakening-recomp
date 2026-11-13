@@ -14,7 +14,8 @@ const SHORT: u32 = 0x1402;
 const UBYTE: u32 = 0x1401;
 /// The OpenGL code of a signed 8 bit integer.
 const BYTE: u32 = 0x1400;
-/// The OpenGL code of an unsigned 16 bit integer, which is used for the indices of triangles.
+/// The OpenGL code of an unsigned 16 bit integer.
+/// The indices of triangles use this code.
 const SHORT_INDICES: u32 = 0x1403;
 /// The usage of an attribute that holds the position of a vertex.
 pub const POSITION: u32 = 0;
@@ -89,7 +90,8 @@ pub fn parts(b: &Blob) -> Result<(usize, usize, usize), String> {
     if b.0.get(0..4) != Some(b"CGFX") {
         return Err("not a CGFX file".into());
     }
-    // The header size is at 6, and the dictionary of the models is the first pointer after the header.
+    // The header size is at 6.
+    // The dictionary of the models is the first pointer after the header.
     let models = b.dict(b.rel(b.u16(6) as usize + 12))?;
     let model = models.first().ok_or("no model")?.1;
     Ok((model, b.to(model + 0xE0)?, b.to(b.to(model + 0xC8)?)?))
@@ -105,7 +107,8 @@ pub fn vertices(b: &Blob, shape: usize) -> Result<Vertices, String> {
     let list = b.to(buffer + 0x2C)?;
     for i in 0..b.u32(buffer + 0x28) as usize {
         let at = b.to(list + 4 * i)?;
-        // The usage is at 4 in an attribute, and the format, the value count, the scale and the offset are at 36, 40, 44 and 48.
+        // The usage is at 4 in an attribute.
+        // The format, the value count, the scale and the offset are at 36, 40, 44 and 48.
         let attr = Attr { format: b.u32(at + 36), count: b.u32(at + 40) as usize, scale: b.f32(at + 44), offset: b.u32(at + 48) as usize };
         attrs.insert(b.u32(at + 4), attr);
     }
@@ -156,7 +159,8 @@ pub fn submeshes(b: &Blob, shape: usize) -> Result<Vec<SubMesh>, String> {
                 (0..count).map(|k| b.u32(at + 4 * k)).collect()
             }
         };
-        // The faces of the part hold streams of indices, and every three indices of a stream are one triangle.
+        // The faces of the part hold streams of indices.
+        // Every three indices of a stream are one triangle.
         let mut triangles = Vec::new();
         let faces = b.rel(sm + 0x10);
         for f in 0..b.u32(sm + 0x0C) as usize {

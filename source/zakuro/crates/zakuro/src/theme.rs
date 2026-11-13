@@ -258,7 +258,8 @@ pub fn primary_command(ui: &mut egui::Ui, icon: &str, label: &str) -> Response {
     styled_command(ui, icon, label, true, true)
 }
 
-/// Draws a command and returns its response, shared by `command` and `primary_command`.
+/// Draws a command and returns its response.
+/// Both `command` and `primary_command` use this function.
 fn styled_command(ui: &mut egui::Ui, icon: &str, label: &str, enabled: bool, primary: bool) -> Response {
     let width = ui.available_width().max(200.0);
     let height = if primary { 42.0 } else { 32.0 };
@@ -357,7 +358,8 @@ pub fn slot(ui: &mut egui::Ui, label: &str, filled: bool, enabled: bool, current
         (false, _, true) => (IVORY, IVORY_LOW),
         (false, _, false) => (PARCHMENT_DEEP, PARCHMENT_DEEP),
     };
-    // The rounded fill shows at the corners, where the rectangular gradient inside would stick out.
+    // The rounded fill shows at the corners.
+    // The gradient inside is a rectangle, so without the fill the corners are square.
     painter.rect_filled(rect, CornerRadius::same(4), low);
     gradient(painter, rect.shrink(1.0), high, low);
     let edge = if current { Stroke::new(2.0, FRAME_DARK) } else { Stroke::new(1.0, FRAME) };
@@ -434,7 +436,7 @@ pub fn progress(ui: &mut egui::Ui, fraction: f32, text: &str, width: f32, height
     response
 }
 
-/// Draws a label in cream, readable on the dark backdrop.
+/// Draws a label in cream, which is readable on the dark backdrop.
 pub fn on_backdrop(ui: &mut egui::Ui, text: &str) -> Response {
     ui.label(RichText::new(text).font(bold(16.0)).color(CREAM))
 }

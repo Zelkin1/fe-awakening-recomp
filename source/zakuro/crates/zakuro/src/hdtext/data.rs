@@ -120,7 +120,8 @@ pub struct Label {
     pub box_: [usize; 4],
     /// The text to draw.
     pub text: &'static str,
-    /// The name of the group of the label, or empty. Labels of a group are drawn at the same scale.
+    /// The name of the group of the label, or empty.
+    /// Labels of a group are drawn at the same scale.
     pub group: &'static str,
     /// Whether the label is a button, which is drawn differently from a plain label.
     pub button: bool,

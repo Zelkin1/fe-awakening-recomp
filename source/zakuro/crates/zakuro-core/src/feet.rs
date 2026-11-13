@@ -1,6 +1,7 @@
 //! Keeps the feet of a model on the floor.
 //!
-//! A hook on the skinning product of the game checks the bone of a foot and, when the foot sinks into the floor, turns it about the ankle until it rests on the floor.
+//! A hook on the skinning product of the game checks the bone of a foot.
+//! When the foot sinks into the floor, the hook turns the foot about the ankle until it rests on the floor.
 //! Only bones whose inverse bind data carries the `FEET` tag are touched.
 
 use recomp_abi::Context;
@@ -11,12 +12,14 @@ use crate::recompiled::AfterHook;
 
 /// The address of the function of the game that multiplies a world matrix by an inverse bind matrix to give a skinning matrix.
 pub const SKINNING_PRODUCT: u32 = 0x0030_6964;
-/// The return address inside the skinning loop of the game, which tells that the call comes from that loop.
+/// The return address inside the skinning loop of the game.
+/// It tells that the call comes from that loop.
 const SKINNING_LOOP_RETURN: u32 = 0x0026_07CC;
 
 /// The marker that a foot bone carries in its inverse bind data.
 const FOOT_TAG: u32 = u32::from_le_bytes(*b"FEET");
-/// The offset of the marker from the start of the inverse bind data, which is right after the three foot points of 12 bytes each.
+/// The offset of the marker from the start of the inverse bind data.
+/// The marker is right after the three foot points of 12 bytes each.
 const FOOT_TAG_OFFSET: u32 = 36;
 /// The distance from the start of the bone record to its inverse bind data.
 const INVERSE_BIND_OFFSET: u32 = 0xA4;
@@ -50,7 +53,8 @@ pub fn keep_feet_on_the_ground(memory: &mut Memory, ctx: &mut Context) -> AfterH
     if parent >= bone {
         return AfterHook::RunOriginal;
     }
-    // The matrices of the bones are stored one after the other, so the skinning matrix of the parent and the world matrix of the first bone are found by stepping back from the current ones.
+    // The matrices of the bones are stored one after the other.
+    // For this reason, the skinning matrix of the parent and the world matrix of the first bone are found by stepping back from the current ones.
     let shin = read_matrix(memory, skinning_matrix.wrapping_sub((bone - parent) * MATRIX_BYTES));
     let model = read_matrix(memory, world_matrix.wrapping_sub(bone * MATRIX_BYTES));
     let [ankle, toe, heel] = read_foot_points(memory, inverse_bind).map(|point| apply(&shin, point));
@@ -65,7 +69,8 @@ pub fn keep_feet_on_the_ground(memory: &mut Memory, ctx: &mut Context) -> AfterH
     AfterHook::ReturnToCaller
 }
 
-/// Reads the ankle, toe and heel points of the foot, nine floats at the start of the inverse bind data.
+/// Reads the ankle, toe and heel points of the foot.
+/// They are nine floats at the start of the inverse bind data.
 fn read_foot_points(memory: &mut Memory, inverse_bind: u32) -> [Vector; 3] {
     let mut points = [[0.0; 3]; 3];
     for (point_index, point) in points.iter_mut().enumerate() {
@@ -92,7 +97,8 @@ fn turn_onto_floor(ankle: Vector, toe: Vector, heel: Vector, up: Vector, floor: 
     }
     let axis = normalize(across);
     let rise = dot(up, sole);
-    // The angle at which the sole is perpendicular to the up direction, which lays the foot flat.
+    // The angle at which the sole is perpendicular to the up direction.
+    // This angle lays the foot flat.
     let angle_to_flat = (rise / dot(sole, sole).sqrt()).clamp(-1.0, 1.0).asin();
     if rise >= 0.0 {
         return Some((axis, angle_to_flat));
@@ -101,7 +107,9 @@ fn turn_onto_floor(ankle: Vector, toe: Vector, heel: Vector, up: Vector, floor: 
     if toe_height_at(angle_to_flat) <= 0.0 {
         return Some((axis, angle_to_flat));
     }
-    // The toe is the low point and laying the foot flat would leave it above the floor, so the angle is searched at which the toe touches the floor.
+    // The toe is the low point.
+    // When the foot is laid flat, the toe is above the floor.
+    // For this reason, the search finds the angle at which the toe touches the floor.
     let (mut toe_under_floor, mut toe_over_floor) = (0.0, angle_to_flat);
     for _ in 0..BISECTION_STEPS {
         let middle = (toe_under_floor + toe_over_floor) / 2.0;
@@ -203,7 +211,8 @@ mod tests {
     /// A point on the floor of the tests.
     const FLOOR: Vector = [0.0, 0.0, 0.0];
 
-    /// Places a foot with the ankle at the height, leans it by the angle in degrees, and returns the toe and the heel after the correction.
+    /// Places a foot with the ankle at the height and leans it by the angle in degrees.
+    /// Returns the toe and the heel after the correction.
     fn stand(lean: f32, height: f32) -> (Vector, Vector) {
         let (sin, cos) = lean.to_radians().sin_cos();
         let ankle = [0.0, height, 0.0];

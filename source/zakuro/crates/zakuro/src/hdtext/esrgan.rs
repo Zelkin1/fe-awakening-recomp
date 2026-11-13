@@ -1,5 +1,6 @@
 //! Converts a legacy PyTorch `.pth` ESRGAN model into ncnn files.
-//! The weights are read with a small pickle reader, and the ncnn graph of the 4x model is edited into a 1x graph.
+//! The weights are read with a small pickle reader.
+//! The ncnn graph of the 4x model is edited into a 1x graph.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -7,17 +8,20 @@ use std::collections::{BTreeSet, HashMap};
 const MAGIC: [u8; 10] = [0x6c, 0xfc, 0x9c, 0x46, 0xf9, 0x20, 0x6a, 0xa8, 0x50, 0x19];
 /// The number of residual blocks in the trunk of the network.
 const BLOCKS: usize = 23;
-/// The layers of the 4x graph that upscale, which the 1x graph drops.
+/// The layers of the 4x graph that upscale.
+/// The 1x graph drops these layers.
 const DROPPED: [&str; 4] = ["Resize_1177", "Conv_1178", "Resize_1181", "Conv_1182"];
 /// The high resolution convolution that follows the dropped layers.
 const HR_CONVOLUTION: &str = "Conv_1184";
-/// The blob that holds the output of the trunk, which the high resolution convolution reads in the 1x graph.
+/// The blob that holds the output of the trunk.
+/// In the 1x graph, the high resolution convolution reads this blob.
 const TRUNK_SUM: &str = "1878";
 /// The ncnn line of the layer that enlarges the final output to twice the size.
 const DOUBLING: &str = "Interp                   Resize_out               1 1 x1 output 0=1 1=2.000000e+00 2=2.000000e+00";
 
 /// Converts a 1x model into an ncnn `.param` text and a `.bin` of weights.
-/// The template is the `.param` text of the 4x graph, which is edited to fit the 1x weights.
+/// The template is the `.param` text of the 4x graph.
+/// The template is edited to fit the 1x weights.
 pub fn one_x(template: &str, pth: &[u8]) -> Result<(String, Vec<u8>), String> {
     let state = read_legacy(pth)?;
     let convolutions = in_graph_order(&state)?;
@@ -104,7 +108,8 @@ impl<'a> Reader<'a> {
 }
 
 /// Reads one pickle from the reader, up to its stop operation.
-/// It only understands the operations that PyTorch writes in the legacy format, and it does not run any code.
+/// It only understands the operations that PyTorch writes in the legacy format.
+/// It does not run any code.
 fn unpickle(reader: &mut Reader) -> Result<Value, String> {
     let mut stack: Vec<Value> = Vec::new();
     // The memo holds the values that the pickle stores to use again.
@@ -112,7 +117,8 @@ fn unpickle(reader: &mut Reader) -> Result<Value, String> {
     loop {
         let op = reader.byte()?;
         let value = match op {
-            // The protocol operation, followed by the version, which is skipped.
+            // The protocol operation is followed by the version.
+            // The version is skipped.
             0x80 => {
                 reader.byte()?;
                 continue;
@@ -157,7 +163,8 @@ fn unpickle(reader: &mut Reader) -> Result<Value, String> {
                 let start = stack.len().checked_sub(count).ok_or("the model file has a short tuple")?;
                 Value::Tuple(stack.split_off(start))
             }
-            // Add one item or a group of items to the list, or add key and value pairs to the dictionary, that is on the stack.
+            // These operations add one item or a group of items to the list on the stack.
+            // Other operations add key and value pairs to the dictionary on the stack.
             b'a' | b'e' | b's' | b'u' => {
                 let items = match op {
                     b'a' => vec![pop(&mut stack)?],
@@ -179,7 +186,7 @@ fn unpickle(reader: &mut Reader) -> Result<Value, String> {
                 }
                 continue;
             }
-            // Store the top of the stack in the memo, and fetch a value from the memo.
+            // These operations store the top of the stack in the memo, or fetch a value from the memo.
             b'q' | b'r' => {
                 let index = if op == b'q' { reader.byte()? as u32 } else { reader.u32()? };
                 memo.insert(index, stack.last().cloned().ok_or("the model file keeps nothing")?);
@@ -194,7 +201,9 @@ fn unpickle(reader: &mut Reader) -> Result<Value, String> {
                 let name = reader.line()?;
                 Value::Global(format!("{module}.{name}"))
             }
-            // A call: an ordered dictionary becomes an empty dictionary, and any other global is kept with its arguments.
+            // This operation is a call.
+            // An ordered dictionary becomes an empty dictionary.
+            // Any other global is kept with its arguments.
             b'R' => {
                 let arguments = pop(&mut stack)?;
                 match (pop(&mut stack)?, arguments) {
@@ -203,12 +212,14 @@ fn unpickle(reader: &mut Reader) -> Result<Value, String> {
                     _ => return Err("the model file calls something unknown".to_owned()),
                 }
             }
-            // The build operation sets the state of an object, which is dropped.
+            // The build operation sets the state of an object.
+            // The reader drops this state.
             b'b' => {
                 pop(&mut stack)?;
                 continue;
             }
-            // A persistent id, which PyTorch uses to point at a storage. Only storages of 32-bit floats are accepted.
+            // PyTorch uses a persistent id to point at a storage.
+            // Only storages of 32-bit floats are accepted.
             b'Q' => match pop(&mut stack)? {
                 Value::Tuple(id) => match id.as_slice() {
                     [Value::Text(kind), Value::Global(storage), Value::Text(key), ..] if kind == "storage" && storage == "torch.FloatStorage" => Value::Storage(key.clone()),
@@ -250,7 +261,7 @@ fn read_legacy(pth: &[u8]) -> Result<HashMap<String, Tensor>, String> {
     let Value::List(keys) = unpickle(&mut reader)? else { return Err("the model file lists no storages".to_owned()) };
     let mut storages = HashMap::new();
     for key in keys {
-        let Value::Text(key) = key else { return Err("the model file names a storage oddly".to_owned()) };
+        let Value::Text(key) = key else { return Err("the model file has a storage name that is not text".to_owned()) };
         let count = usize::try_from(reader.i64()?).map_err(|_| "the model file has a storage of negative size")?;
         let values = reader.take(count * 4)?.chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect::<Vec<f32>>();
         storages.insert(key, values);
@@ -258,14 +269,15 @@ fn read_legacy(pth: &[u8]) -> Result<HashMap<String, Tensor>, String> {
     state
         .into_iter()
         .map(|(name, tensor)| {
-            let Value::Text(name) = name else { return Err("the model file names a weight oddly".to_owned()) };
-            let tensor = rebuild(&tensor, &storages).ok_or_else(|| format!("the model weight {name} can't be read"))?;
+            let Value::Text(name) = name else { return Err("the model file has a weight name that is not text".to_owned()) };
+            let tensor = rebuild(&tensor, &storages).ok_or_else(|| format!("Zakuro cannot read the model weight {name}"))?;
             Ok((name, tensor))
         })
         .collect()
 }
 
-/// Builds a tensor from a stored `_rebuild_tensor_v2` call, using its storage, offset, size and strides.
+/// Builds a tensor from a stored `_rebuild_tensor_v2` call.
+/// It uses the storage, offset, size and strides of the call.
 /// The strides are followed, so the values come out in row-major order whatever the layout was.
 fn rebuild(tensor: &Value, storages: &HashMap<String, Vec<f32>>) -> Option<Tensor> {
     let Value::Call(function, arguments) = tensor else { return None };
@@ -281,7 +293,8 @@ fn rebuild(tensor: &Value, storages: &HashMap<String, Vec<f32>>) -> Option<Tenso
     for _ in 0..count {
         let at = usize::try_from(*offset).ok()? + index.iter().zip(&stride).map(|(i, s)| i * s).sum::<usize>();
         values.push(*data.get(at)?);
-        // Step the index like an odometer, with the last dimension turning fastest.
+        // The index steps like an odometer.
+        // The last dimension turns fastest.
         for d in (0..size.len()).rev() {
             index[d] += 1;
             if index[d] < size[d] {
@@ -325,26 +338,30 @@ fn field<'a>(line: &'a str, index: usize) -> &'a str {
     line.split_whitespace().nth(index).unwrap_or("")
 }
 
-/// Returns the line with one field replaced, and with the spacing normalised to single spaces.
+/// Returns the line with one field replaced, and with the spacing normalized to single spaces.
 fn with_field(line: &str, index: usize, value: &str) -> String {
     line.split_whitespace().enumerate().map(|(i, part)| if i == index { value } else { part }).collect::<Vec<_>>().join(" ")
 }
 
 /// Edits the `.param` text of the 4x graph into a 1x graph.
-/// It drops the two upscaling stages, feeds the high resolution convolution from the trunk, renames the final blob and adds the doubling layer.
+/// It drops the two upscaling stages.
+/// It feeds the high resolution convolution from the trunk.
+/// It renames the final blob and adds the doubling layer.
 fn one_x_param(template: &str) -> Result<String, String> {
     let lines: Vec<&str> = template.lines().collect();
-    // The first line is the magic number of the format, and the second line holds the counts of layers and blobs.
-    let [magic, counts, ..] = lines.as_slice() else { return Err("the program's model description is empty".to_owned()) };
+    // The first line is the magic number of the format.
+    // The second line holds the counts of layers and blobs.
+    let [magic, counts, ..] = lines.as_slice() else { return Err("the model description of the program is empty".to_owned()) };
     // Four layers are dropped and one is added, so both counts shrink by three.
-    let count = |index: usize| field(counts, index).parse::<usize>().ok().and_then(|n| n.checked_sub(3)).ok_or("the program's model description has no counts");
+    let count = |index: usize| field(counts, index).parse::<usize>().ok().and_then(|n| n.checked_sub(3)).ok_or("the model description of the program has no counts");
     let (layers, blobs) = (count(0)?, count(1)?);
     let mut body: Vec<String> = lines[2..].iter().filter(|line| !DROPPED.contains(&field(line, 1))).map(|line| line.to_string()).collect();
-    let hr = body.iter().position(|line| field(line, 1) == HR_CONVOLUTION).ok_or("the program's model description has no HR convolution")?;
+    let hr = body.iter().position(|line| field(line, 1) == HR_CONVOLUTION).ok_or("the model description of the program has no HR convolution")?;
     // Field 4 is the input blob of the layer.
     body[hr] = with_field(&body[hr], 4, TRUNK_SUM);
-    let last = body.last_mut().filter(|line| field(line, 5) == "output").ok_or("the program's model description ends oddly")?;
-    // Field 5 is the output blob of the layer, which now feeds the doubling layer.
+    let last = body.last_mut().filter(|line| field(line, 5) == "output").ok_or("the model description of the program has an unexpected last line")?;
+    // Field 5 is the output blob of the layer.
+    // This blob now feeds the doubling layer.
     *last = with_field(last, 5, "x1");
     body.push(DOUBLING.to_owned());
     Ok(format!("{magic}\n{layers} {blobs}\n{}\n", body.join("\n")))
@@ -355,14 +372,15 @@ fn one_x_param(template: &str) -> Result<String, String> {
 fn weights(param: &str, convolutions: &[(&Tensor, &Tensor)]) -> Result<Vec<u8>, String> {
     let layers: Vec<&str> = param.lines().filter(|line| line.starts_with("Convolution")).collect();
     if layers.len() != convolutions.len() {
-        return Err(format!("the model has {} convolutions where the program takes {}", convolutions.len(), layers.len()));
+        return Err(format!("the model has {} convolutions, but the program needs {}", convolutions.len(), layers.len()));
     }
     let mut bin = Vec::new();
     for (layer, (weight, bias)) in layers.iter().zip(convolutions) {
-        // Parameter 0 is the number of outputs, which is the size of the bias, and parameter 6 is the size of the weights.
+        // Parameter 0 is the number of outputs, which is the size of the bias.
+        // Parameter 6 is the size of the weights.
         let setting = |key: &str| layer.split_whitespace().find_map(|part| part.strip_prefix(key)?.parse::<usize>().ok());
         if setting("6=") != Some(weight.values.len()) || setting("0=") != Some(bias.values.len()) || weight.size.len() != 4 {
-            return Err(format!("the model weights don't fit {}", field(layer, 1)));
+            return Err(format!("the model weights do not fit {}", field(layer, 1)));
         }
         bin.extend_from_slice(&0u32.to_le_bytes());
         for value in weight.values.iter().chain(&bias.values) {

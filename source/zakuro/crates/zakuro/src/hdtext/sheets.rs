@@ -1,6 +1,7 @@
 //! Redraws the bitmap fonts of the game in a new font.
 //!
-//! A font file holds a table of glyphs and a few sheets of 4 bit glyph images. The glyphs are drawn again at 4 times the size, packed onto the sheets and written back, together with the large sheets for the texture pack.
+//! A font file holds a table of glyphs and a few sheets of 4 bit glyph images.
+//! The glyphs are drawn again at 4 times the size, packed onto the sheets and written back, together with the large sheets for the texture pack.
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
@@ -56,7 +57,8 @@ fn u16_at(d: &[u8], at: usize) -> usize {
     u16::from_le_bytes([d[at], d[at + 1]]) as usize
 }
 
-/// Parses a font file. Returns `None` when the data is too short or the glyph table does not fit.
+/// Parses a font file.
+/// Returns `None` when the data is too short or the glyph table does not fit.
 pub fn parse(data: &[u8]) -> Option<Bfnt> {
     if data.len() < 0x30 {
         return None;
@@ -130,7 +132,8 @@ fn cell_of(images: &[Plane], g: &Glyph) -> Plane {
     images[g.sheet].crop(g.x, g.y, g.x + g.w, g.y + g.h)
 }
 
-/// Returns the sum over the rows of the strongest value in each row, which measures the height of the ink with soft edges.
+/// Returns the sum over the rows of the strongest value in each row.
+/// This sum measures the height of the ink with soft edges.
 fn ink_height(p: &Plane) -> f32 {
     (0..p.h).map(|y| p.row_max(y)).sum()
 }
@@ -148,7 +151,8 @@ fn soften(cell: &Plane) -> Plane {
     shaped.down(4)
 }
 
-/// Encodes a plane as an A4 texture, which has 4 bits of alpha per pixel in the Morton order of the GPU.
+/// Encodes a plane as an A4 texture.
+/// An A4 texture has 4 bits of alpha per pixel in the Morton order of the GPU.
 fn encode_a4(p: &Plane) -> Vec<u8> {
     let mut out = vec![0u8; p.w * p.h / 2];
     for y in 0..p.h {
@@ -174,7 +178,8 @@ enum Kind {
 
 /// A finished replacement of one glyph.
 struct Made {
-    /// The glyph entry with the new metrics. The place on the sheet is set later.
+    /// The glyph entry with the new metrics.
+    /// The place on the sheet is set later.
     glyph: Glyph,
     /// The image at 4 times the size.
     fine: Plane,
@@ -182,7 +187,10 @@ struct Made {
     coarse: Plane,
 }
 
-/// Draws one character with the fine face at 4 times the size, shifted horizontally by `shift` pixels. Returns the left offset, the width, the height, the top offset and the picture. The sizes and offsets are in original pixels, and the picture covers whole original pixels.
+/// Draws one character with the fine face at 4 times the size, shifted horizontally by `shift` pixels.
+/// Returns the left offset, the width, the height, the top offset and the picture.
+/// The sizes and offsets are in original pixels.
+/// The picture covers whole original pixels.
 fn vector(fine: &Face, c: char, shift: f32) -> Option<(i32, usize, usize, i32, Plane)> {
     let (plane, ox, oy) = fine.placed(c, shift * SCALE as f32, 0.0)?;
     let s = SCALE as f32;
@@ -198,7 +206,8 @@ fn vector(fine: &Face, c: char, shift: f32) -> Option<(i32, usize, usize, i32, P
 
 /// Enlarges the picture of a glyph of the original font by 4.
 fn bitmap(images: &[Plane], g: &Glyph) -> Plane {
-    // Two pixels of the neighbourhood are included so that the enlargement of the edges is correct, and are cut off again afterwards.
+    // Two pixels of the neighborhood are included so that the enlargement of the edges is correct.
+    // They are cut off again afterwards.
     let (x0, y0) = (g.x.saturating_sub(2), g.y.saturating_sub(2));
     let (x1, y1) = ((g.x + g.w + 2).min(images[g.sheet].w), (g.y + g.h + 2).min(images[g.sheet].h));
     let around = soften(&images[g.sheet].crop(x0, y0, x1, y1));
@@ -206,7 +215,9 @@ fn bitmap(images: &[Plane], g: &Glyph) -> Plane {
     around.crop(ox, oy, ox + g.w * SCALE, oy + g.h * SCALE)
 }
 
-/// Packs rectangles onto sheets in rows, called shelves, with the tallest rectangles first. Returns the sheet, x and y of every rectangle, or `None` when they do not fit.
+/// Packs rectangles onto sheets in rows, with the tallest rectangles first.
+/// The rows are called shelves.
+/// Returns the sheet, x and y of every rectangle, or `None` when they do not fit.
 fn pack(sizes: &[(usize, usize)], width: usize, height: usize, sheets: usize) -> Option<Vec<(usize, usize, usize)>> {
     let mut order: Vec<usize> = (0..sizes.len()).collect();
     order.sort_by_key(|&i| (Reverse(sizes[i].1), Reverse(sizes[i].0)));
@@ -230,7 +241,9 @@ fn pack(sizes: &[(usize, usize)], width: usize, height: usize, sheets: usize) ->
     Some(places)
 }
 
-/// Redraws a whole font file in the new face. The `images` are the sheets of the original font as planes. Returns `None` when a measurement fails or the result does not fit the file format.
+/// Redraws a whole font file in the new face.
+/// The `images` are the sheets of the original font as planes.
+/// Returns `None` when a measurement fails or the result does not fit the file format.
 pub fn redraw(face: &Face, data: &[u8], font: &Bfnt, images: &[Plane], style: &Style) -> Option<Redrawn> {
     let by_code: HashMap<u32, Glyph> = font.glyphs.iter().map(|g| (g.code, *g)).collect();
     // The face is measured at a large size first and then scaled to match the original font.
@@ -278,7 +291,7 @@ pub fn redraw(face: &Face, data: &[u8], font: &Bfnt, images: &[Plane], style: &S
             }
         })
         .collect();
-    // In the digit fonts, the symbols that are not letters or digits are shrunk when they would be taller than the original symbol.
+    // In the digit fonts, the symbols that are not letters or digits are shrunk when they are taller than the original symbol.
     let shrink: Vec<f32> = font
         .glyphs
         .iter()
@@ -312,7 +325,8 @@ pub fn redraw(face: &Face, data: &[u8], font: &Bfnt, images: &[Plane], style: &S
                         let smaller = (shrink[i] < 1.0).then(|| (probe.sized(em * shrink[i]), probe.sized(em * shrink[i] * SCALE as f32)));
                         let (face, fine) = smaller.as_ref().map_or((&face, &fine), |(coarse, fine)| (coarse, fine));
                         let (spaced, cut) = face.spaced(c);
-                        // The digits share one advance and are centred in it. Other characters are centred in their rounded advance.
+                        // The digits share one advance and are centered in it.
+                        // Other characters are centered in their rounded advance.
                         let (advance, shift) = if c.is_ascii_digit() {
                             (digit_advance, (digit_advance as f32 - face.advance(c)) / 2.0)
                         } else {

@@ -17,7 +17,10 @@ pub enum Toolchain {
     Download(PathBuf),
 }
 
-/// A function that builds the files of a mod step. It receives the game file, the data folder, whether the optional part of the mod is wanted, a progress callback and a cancel flag. The progress callback receives what is being done, the parts done and the parts in total. It returns a short report of what was built.
+/// A function that builds the files of a mod step.
+/// It receives the game file, the data folder, whether the optional part of the mod is wanted, a progress callback and a cancel flag.
+/// The progress callback receives what is being done, the parts done and the parts in total.
+/// It returns a short report of what was built.
 pub type ModBuilder = fn(rom: &Path, data_dir: &Path, optional: bool, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String>;
 
 /// One installable part of the mods of a game, such as the HD text.
@@ -52,7 +55,8 @@ pub const MOD_STEPS: &[ModStep] = &[crate::feet::STEP, crate::hdtext::STEP];
 
 
 impl ModStep {
-    /// Returns true when a download that the user is told about is missing. Returns false when the tools folder is unknown.
+    /// Returns true when a download that the user is told about is missing.
+    /// Returns false when the tools folder is unknown.
     pub fn lacks_downloads(&self, data_dir: &Path) -> bool {
         crate::zig::tools_dir(Some(data_dir)).is_some_and(|tools| self.needs.iter().any(|need| !need.download.present(&tools)))
     }
@@ -68,7 +72,8 @@ impl ModStep {
         needs.iter().map(|need| &need.download).chain(self.quietly)
     }
 
-    /// Removes the folder of the step and the downloads of the step. A download that another installed step also uses stays.
+    /// Removes the folder of the step and the downloads of the step.
+    /// A download that another installed step also uses stays.
     pub fn uninstall(&self, data_dir: &Path) -> Result<(), String> {
         let folder = self.folder_in(data_dir);
         std::fs::remove_dir_all(&folder).map_err(|error| format!("{}: {error}", folder.display()))?;
@@ -91,7 +96,7 @@ impl ModStep {
 
 /// Removes what the launcher built for a game: its recompiled code, the work files of the recompiler and the mods that the launcher built for it.
 /// The saves, the save states, the settings and the mods that the user added stay.
-/// Every part is tried, and the parts that could not be removed are listed in the error.
+/// The function tries every part, and the error lists the parts that it did not remove.
 pub fn remove_builds(program_id: u64, data_dir: Option<&Path>) -> Result<(), String> {
     remove_builds_in(program_id, recomp3ds::abi::library_dir().as_deref(), &build::cache_dir(program_id), data_dir)
 }
@@ -194,7 +199,8 @@ pub struct Job {
 }
 
 impl Job {
-    /// Starts recompiling the game at the path of the rom on a thread. The toolchain says whether the compiler is ready or must be downloaded first.
+    /// Starts recompiling the game at the path of the rom on a thread.
+    /// The toolchain says whether the compiler is ready or must be downloaded first.
     pub fn start(rom: &Path, update: Option<&Path>, program_id: u64, name: &str, data_dir: Option<&Path>, toolchain: Toolchain) -> Job {
         let first = match &toolchain {
             Toolchain::Download(_) => Stage::Downloading(0.0),

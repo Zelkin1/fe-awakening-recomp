@@ -42,11 +42,11 @@ const WEIGHTS: Source = Source {
 };
 
 /// The download that the cleanup needs, with the reason that is shown to the player.
-/// The weights are converted by `prepare` once they have arrived.
+/// The weights are converted by `prepare` once they arrive.
 pub const NEED: Need = Need {
     name: "AI cleanup",
-    what: "an AI model, BCGone Smooth, and Real-ESRGAN's program that runs it",
-    why: "The 3DS stores the UI compressed, which leaves blocks and stripes in it. Before the words are drawn again, the model looks at each menu picture on your graphics card and smooths those blocks away, keeping the drawing as it is.",
+    what: "an AI model, BCGone Smooth, and the Real-ESRGAN program that runs it",
+    why: "The 3DS stores the UI in a compressed form. The compression leaves blocks and stripes in the UI. Before Zakuro draws the words again, the model looks at each menu picture on your graphics card. The model smooths those blocks away and keeps the drawing as it is.",
     download: Download { folder: "ui-cleanup-1", sources: &[RUNNER, WEIGHTS], finish: Some(prepare) },
 };
 
@@ -89,7 +89,7 @@ fn prepare(folder: &Path) -> Result<(), String> {
 pub const FOLDERS: [&str; 14] = ["ui", "ui/resident", "gmap", "systems", "room", "jobintro", "bs", "telop", "tut", "tut/F", "tut/G", "tut/I", "tut/S", "tut/U"];
 /// The 3DS texture formats that store pictures in compressed blocks: ETC1 and ETC1A4.
 /// The model removes the traces of these blocks.
-/// The formats with fewer bits per colour, such as RGBA4, hold pixel art without blocks, which the model would only smear.
+/// The formats with fewer bits per colour, such as RGBA4, hold pixel art without blocks, which the model only smears.
 const BLOCK_COMPRESSED: [u32; 2] = [12, 13];
 /// The file name of the program in the download.
 const PROGRAM: &str = if cfg!(windows) { "realesrgan-ncnn-vulkan.exe" } else { "realesrgan-ncnn-vulkan" };
@@ -109,7 +109,7 @@ const LARGE_CHANGE: f32 = 0.14;
 const STALL: Duration = Duration::from_secs(60);
 /// The size in pixels under which a separate shape counts as a tiny icon, by its largest side.
 const TINY_ICON: usize = 24;
-/// The largest mean difference that a cleaned picture may have from the original.
+/// The largest mean difference that a cleaned picture can have from the original.
 const FIDELITY: f32 = 0.025;
 /// The number of pictures that the program gets in one run.
 /// Each run loads the model again, so fewer and larger runs are faster.
@@ -211,7 +211,7 @@ impl Cleaner {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|error| format!("the cleanup could not start, {error}"))?;
+            .map_err(|error| format!("the cleanup did not start, {error}"))?;
         // Wait for the program, and count the finished pictures in the output folder to report the progress.
         let mut last_progress = (0, Instant::now());
         let status = loop {
@@ -226,7 +226,7 @@ impl Cleaner {
                 last_progress = (done, Instant::now());
             }
             // The program can stop making progress on a picture.
-            // It is then stopped, and the pictures it finished are kept, while the others go to the second try.
+            // It is then stopped. The pictures that it finished are kept, and the others go to the second try.
             if last_progress.1.elapsed() > STALL {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -381,7 +381,8 @@ fn panels(picture: &Rgba) -> Mask {
 }
 
 /// Adds a faint film grain to the flat parts of the panels, which the cleanup leaves too smooth.
-/// The noise is deterministic, as it depends only on the name of the picture, so a rebuild gives the same pictures.
+/// The noise is deterministic, because it depends only on the name of the picture.
+/// A rebuild therefore gives the same pictures.
 fn grain(picture: &mut Rgba, name: &str) {
     let (w, h) = (picture.w, picture.h);
     let panel = panels(picture);

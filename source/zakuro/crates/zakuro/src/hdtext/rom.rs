@@ -26,7 +26,7 @@ impl Texture {
     }
 
     /// Decodes the texture into a floating point picture.
-    /// The formats that only hold alpha are given white colour.
+    /// The formats that only hold alpha get white colour.
     pub fn rgba(&self) -> Rgba {
         let mut image = Rgba::from_texels(&self.texels, self.width, self.height);
         // Formats 8 and 11 are the alpha-only formats, whose colour channels are not meaningful.
@@ -84,7 +84,8 @@ fn u32_at(d: &[u8], at: usize) -> Option<usize> {
 }
 
 /// Follows a self-relative offset, as CGFX files store them.
-/// The value is added to the position it is stored at, and zero means there is no target.
+/// The value is added to the position that it is stored at.
+/// Zero means that there is no target.
 fn relative(d: &[u8], at: usize) -> Option<usize> {
     let v = i32::from_le_bytes(d.get(at..at + 4)?.try_into().ok()?);
     (v != 0).then(|| (at as i64 + v as i64) as usize)
@@ -136,7 +137,8 @@ pub fn messages(d: &[u8]) -> HashMap<String, String> {
 
 /// Reads a message table as a list of keys and texts, in file order.
 /// The header gives the size of the text data, the number of pointers and the number of labels.
-/// The texts are UTF-16 strings that end with a zero unit, and the keys are zero-terminated ASCII names.
+/// The texts are UTF-16 strings that end with a zero unit.
+/// The keys are zero-terminated ASCII names.
 pub fn labelled(d: &[u8]) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let (Some(data_size), Some(pointers), Some(labels)) = (u32_at(d, 4), u32_at(d, 8), u32_at(d, 12)) else { return out };

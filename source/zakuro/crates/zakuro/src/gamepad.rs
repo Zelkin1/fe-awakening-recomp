@@ -50,7 +50,9 @@ impl Gamepads {
         self.gilrs.as_ref().is_some_and(|gilrs| gilrs.gamepads().any(|(_, pad)| pad.is_pressed(button)))
     }
 
-    /// Returns the position of the stick that leans furthest, as x and y from -1 to 1. Both sticks of every controller are compared. Returns zeros when no controller is available.
+    /// Returns the position of the stick that leans furthest, as x and y from -1 to 1.
+    /// Both sticks of every controller are compared.
+    /// Returns zeros when no controller is available.
     pub fn lean(&self) -> [f32; 2] {
         let Some(gilrs) = &self.gilrs else { return [0.0; 2] };
         let mut lean = [0.0f32; 2];

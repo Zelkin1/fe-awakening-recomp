@@ -1,18 +1,20 @@
-//! Downloads of the tools and fonts that the launcher needs. Every file is checked against its size and its SHA-256 hash before it is used.
+//! Downloads of the tools and fonts that the launcher needs.
+//! Every file is checked against its size and its SHA-256 hash before it is used.
 
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use crate::zig::{fetch, Fetcher};
 
-/// The name of the marker file that is written into a download folder once every source has arrived.
+/// The name of the marker file that is written into a download folder once every source arrives.
 const COMPLETE: &str = "complete";
 
 /// One file to download.
 pub struct Source {
     /// The address the file is downloaded from.
     pub url: &'static str,
-    /// The file name that is kept in the folder. A name that ends in ".zip" is unpacked instead.
+    /// The file name that is kept in the folder.
+    /// A name that ends in ".zip" is unpacked instead.
     pub name: &'static str,
     /// The expected size of the file in bytes.
     pub size: u64,
@@ -26,7 +28,7 @@ pub struct Download {
     pub folder: &'static str,
     /// The files to download, in order.
     pub sources: &'static [Source],
-    /// An optional step that runs on the folder after every source has arrived.
+    /// An optional step that runs on the folder after every source arrives.
     pub finish: Option<fn(&Path) -> Result<(), String>>,
 }
 
@@ -58,13 +60,16 @@ impl Download {
         self.sources.iter().map(|source| source.size).sum()
     }
 
-    /// Returns the total size as text, in megabytes from one million bytes and in kilobytes below that. The number is rounded up.
+    /// Returns the total size as text, in megabytes from one million bytes and in kilobytes below that.
+    /// The number is rounded up.
     pub fn size_text(&self) -> String {
         let size = self.size();
         if size >= 1_000_000 { format!("{} MB", size.div_ceil(1_000_000)) } else { format!("{} KB", size.div_ceil(1_000)) }
     }
 
-    /// Downloads everything unless it is present already, and returns the folder. The progress callback receives the fraction of the whole download from 0 to 1. A failed download leaves no folder behind.
+    /// Downloads everything unless it is present already, and returns the folder.
+    /// The progress callback receives the fraction of the whole download from 0 to 1.
+    /// A failed download leaves no folder behind.
     pub fn ensure(&self, tools: &Path, progress: &dyn Fn(f32), cancel: &AtomicBool) -> Result<PathBuf, String> {
         let folder = self.path(tools);
         if self.present(tools) {
@@ -113,19 +118,20 @@ impl Source {
         std::io::copy(&mut file, &mut hasher).map_err(|error| error.to_string())?;
         let hash: String = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
         if hash != self.sha256 {
-            return Err(format!("{} is not the file Zakuro knows", self.name));
+            return Err(format!("{} is not the file that Zakuro expects", self.name));
         }
         Ok(())
     }
 
-    /// Moves a downloaded file into the folder under its real name. A zip file is unpacked into the folder and then removed.
+    /// Moves a downloaded file into the folder under its real name.
+    /// A zip file is unpacked into the folder and then removed.
     fn put(&self, part: &Path, folder: &Path) -> Result<(), String> {
         if !self.name.ends_with(".zip") {
             return std::fs::rename(part, folder.join(self.name)).map_err(|error| format!("{}: {error}", folder.display()));
         }
         let unpacked = std::fs::read(part).map_err(|error| error.to_string()).and_then(|bytes| unzip(&bytes, folder));
         let _ = std::fs::remove_file(part);
-        unpacked.map_err(|error| format!("{} could not be unpacked, {error}", self.name))
+        unpacked.map_err(|error| format!("Zakuro cannot unpack {}, {error}", self.name))
     }
 }
 
@@ -154,7 +160,7 @@ fn unzip(bytes: &[u8], folder: &Path) -> Result<(), String> {
         // A name that climbs out of the folder is refused, so an entry can only land inside it.
         let relative = Path::new(&name);
         if !relative.components().all(|part| matches!(part, Component::Normal(_))) {
-            return Err(format!("it holds an unsafe name, {name}"));
+            return Err(format!("it contains an unsafe name, {name}"));
         }
         let target = folder.join(relative);
         if name.ends_with('/') {
@@ -167,7 +173,7 @@ fn unzip(bytes: &[u8], folder: &Path) -> Result<(), String> {
         let content = match method {
             0 => data.to_vec(),
             8 => miniz_oxide::inflate::decompress_to_vec(data).map_err(|_| format!("{name} is damaged"))?,
-            _ => return Err(format!("{name} is packed in a way Zakuro does not read")),
+            _ => return Err(format!("{name} is packed in a way that Zakuro cannot read")),
         };
         if content.len() != size {
             return Err(format!("{name} has the wrong size"));

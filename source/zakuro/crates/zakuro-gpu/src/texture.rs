@@ -73,7 +73,8 @@ impl TextureFormat {
     }
 }
 
-/// The position of each texel of an 8 by 8 tile as x and y, in the order the texels are stored. The index is the Morton code of the position.
+/// The position of each texel of an 8 by 8 tile as x and y, in the order that the texels are stored.
+/// The index is the Morton code of the position.
 const TILE_ORDER: [(usize, usize); 64] = {
     let mut order = [(0, 0); 64];
     let mut y = 0;
@@ -88,7 +89,8 @@ const TILE_ORDER: [(usize, usize); 64] = {
     order
 };
 
-/// The number of texels from which the rows of a decode are spread over the threads. Below it, the cost of waking the threads is larger than the gain.
+/// The number of texels from which the rows of a decode are spread over the threads.
+/// Below it, the cost of waking the threads is larger than the gain.
 const PARALLEL_TEXELS: usize = 256 * 256;
 
 /// Decodes a whole level to straight RGBA8, one texel per entry of the output.
@@ -96,7 +98,8 @@ pub fn decode_level(data: &[u8], format: TextureFormat, width: u32, height: u32,
     decode_levels(data, format, &[(0, width, height)], texels);
 }
 
-/// Decodes several levels to straight RGBA8, one after the other in the output. Each level is the offset of its data, its width and its height.
+/// Decodes several levels to straight RGBA8, one after the other in the output.
+/// Each level is the offset of its data, its width and its height.
 pub fn decode_levels(data: &[u8], format: TextureFormat, levels: &[(usize, u32, u32)], texels: &mut [[u8; 4]]) {
     let total = texels.len();
     let mut rows = Vec::new();
@@ -131,7 +134,8 @@ pub fn decode_levels(data: &[u8], format: TextureFormat, levels: &[(usize, u32, 
     }
 }
 
-/// The threads that decode large textures, one per core. They are made on the first use.
+/// The threads that decode large textures, one per core.
+/// They are made on the first use.
 fn decoders() -> &'static rayon::ThreadPool {
     static DECODERS: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
     DECODERS.get_or_init(|| {
@@ -144,7 +148,9 @@ fn decoders() -> &'static rayon::ThreadPool {
     })
 }
 
-/// Decodes one 8 by 8 tile into the rows of the output. The texels start at the first one of the tile, and the width is the width of the whole level.
+/// Decodes one 8 by 8 tile into the rows of the output.
+/// The texels start at the first one of the tile.
+/// The width is the width of the whole level.
 pub fn decode_tile(tile: &[u8], format: TextureFormat, texels: &mut [[u8; 4]], width: usize) {
     match format {
         TextureFormat::Etc1 | TextureFormat::Etc1A4 => {
@@ -357,7 +363,8 @@ fn etc1_block(block: &[u8]) -> [[u8; 3]; 16] {
     })
 }
 
-/// The four colors of each half of a block, from the high word of the block. The index is picked by the modifier of a pixel.
+/// The four colors of each half of a block, from the high word of the block.
+/// The modifier of a pixel picks the index.
 fn etc1_palettes(high: u32) -> [[[u8; 4]; 4]; 2] {
     let channel = |shift: u32| (high >> shift) as i32;
     // Bit 1 is the differential mode. The second base is the first one plus a signed 3-bit delta, and otherwise both bases are 4-bit colors.

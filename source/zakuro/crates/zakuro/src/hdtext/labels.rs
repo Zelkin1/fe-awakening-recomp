@@ -1,6 +1,8 @@
 //! Redraws the labels in the pictures of the game, such as buttons, plates and menu texts.
 //!
-//! For every label, the old letters are measured and erased, the new text is laid out in the new font, and the whole picture is enlarged with the new text on top.
+//! For every label, the old letters are measured and erased.
+//! Then the new text is laid out in the new font.
+//! Last, the whole picture is enlarged with the new text on top.
 
 use std::collections::{HashMap, HashSet};
 
@@ -90,7 +92,7 @@ fn span(piece: &[usize], w: usize) -> (usize, usize) {
     (x1 - x0, y1 - y0)
 }
 
-/// Finds the dark plate behind the letters of a region and returns its bounding box as `x0, y0, x1, y1`. Falls back to the whole region.
+/// Finds the dark plate behind the letters of a region and returns its bounding box as `x0, y0, x1, y1`. When it finds no plate, it returns the whole region.
 fn plate_box(region: &Rgba) -> (usize, usize, usize, usize) {
     let lum = region.lum();
     let dark = Mask::from(&lum, |v| v < 0.45);
@@ -690,7 +692,7 @@ struct Drawn {
     /// The top left corner of the label in the original picture.
     x0: usize,
     y0: usize,
-    /// The new text as a mask at the enlarged size, covering the area of the label.
+    /// The new text as a mask at the enlarged size, which covers the area of the label.
     mask: Plane,
     /// The colour of every pixel of the mask.
     colour: Vec<[f32; 3]>,
@@ -698,7 +700,7 @@ struct Drawn {
     shadowed: bool,
     /// For a button, the colour of the face under the old letters. The text is then drawn as engraved.
     engraved: Option<[f32; 3]>,
-    /// The area of the label in which the text may be drawn, at the enlarged size.
+    /// The area of the label in which the text can be drawn, at the enlarged size.
     inside: Mask,
     /// The name of the size group. Labels of one group are scaled down by the same factor.
     size: String,

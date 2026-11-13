@@ -53,9 +53,9 @@ fn main() {
         // ZAKURO_INTERPOLATE=1 draws the pictures in between, which takes
         // ZAKURO_PRESENT=direct, and saves them with the screens
         interpolate: std::env::var("ZAKURO_INTERPOLATE").is_ok_and(|v| v == "1"),
-        // ZAKURO_BLOOM=0 leaves out the bloom games draw from smaller levels of a texture
+        // ZAKURO_BLOOM=0 leaves out the bloom that games draw from smaller levels of a texture.
         bloom: std::env::var("ZAKURO_BLOOM").map_or(true, |v| v != "0"),
-        // ZAKURO_ANISOTROPY=16 filters textures seen at an angle with up to 16 samples
+        // ZAKURO_ANISOTROPY=16 filters textures seen at an angle with up to 16 samples.
         anisotropy: std::env::var("ZAKURO_ANISOTROPY").ok().and_then(|v| v.parse().ok()).unwrap_or(1),
         skip_idle_loops: std::env::var("ZAKURO_IDLE").map_or(true, |v| v != "0"),
         // ZAKURO_3D=0.5 is where the 3D slider is, the right eye's picture
@@ -218,13 +218,13 @@ fn main() {
         Some((at.parse().ok()?, file.to_owned()))
     });
     // ZAKURO_FIND=frame:hex searches the mapped memory at that frame for the
-    // 32-bit word and prints the addresses where it is found
+    // 32-bit word and prints the addresses where it is found.
     let find_at = frame_and_value("ZAKURO_FIND", |value| u32::from_str_radix(value.trim_start_matches("0x"), 16).ok());
     // ZAKURO_DUMP_MEM=frame:file writes all mapped memory to the file at that
-    // frame, each mapping as its base, its size and its bytes
+    // frame, each mapping as its base, its size and its bytes.
     let dump_memory_at = frame_and_value("ZAKURO_DUMP_MEM", |file| Some(file.to_owned()));
     // ZAKURO_RESOLUTION_AT=frame:scale changes the resolution at that frame
-    // and prints how long it took
+    // and prints how long it took.
     let resolution_at = frame_and_value("ZAKURO_RESOLUTION_AT", |scale| scale.parse::<u32>().ok());
     let mut frame = first;
     while frame < frames {
@@ -375,7 +375,7 @@ fn main() {
         if wav.is_some() {
             audio.extend(system.take_audio());
         }
-        // ZAKURO_NATIVE_BOTTOM=1 also saves the bottom screen at its native 320 by 240 size with the screens
+        // ZAKURO_NATIVE_BOTTOM=1 also saves the bottom screen at its native 320 by 240 size with the screens.
         let native = std::env::var_os("ZAKURO_NATIVE_BOTTOM").is_some().then(|| system.bottom_picture()).flatten();
         if dump_at.contains(&executed) {
             if let Some(picture) = native {

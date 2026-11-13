@@ -29,7 +29,8 @@ impl Blob<'_> {
     }
 
     /// Follows a relative pointer.
-    /// The value is an offset from the position of the pointer itself, and zero means a null pointer.
+    /// The value is an offset from the position of the pointer itself.
+    /// Zero means a null pointer.
     pub fn rel(&self, at: usize) -> Option<usize> {
         match self.i32(at) {
             0 => None,
@@ -81,7 +82,8 @@ fn highest_difference(a: &[u8], b: &[u8]) -> Option<u32> {
     (0..8 * a.len().max(b.len()) as u32).rev().find(|&n| bit(a, n) != bit(b, n))
 }
 
-/// A node of a dictionary, which is a radix tree over the bits of the names.
+/// A node of a dictionary.
+/// A dictionary is a radix tree over the bits of the names.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
     /// The index of the bit of the name that this node tests.
@@ -90,7 +92,8 @@ pub struct Node {
     pub left: u16,
     /// The index of the node to visit when the bit is set.
     pub right: u16,
-    /// The name of the entry, which is empty for the root.
+    /// The name of the entry.
+    /// It is empty for the root.
     pub name: String,
 }
 
@@ -105,8 +108,10 @@ fn search(nodes: &[Node], name: &[u8]) -> usize {
     current
 }
 
-/// Builds the nodes of a dictionary for a list of names, by inserting the names one after the other.
-/// The root is the first node, and the node of each name has the index of the name plus one.
+/// Builds the nodes of a dictionary for a list of names.
+/// It inserts the names one after the other.
+/// The root is the first node.
+/// The node of each name has the index of the name plus one.
 /// A name that appears twice is an error.
 pub fn dict_nodes(names: &[String]) -> Result<Vec<Node>, String> {
     let mut nodes = vec![Node { bit: ROOT_BIT, left: 0, right: 0, name: String::new() }];
@@ -115,7 +120,7 @@ pub fn dict_nodes(names: &[String]) -> Result<Vec<Node>, String> {
         // The new node tests the highest bit in which the name differs from the name where the walk ends.
         let ending = search(&nodes, key);
         let difference = highest_difference(key, nodes[ending].name.as_bytes()).ok_or_else(|| format!("{name} twice in a dictionary"))?;
-        // Walk down again, and stop in front of the first node that tests a lower bit than the new one.
+        // The walk goes down again and stops in front of the first node that tests a lower bit than the new one.
         let (mut previous, mut current, mut went_right) = (0usize, nodes[0].left as usize, false);
         while nodes[current].bit < nodes[previous].bit && nodes[current].bit > difference {
             previous = current;
@@ -138,7 +143,8 @@ pub fn dict_nodes(names: &[String]) -> Result<Vec<Node>, String> {
 }
 
 /// Writes the nodes of a dictionary as bytes, for a dictionary that is placed at position `at` in its file.
-/// The maps give the positions of the name and the data of each entry, and they are stored as pointers relative to the fields.
+/// The maps give the positions of the name and the data of each entry.
+/// These positions are stored as pointers relative to the fields.
 pub fn dict_bytes(nodes: &[Node], at: usize, name_at: &HashMap<String, usize>, data_at: &HashMap<String, usize>) -> Vec<u8> {
     // The header is the magic, the size of the dictionary, and the number of entries without the root.
     let mut out = b"DICT".to_vec();
@@ -181,10 +187,13 @@ impl Image {
 /// The brightness modifiers of the eight ETC1 tables, as a small and a large step.
 const MODIFIERS: [[i32; 2]; 8] = [[2, 8], [5, 17], [9, 29], [13, 42], [18, 60], [24, 80], [33, 106], [47, 183]];
 
-/// Decodes an ETC1 texture of the 3DS, or an ETC1A4 texture, which has four bits of alpha in front of each block.
-/// The alpha is dropped. It returns nothing for other formats or when the data is too short.
+/// Decodes an ETC1 texture of the 3DS, or an ETC1A4 texture.
+/// An ETC1A4 texture has four bits of alpha in front of each block.
+/// The alpha is dropped.
+/// It returns nothing for other formats or when the data is too short.
 pub fn decode_etc1(data: &[u8], width: usize, height: usize, format: u32) -> Option<Image> {
-    // The format 12 is ETC1 with 8 bytes per block, and 13 is ETC1A4 with 16 bytes per block.
+    // Format 12 is ETC1 with 8 bytes per block.
+    // Format 13 is ETC1A4 with 16 bytes per block.
     let step = match format {
         12 => 8,
         13 => 16,
@@ -214,13 +223,15 @@ pub fn decode_etc1(data: &[u8], width: usize, height: usize, format: u32) -> Opt
 }
 
 /// Decodes one ETC1 block of 4 by 4 pixels from its 64 bit word.
-/// The block has two sub blocks with a base color each, and every pixel adds a modifier to the base color of its sub block.
+/// The block has two sub blocks with a base color each.
+/// Every pixel adds a modifier to the base color of its sub block.
 fn etc1_block(w: u64) -> [[u8; 3]; 16] {
     let field = |shift: u32, size: u32| ((w >> shift) & ((1 << size) - 1)) as i32;
-    // The differential bit picks the color mode, and the flip bit splits the block into top and bottom instead of left and right.
+    // The differential bit picks the color mode.
+    // The flip bit splits the block into top and bottom instead of left and right.
     let (differential, flip) = (field(33, 1) == 1, field(32, 1) == 1);
     let mut base = [[0i32; 3]; 2];
-    // Per channel, the shifts of the first five bit color, the three bit delta, and the two four bit colors.
+    // These are the shifts per channel of the first five bit color, the three bit delta, and the two four bit colors.
     for (c, (s5, s3, s4a, s4b)) in [(59, 56, 60, 56), (51, 48, 52, 48), (43, 40, 44, 40)].into_iter().enumerate() {
         let first5 = field(s5, 5);
         // The delta is a signed three bit number.
@@ -229,7 +240,8 @@ fn etc1_block(w: u64) -> [[u8; 3]; 16] {
             delta -= 8;
         }
         let second5 = (first5 + delta) & 31;
-        // Five bit colors are widened to eight bits by repeating the top bits, and four bit colors by multiplying with 17.
+        // Five bit colors are widened to eight bits by repeating the top bits.
+        // Four bit colors are widened to eight bits by multiplying with 17.
         if differential {
             base[0][c] = (first5 << 3) | (first5 >> 2);
             base[1][c] = (second5 << 3) | (second5 >> 2);
@@ -263,7 +275,8 @@ fn etc1_block(w: u64) -> [[u8; 3]; 16] {
 mod tests {
     use super::*;
 
-    /// Every name is found at its own node, and a name that appears twice is refused.
+    /// Every name is found at its own node.
+    /// A name that appears twice is refused.
     #[test]
     fn a_dictionary_finds_its_names() {
         let names: Vec<String> = ["hip", "l_leg1", "l_leg2", "l_leg3", "r_leg2", "l_shoe", "r_shoe"].map(String::from).to_vec();

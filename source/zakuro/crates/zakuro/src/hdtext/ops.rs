@@ -48,7 +48,7 @@ impl Plane {
         out
     }
 
-    /// Copies another plane into this one at the given offset, which may be negative. The parts outside this plane are dropped.
+    /// Copies another plane into this one at the given offset, which can be negative. The parts outside this plane are dropped.
     pub fn paste(&mut self, other: &Plane, x0: isize, y0: isize) {
         for y in 0..other.h {
             let ty = y as isize + y0;
@@ -75,7 +75,7 @@ impl Plane {
         self.v.iter().sum()
     }
 
-    /// Shrinks the plane by an integer factor, averaging each block of `factor * factor` pixels. A remainder at the right or bottom edge is dropped.
+    /// Shrinks the plane by an integer factor. Each block of `factor * factor` pixels becomes one pixel with their average value. A remainder at the right or bottom edge is dropped.
     pub fn down(&self, factor: usize) -> Plane {
         let (w, h) = (self.w / factor, self.h / factor);
         let mut out = Plane::new(w, h);
@@ -272,7 +272,7 @@ impl Mask {
         (x0 != usize::MAX).then_some((x0, y0, x1, y1))
     }
 
-    /// Enlarges the mask by an integer factor, repeating every pixel.
+    /// Enlarges the mask by an integer factor. Every pixel is repeated.
     pub fn scale_up(&self, factor: usize) -> Mask {
         let mut out = Mask::new(self.w * factor, self.h * factor);
         for y in 0..out.h {
@@ -289,7 +289,7 @@ impl Mask {
     }
 }
 
-/// Grows the mask by one pixel per iteration, using the four direct neighbours.
+/// Grows the mask by one pixel per iteration. It uses the four direct neighbours.
 pub fn dilate(m: &Mask, iterations: usize) -> Mask {
     let mut cur = m.clone();
     for _ in 0..iterations {
@@ -585,7 +585,7 @@ fn filter_support(filter: Filter) -> f32 {
 /// Computes, for every output pixel along one axis, the first source pixel and the normalised weights of the source pixels that follow.
 fn resample_axis(src_len: usize, dst_len: usize, filter: Filter) -> Vec<(usize, Vec<f32>)> {
     let scale = src_len as f32 / dst_len as f32;
-    // When shrinking, the filter is stretched so that it covers all source pixels and avoids aliasing.
+    // When the size goes down, the filter is stretched so that it covers all source pixels and avoids aliasing.
     let filterscale = scale.max(1.0);
     let support = filter_support(filter) * filterscale;
     (0..dst_len)
@@ -662,7 +662,7 @@ impl Rng {
         ((self.next() >> 40) as f32 + 0.5) / (1u64 << 24) as f32
     }
 
-    /// Returns a normally distributed value with mean zero and deviation one, using the Box-Muller transform.
+    /// Returns a normally distributed value with mean zero and deviation one. It uses the Box-Muller transform.
     pub fn normal(&mut self) -> f32 {
         let (a, b) = (self.uniform(), self.uniform());
         (-2.0 * a.ln()).sqrt() * (2.0 * std::f32::consts::PI * b).cos()
@@ -727,13 +727,13 @@ impl Rgba {
         }
     }
 
-    /// Converts the image to 8 bit RGBA bytes, clamping every channel to the range from zero to one.
+    /// Converts the image to 8 bit RGBA bytes. Every channel is clamped to the range from zero to one.
     pub fn to_bytes(&self) -> Vec<u8> {
         self.v.iter().flat_map(|p| p.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8)).collect()
     }
 }
 
-/// Returns the median of the values, sorting them in place. An empty slice gives zero.
+/// Returns the median of the values. It sorts the values in place. An empty slice gives zero.
 pub fn median_of(values: &mut [f32]) -> f32 {
     if values.is_empty() {
         return 0.0;
@@ -757,7 +757,7 @@ pub fn median_colour(image: &Rgba, mask: &Mask) -> Option<[f32; 4]> {
     Some(out)
 }
 
-/// Returns the percentile `q`, from 0 to 100, of the values, interpolating linearly between neighbours. An empty slice gives zero.
+/// Returns the percentile `q`, from 0 to 100, of the values. It interpolates linearly between neighbours. An empty slice gives zero.
 pub fn percentile(values: &[f32], q: f32) -> f32 {
     let mut v: Vec<f32> = values.to_vec();
     if v.is_empty() {

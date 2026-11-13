@@ -573,8 +573,9 @@ impl Program {
         }
     }
 
-    /// The input registers that what lands in the output registers given can come from, in what the program can run from its entry point, one bit each.
-    /// The inputs that the address registers and the conditions read are among them too, because they pick what runs.
+    /// Returns the input registers whose values can reach the given output registers, one bit for each register.
+    /// Only the instructions that the program can run from its entry point count.
+    /// The inputs that the address registers and the conditions read are in the result too, because they pick what runs.
     pub(crate) fn inputs_feeding(&self, entry: u32, outputs: u16) -> u16 {
         let reached = self.reached(entry);
         // The outputs and the temporaries are numbered as uniforms_feeding numbers them.
@@ -672,7 +673,7 @@ impl ShaderUnit {
         (own, indexed & textured_indexed & !textured & !own)
     }
 
-    /// The input registers that a draw in between may blend halfway between two frames, one bit each.
+    /// The input registers that a draw in between can blend halfway between two frames, one bit each.
     /// These are the inputs that the program reads, but not for the texture coordinates, the address registers or the conditions.
     /// A sprite keeps its place in its sheet this way, and a flag keeps its value.
     /// None are blended until the program is prepared.

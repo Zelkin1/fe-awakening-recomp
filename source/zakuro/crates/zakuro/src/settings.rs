@@ -537,7 +537,8 @@ impl BattleUi {
     }
 }
 
-/// The display settings that the original display changes. They are saved so they can come back.
+/// The display settings that the original display changes.
+/// They are saved so that they can come back.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Kept {
     /// The arrangement of the screens.
@@ -579,11 +580,14 @@ impl Kept {
 
 /// The default key that puts the bottom screen over the top screen.
 pub const BOTTOM_OVER_KEY: KeyCode = KeyCode::KeyE;
-/// The default controller button that puts the bottom screen over the top screen. No button of the console uses it.
+/// The default controller button that puts the bottom screen over the top screen.
+/// No button of the console uses it.
 pub const BOTTOM_OVER_BUTTON: Button = Button::RightTrigger2;
 
 impl Settings {
-    /// Turns the original display on or off. Turning it on saves the current display settings and replaces them, and turning it off restores the saved ones.
+    /// Turns the original display on or off.
+    /// Turning it on saves the current display settings and replaces them.
+    /// Turning it off restores the saved ones.
     pub fn set_original(&mut self, on: bool) {
         if on == self.original {
             return;

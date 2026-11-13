@@ -47,7 +47,8 @@ pub struct Overlay {
     pub free: Vec<u64>,
 }
 
-/// The id of the texture of a mesh that stands for the bottom screen. The presenter draws the picture of the screen for it.
+/// The id of the texture of a mesh that stands for the bottom screen.
+/// The presenter draws the picture of the screen for it.
 pub const BOTTOM_SCREEN_TEXTURE: u64 = 1;
 
 /// pixels for a texture of the overlay.
@@ -93,7 +94,8 @@ pub struct Viewport {
 }
 
 impl Viewport {
-    /// The left, top, right and bottom edges in whole pixels. Rounding the edges instead of the size keeps the last column and row of the viewport.
+    /// The left, top, right and bottom edges in whole pixels.
+    /// Rounding the edges instead of the size keeps the last column and row of the viewport.
     pub(crate) fn pixels(&self) -> [i32; 4] {
         let edge = |coordinate: f32| coordinate.round() as i32;
         [edge(self.x), edge(self.y), edge(self.x + self.width), edge(self.y + self.height)]
@@ -120,7 +122,8 @@ pub enum ScreenLayout {
     TopWithPieces(&'static [Piece]),
 }
 
-/// A part of the bottom screen shown over the top screen, made of rounded rectangles.
+/// A part of the bottom screen shown over the top screen.
+/// It is made of rounded rectangles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Piece {
     /// The box that holds the piece in the picture of the bottom screen, as the left, top, width and height in pixels.
@@ -156,7 +159,8 @@ pub struct Rounded {
     pub shade: u8,
     /// Whether the rectangle casts a shadow.
     pub shadow: bool,
-    /// The points of an outline in tenths of a pixel of the picture. When it is not empty, the outline is drawn instead of the rectangle.
+    /// The points of an outline in tenths of a pixel of the picture.
+    /// When it is not empty, the outline is drawn instead of the rectangle.
     pub outline: &'static [[u16; 2]],
     /// When set, only the pixels of the rectangle that are not ground are drawn.
     pub cut: Option<Ground>,
@@ -171,7 +175,8 @@ pub struct Banners {
     pub labels: [[u16; 4]; 3],
 }
 
-/// The places in the picture of the bottom screen that hold the text of one side of a battle. Each rectangle is the left, top, width and height in pixels.
+/// The places in the picture of the bottom screen that hold the text of one side of a battle.
+/// Each rectangle is the left, top, width and height in pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BannerSide {
     /// The name of the unit.
@@ -197,10 +202,14 @@ pub struct Ground {
     pub darker: u16,
 }
 
-/// The pixels of a rectangle of the picture of the bottom screen that are not ground, as runs of the row, the first column and the end column. The ground is the part that touches the edge of the rectangle. The picture holds 320 by 240 pixels as RGBA, and an empty list comes back when it is too small or the rectangle lies outside it.
+/// The pixels of a rectangle of the picture of the bottom screen that are not ground, as runs of the row, the first column and the end column.
+/// The ground is the part that touches the edge of the rectangle.
+/// The picture holds 320 by 240 pixels as RGBA.
+/// An empty list comes back when the picture is too small or the rectangle lies outside it.
 pub fn cut_out(picture: &[u8], rect: [u16; 4], ground: Ground) -> Vec<[u16; 3]> {
     let [left, top, width, height] = rect.map(usize::from);
-    // The picture is 320 by 240 pixels of four bytes, and the rectangle has to lie inside it.
+    // The picture is 320 by 240 pixels of four bytes.
+    // The rectangle must lie inside it.
     if picture.len() < 320 * 240 * 4 || left + width > 320 || top + height > 240 || width == 0 || height == 0 {
         return Vec::new();
     }
@@ -211,7 +220,7 @@ pub fn cut_out(picture: &[u8], rect: [u16; 4], ground: Ground) -> Vec<[u16; 3]> 
         red > green + ground.redder as u16 && red + green + blue < ground.darker
     };
     let mut reached = vec![false; width * height];
-    // A flood fill from every pixel on the border, so a dark pixel inside the drawing is kept.
+    // A flood fill starts from every pixel on the border, so a dark pixel inside the drawing is kept.
     let mut stack: Vec<(usize, usize)> = (0..width).map(|x| (x, 0)).chain((0..height).flat_map(|y| [(0, y), (width - 1, y)])).collect();
     while let Some((x, y)) = stack.pop() {
         if reached[y * width + x] || !is_ground(x, y) {
@@ -255,7 +264,8 @@ pub fn cut_out(picture: &[u8], rect: [u16; 4], ground: Ground) -> Vec<[u16; 3]> 
 pub struct PiecePlace {
     /// Where the rectangle is drawn, in pixels of the window.
     pub viewport: Viewport,
-    /// The part of the picture of the bottom screen to draw, as the left, top, width and height in fractions of the picture. A negative width flips it.
+    /// The part of the picture of the bottom screen to draw, as the left, top, width and height in fractions of the picture.
+    /// A negative width flips it.
     pub part: [f32; 4],
     /// The radii of the corners in pixels of the window.
     pub corners: [f32; 4],
@@ -273,7 +283,8 @@ pub struct PiecePlace {
     pub cut: Option<Ground>,
 }
 
-/// Where a box lies along one side of the top screen. The numbers are pixels of a picture 240 high.
+/// Where a box lies along one side of the top screen.
+/// The numbers are pixels of a picture 240 high.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Anchor {
     /// The distance from the start edge.
@@ -284,7 +295,9 @@ pub enum Anchor {
     End(u16),
 }
 
-/// Places the rectangles of pieces over the top screen. The spans are the current areas of the markers, which the pieces that follow a marker move with, by at most a tenth of the picture.
+/// Places the rectangles of pieces over the top screen.
+/// The spans are the current areas of the markers.
+/// A piece that follows a marker moves with the span of that marker, by at most a tenth of the picture.
 pub fn piece_places(top: Viewport, pieces: &[Piece], spans: &[(u32, [f32; 4])]) -> Vec<PiecePlace> {
     // The pictures of the game are 240 pixels high, so this turns their pixels into pixels of the window.
     let scale = top.height / 240.0;
@@ -300,7 +313,7 @@ pub fn piece_places(top: Viewport, pieces: &[Piece], spans: &[(u32, [f32; 4])]) 
         let x = position(piece.across, top.x, top.width, box_width * size);
         let y = position(piece.down, top.y, top.height, box_height * size);
         let step = scale * size;
-        // How far the marker has moved from its place at rest, in fractions of the picture and limited to a tenth.
+        // How far the marker moved from its place at rest, in fractions of the picture and limited to a tenth.
         let [moved_x, moved_y] = piece
             .follows
             .and_then(|(id, [rest_x, rest_y])| spans.iter().find(|&&(marked, _)| marked == id).map(|&(_, [x, y, ..])| [x - rest_x as f32 / 320.0, y - rest_y as f32 / 240.0]))
@@ -427,7 +440,8 @@ pub fn layout(window_width: u32, window_height: u32, arrangement: ScreenLayout, 
         }
         ScreenLayout::TopOnly | ScreenLayout::TopWithPieces(_) => None,
         ScreenLayout::BottomOverTop { width } => {
-            // The width is a share of the top screen in ten thousandths, limited so the height of the bottom screen does not pass the height of the top one.
+            // The width is a share of the top screen in ten thousandths.
+            // The width is limited so that the height of the bottom screen does not pass the height of the top one.
             let (top_width, top_height) = (top_w * scale, 240.0 * scale);
             let width = (top_width * width as f32 / 10_000.0).min(top_height * 320.0 / 240.0);
             let height = width * 240.0 / 320.0;

@@ -211,7 +211,8 @@ mod tests {
 
     /// Draws the interface that `run` builds into a picture of the given size, with a small software rasterizer.
     ///
-    /// The pointer is a position in pixels of the picture, and the own textures are available besides the textures that egui makes.
+    /// The pointer is a position in pixels of the picture.
+    /// The own textures are available besides the textures that egui makes.
     fn paint_with(ctx: &egui::Context, size: [u32; 2], pointer: Option<[f32; 2]>, own: Vec<(TextureId, egui::ColorImage)>, mut run: impl FnMut(&mut egui::Ui)) -> image::RgbaImage {
         use egui::epaint::{ClippedPrimitive, Primitive};
         use std::collections::HashMap;
@@ -418,7 +419,7 @@ mod tests {
             menus.library(ui, &library, &settings, &[]);
         });
         picture.save(folder.join("library.png")).unwrap();
-        // A file that can't be played still shows the commands to choose another one.
+        // A file that cannot be played still shows the commands to choose another one.
         library.games[0].problem = Some("Partly encrypted or damaged, it needs dumping again".to_owned());
         let ctx = crate::gui::context();
         let picture = paint(&ctx, [1224, 800], None, |ui| {

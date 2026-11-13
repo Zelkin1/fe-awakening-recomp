@@ -20,7 +20,7 @@ pub const PROGRAM_ID: u64 = 0x0004_0000_0009_F100;
 pub const STEP: ModStep = ModStep {
     name: "the feet mod",
     label: "Feet",
-    about: "The characters' feet, built from your copy of the game.",
+    about: "Feet for the characters, built from your copy of the game.",
     folder: "feet",
     program_id: PROGRAM_ID,
     needs: &[],
@@ -44,10 +44,10 @@ fn bodies(romfs: &zakuro_fs::romfs::RomFs) -> Result<Vec<String>, String> {
 }
 
 /// The text that is shown as the progress of the build.
-const FITTING: &str = "Building the characters' feet from the game's own models.";
+const FITTING: &str = "Zakuro builds feet for the characters from the models in the game.";
 
 /// Builds the feet for every body model of the game and writes them into the folder of the mod.
-/// A body that can not be given feet is left out, so the game keeps its own legs for it.
+/// A body that cannot be given feet is left out, so the game keeps its own legs for it.
 /// It returns a short summary, or an error when the game is the wrong release, the build is cancelled, or no body worked.
 /// The feet have no optional part, so the choice of one is ignored.
 fn build(rom: &Path, data_dir: &Path, _optional: bool, progress: &(dyn Fn(&'static str, usize, usize) + Sync), cancel: &AtomicBool) -> Result<String, String> {
@@ -111,7 +111,7 @@ fn build(rom: &Path, data_dir: &Path, _optional: bool, progress: &(dyn Fn(&'stat
         }
     }
     if made.is_empty() {
-        return Err("no body could be given feet".into());
+        return Err("the build made feet for none of the bodies".into());
     }
     Ok(format!("feet for {} of the {} bodies", made.len(), bodies.len()))
 }

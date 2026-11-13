@@ -64,7 +64,7 @@ pub struct Config {
     /// draw the pictures of the texture pack in the title's mods folder in
     /// place of its textures, which takes the host's GPU.
     pub texture_packs: bool,
-    /// Run the game as it ships. The mods of the data directory and the cheats are left out.
+    /// Run the game as it ships. This leaves out the mods of the data directory and the cheats.
     pub original: bool,
     /// the title's update, an update's CIA, whose code and data it runs.
     pub update: Option<std::path::PathBuf>,
@@ -85,9 +85,9 @@ pub struct Config {
     /// other refresh, see System::pace, when the host's GPU draws the 3D
     /// and shows the screens straight from its device.
     pub interpolate: bool,
-    /// Draw the bloom that games make from smaller levels of a texture drawn on the host's GPU.
+    /// Draw the bloom that games make from smaller levels of a texture drawn on the GPU of the host.
     pub bloom: bool,
-    /// How many samples anisotropic filtering takes on the host's GPU, 1 for none.
+    /// How many samples anisotropic filtering takes on the GPU of the host, 1 for none.
     pub anisotropy: u32,
     /// the console owner's name, up to ten characters, which titles show
     /// and local wireless tells others.
@@ -187,7 +187,8 @@ struct Pacing {
     between: bool,
     /// the refreshes that showed pictures in between so far.
     shown: u64,
-    /// The GPU draws the pictures in between along with the frames of the title, which it does while the title keeps to every other refresh or every third one.
+    /// The GPU draws the pictures in between along with the frames of the title.
+    /// It does this while the title keeps to every other refresh or every third one.
     twinning: bool,
 }
 
@@ -198,7 +199,7 @@ pub use scenes::{BATTLE, BRIEF_FORECAST, EXP, FORECAST, LEFT_BANNER, ON_UNIT, PR
 pub struct Pictures {
     /// The pictures that the game set itself.
     pub from_game: u64,
-    /// The pictures in between that were drawn by frame interpolation.
+    /// The pictures in between that frame interpolation drew.
     pub interpolated: u64,
 }
 
@@ -521,9 +522,9 @@ impl System {
 
         let exit = match self.run_recompiled(deadline) {
             Some(exit) => {
-                // its writes do not go through the log a watch keeps.
-                // The thread counts as busy, so the few instructions the interpreter steps to the next entry point start no watch.
-                // A watch then waits until the interpreter has run on its own for a while.
+                // Its writes do not go through the log that a watch keeps.
+                // The thread counts as busy, so the few instructions that the interpreter steps to the next entry point start no watch.
+                // A watch then waits until the interpreter runs on its own for a while.
                 self.idle_interrupted(true);
                 if let Some(hints) = &mut self.hints {
                     hints.library_ran();
@@ -780,7 +781,8 @@ impl System {
         }
 
         self.renderer.end_frame();
-        // The renderer reports the markers it saw in the draws of this frame, and the scenes use them with the button A to track the screens.
+        // The renderer reports the markers that it saw in the draws of this frame.
+        // The scenes use these markers with the button A to track the screens.
         let drawn_markers = self.gpu.take_marked();
         let new_spans = self.gpu.take_spans();
         let a_held = self.services.hid.input.buttons.contains(services::hid::PadState::A);
@@ -827,8 +829,10 @@ impl System {
         let matches = self.gpu.frame_done();
         let pacing = &mut self.pacing;
         pacing.matches = matches;
-        // A title that sets a picture every second or third refresh is paced, and gets the pictures in between.
-        // Frames in between are shown only once the GPU already draws twins, so the first paced frame is shown as it is.
+        // A title that sets a picture every second or third refresh is paced.
+        // A paced title gets the pictures in between.
+        // Frames in between show only once the GPU already draws twins.
+        // So the first paced frame shows as it is.
         let paced = gap == 2 || gap == 3;
         pacing.between = paced && pacing.twinning && matches.is_some();
         pacing.shown += pacing.between as u64;
@@ -1262,7 +1266,7 @@ impl System {
     }
 
     /// The picture of the bottom screen at its native size, as RGBA bytes.
-    /// It is read from the memory of the game, or from the GPU when the GPU draws the screens itself.
+    /// The picture comes from the memory of the game, or from the GPU when the GPU draws the screens itself.
     pub fn bottom_picture(&mut self) -> Option<Vec<u8>> {
         if !self.gpu.draws_on_gpu() {
             return Some(self.read_screen(zakuro_common::Screen::Bottom));

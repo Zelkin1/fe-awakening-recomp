@@ -11,13 +11,14 @@ const HEIGHT: usize = 240;
 const GROUND_TOLERANCE: f32 = 12.0;
 /// The alpha below which a pixel of text is dropped as noise.
 const FAINTEST_ALPHA: f32 = 0.1;
-/// The distance from the ground color that the strongest pixel needs to reach, or the area holds no text.
+/// The distance from the ground color that the strongest pixel must reach.
+/// If the strongest pixel does not reach it, the area holds no text.
 const WEAKEST_TEXT: f32 = 40.0;
 /// The brightness above which a pixel of the gauge counts as part of a tick.
 const GAUGE_SEEN: f32 = 50.0;
 /// The brightness above which a tick of the gauge counts as lit.
 const TICK_LIT: f32 = 100.0;
-/// The most pixels that a banner follows its anchor, in x and in y.
+/// The largest distance in pixels that a banner moves from its resting place to follow its anchor, in x and in y.
 const MOST_MOVE: [f32; 2] = [14.0, 9.0];
 
 /// A piece of text cut out of the picture, with its own alpha.
@@ -71,7 +72,8 @@ fn clamped_ranges([left, top, width, height]: [u16; 4], [moved_x, moved_y]: [i32
     (x0..x1, y0..y1)
 }
 
-/// Finds the color of the ground in a rectangle, which is the average of the most common color group.
+/// Finds the color of the ground in a rectangle.
+/// This color is the average of the most common color group.
 pub fn ground(picture: &[u8], rect: [u16; 4], moved: [i32; 2]) -> [u8; 3] {
     let (xs, ys) = clamped_ranges(rect, moved);
     // The pixels are grouped by their colors in steps of 32 per channel. Each group keeps a count and a sum of the exact colors.
@@ -115,7 +117,8 @@ pub fn text(picture: &[u8], rect: [u16; 4], moved: [i32; 2], ground: [u8; 3]) ->
     trimmed(Text { size, rgba, ground, down: 0.0 })
 }
 
-/// Removes the empty rows and columns around the text, and records how far the text moved down by that.
+/// Removes the empty rows and columns around the text.
+/// It records how far the text moved down by that.
 fn trimmed(text: Text) -> Text {
     let [width, height] = text.size;
     let seen = |x: usize, y: usize| text.rgba[(y * width + x) * 4 + 3] > 0;
@@ -154,7 +157,8 @@ pub fn ticks(picture: &[u8], rect: [u16; 4], moved: [i32; 2]) -> Vec<[u32; 2]> {
     };
     let mut rows = Vec::new();
     let mut row: Option<[u32; 2]> = None;
-    // Lines of pixels with ticks are joined into one row, and a line without ticks ends the row.
+    // Lines of pixels with ticks are joined into one row.
+    // A line without ticks ends the row.
     for y in ys {
         match runs(y, GAUGE_SEEN) {
             0 => rows.extend(row.take()),
@@ -170,7 +174,8 @@ pub fn ticks(picture: &[u8], rect: [u16; 4], moved: [i32; 2]) -> Vec<[u32; 2]> {
 }
 
 /// Works out how far a side moved from its resting place, by the span that it follows.
-/// The movement is limited to `MOST_MOVE`, and it is zero when the side follows nothing or the span is missing.
+/// The movement is limited to `MOST_MOVE`.
+/// It is zero when the side follows nothing or the span is missing.
 fn moved(side: &BannerSide, spans: &[(u32, [f32; 4])]) -> [i32; 2] {
     let Some((id, [rest_x, rest_y])) = side.follows else { return [0, 0] };
     let Some(&(_, [x, y, ..])) = spans.iter().find(|&&(marked, _)| marked == id) else { return [0, 0] };
@@ -218,7 +223,8 @@ mod tests {
         picture[(y * WIDTH + x) * 4..][..3].copy_from_slice(&rgb);
     }
 
-    /// Text on a ground is found as its own color with an alpha, and the empty border is trimmed.
+    /// Text on a ground is found as its own color with an alpha.
+    /// The empty border is trimmed.
     #[test]
     fn text_comes_off_its_ground() {
         let navy = [10, 18, 34];

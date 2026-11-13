@@ -1,4 +1,5 @@
-//! Self-update of the launcher. This module asks GitHub for the latest release, downloads the asset of the release for this system and replaces the launcher with it.
+//! Self-update of the launcher.
+//! This module asks GitHub for the latest release, downloads the asset of the release for this system and replaces the launcher with it.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -36,7 +37,7 @@ pub struct Release {
 
 /// An installation that runs on a background thread.
 pub struct Installing {
-    /// The fraction of the download that has arrived, from 0 to 1.
+    /// The fraction of the download that arrived, from 0 to 1.
     pub progress: Arc<Mutex<f32>>,
     /// Receives the path of the new launcher when the installation succeeds, or the reason it failed.
     pub done: Receiver<Result<PathBuf, String>>,
@@ -61,7 +62,8 @@ pub fn tidy() {
     }
 }
 
-/// Asks GitHub for the latest release on a thread. The receiver gets the release when it is newer than this build, and nothing otherwise.
+/// Asks GitHub for the latest release on a thread.
+/// The receiver gets the release when it is newer than this build, and nothing otherwise.
 pub fn check_in_background() -> Receiver<Option<Release>> {
     let (send, receive) = channel();
     std::thread::spawn(move || {
@@ -97,13 +99,15 @@ fn launcher_folder() -> Option<PathBuf> {
     std::env::current_exe().ok()?.parent().map(Path::to_owned)
 }
 
-/// Downloads the description of the latest release and reads it. Returns nothing when the request or the reading fails.
+/// Downloads the description of the latest release and reads it.
+/// Returns nothing when the request or the reading fails.
 fn latest() -> Option<Release> {
     let output = Fetcher::find()?.command(LATEST, None, 30).stderr(Stdio::null()).output().ok()?;
     output.status.success().then(|| parse(&output.stdout)).flatten()
 }
 
-/// Reads the JSON of a GitHub release and picks the Windows zip asset. Returns nothing when the release has no such asset.
+/// Reads the JSON of a GitHub release and picks the Windows zip asset.
+/// Returns nothing when the release has no such asset.
 fn parse(json: &[u8]) -> Option<Release> {
     let release: serde_json::Value = serde_json::from_slice(json).ok()?;
     let asset = release["assets"].as_array()?.iter().find(|asset| asset["name"].as_str().is_some_and(|name| name.ends_with(ASSET_SUFFIX)))?;
@@ -115,18 +119,21 @@ fn parse(json: &[u8]) -> Option<Release> {
     })
 }
 
-/// Splits a tag such as "v1.0.11" into major, minor and patch numbers. Returns nothing when the tag has another shape.
+/// Splits a tag such as "v1.0.11" into major, minor and patch numbers.
+/// Returns nothing when the tag has another shape.
 fn version(tag: &str) -> Option<(u32, u32, u32)> {
     let mut parts = tag.trim_start_matches('v').split('.').map(|part| part.parse().ok());
     Some((parts.next()??, parts.next()??, parts.next()??))
 }
 
-/// Returns true when the first tag is a later version than the second. A tag that is not a version is never newer.
+/// Returns true when the first tag is a later version than the second.
+/// A tag that is not a version is never newer.
 fn is_newer(tag: &str, current: &str) -> bool {
     matches!((version(tag), version(current)), (Some(latest), Some(current)) if latest > current)
 }
 
-/// Downloads the AppImage of a release next to the running one and puts it in its place. Returns the path of the AppImage.
+/// Downloads the AppImage of a release next to the running one and puts it in its place.
+/// Returns the path of the AppImage.
 fn install_appimage(release: &Release, progress: &dyn Fn(f32)) -> Result<PathBuf, String> {
     let current = running_appimage().ok_or("the launcher updates itself only when it runs as an AppImage")?;
     let fetcher = Fetcher::find().ok_or("Zakuro downloads with curl or wget, and this computer has neither")?;
@@ -150,7 +157,7 @@ fn install(release: &Release, progress: &dyn Fn(f32)) -> Result<PathBuf, String>
         return install_appimage(release, progress);
     }
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-    let folder = exe.parent().ok_or("Zakuro can't tell which folder it runs from")?.to_owned();
+    let folder = exe.parent().ok_or("Zakuro cannot find the folder that it runs from")?.to_owned();
     let staging = folder.join(STAGING);
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging).map_err(|error| format!("{}: {error}", staging.display()))?;
@@ -163,9 +170,9 @@ fn install(release: &Release, progress: &dyn Fn(f32)) -> Result<PathBuf, String>
         .arg("-C")
         .arg(&staging)
         .status()
-        .map_err(|error| format!("tar could not start, {error}"))?;
+        .map_err(|error| format!("tar did not start, {error}"))?;
     if !unpacked.success() {
-        return Err("the download could not be unpacked".to_owned());
+        return Err("tar did not unpack the download".to_owned());
     }
     // The zip unpacks into a folder named like the asset without its suffix.
     let files = staging.join(release.name.trim_end_matches(ASSET_SUFFIX));
@@ -183,7 +190,8 @@ fn install(release: &Release, progress: &dyn Fn(f32)) -> Result<PathBuf, String>
     Ok(exe)
 }
 
-/// Copies every file of the unpacked release into the folder of the launcher. The new launcher goes to the path of the running one.
+/// Copies every file of the unpacked release into the folder of the launcher.
+/// The new launcher goes to the path of the running one.
 fn replace_files(from: &Path, folder: &Path, exe: &Path) -> Result<(), String> {
     let entries = std::fs::read_dir(from).map_err(|error| format!("{}: {error}", from.display()))?;
     for entry in entries.flatten() {

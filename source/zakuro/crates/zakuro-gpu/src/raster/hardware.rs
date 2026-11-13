@@ -272,7 +272,8 @@ struct Image {
     image: vk::Image,
     memory: vk::DeviceMemory,
     view: vk::ImageView,
-    /// The part of a block of the pool the image lives in, none when it has memory of its own.
+    /// The part of a block of the pool that the image lives in.
+    /// It is none when the image has memory of its own.
     slot: Option<Slot>,
 }
 
@@ -287,12 +288,14 @@ struct Slot {
     size: u64,
 }
 
-/// The size of a block of device memory the pool allocates, 64 MiB.
+/// The size of a block of device memory that the pool allocates, 64 MiB.
 const POOL_BLOCK: u64 = 64 << 20;
-/// The largest image that is taken from the pool, 16 MiB. A larger one gets memory of its own.
+/// The largest image that is taken from the pool, 16 MiB.
+/// A larger image gets memory of its own.
 const POOL_LARGEST: u64 = 16 << 20;
 
-/// Device memory taken in large blocks and handed out in pieces, so images do not each cost an allocation, of which a GPU allows only a few.
+/// Device memory that is taken in large blocks and handed out in pieces.
+/// This way, images do not each cost an allocation, because a GPU allows only a few allocations.
 #[derive(Default)]
 struct Pool {
     blocks: Vec<PoolBlock>,
@@ -308,7 +311,8 @@ struct PoolBlock {
 }
 
 impl Pool {
-    /// Gives a range of a block of this memory type, with the size and the alignment, or none when no block has room.
+    /// Gives a range of a block of this memory type, with the size and the alignment.
+    /// It gives none when no block has room.
     fn take(&mut self, kind: u32, size: u64, align: u64) -> Option<(vk::DeviceMemory, Slot)> {
         // The first free range that holds the aligned image is split into what lies before and after it.
         for (block, pooled) in self.blocks.iter_mut().enumerate().filter(|(_, pooled)| pooled.kind == kind) {
@@ -325,7 +329,7 @@ impl Pool {
         None
     }
 
-    /// Takes a range back, joining it to the free ranges next to it.
+    /// Takes a range back and joins it to the free ranges next to it.
     fn give_back(&mut self, slot: Slot) {
         let free = &mut self.blocks[slot.block].free;
         let index = free.partition_point(|&(start, _)| start < slot.offset);
@@ -853,13 +857,15 @@ struct Local {
 /// a texture copied from a surface the GPU drew.
 struct Copied {
     image: Image,
-    /// A view of the first level alone, made when the image has more levels.
+    /// A view of the first level alone.
+    /// It is made when the image has more levels.
     base: Option<vk::ImageView>,
     /// Views of each of the other levels alone.
     smaller: Vec<vk::ImageView>,
     /// The images at the resolution of the console that the smaller levels are drawn in before they are scaled up, one per level after the first.
     native: Vec<Option<Image>>,
-    /// For each level after the first, the surface it was drawn from and its generation, none when the level comes from memory.
+    /// For each level after the first, the surface that the level was drawn from and its generation.
+    /// It is none when the level comes from memory.
     drawn_levels: Vec<Option<(usize, u64)>>,
     surface: usize,
     /// the surface's generation when it was copied.
@@ -1134,7 +1140,8 @@ enum Made {
 }
 
 /// The number of threads that compile pipelines.
-/// A driver compiling three pipelines at once took the time of the emulation away and made frames late, so there is one.
+/// When a driver compiled three pipelines at once, it took the time of the emulation away and made frames late.
+/// For this reason, there is one thread.
 const COMPILER_THREADS: usize = 1;
 
 /// the jobs waiting for the compiler threads, translations first, as they
@@ -1145,7 +1152,8 @@ struct Queue {
     translations: VecDeque<Job>,
     generic: VecDeque<Job>,
     compiles: Vec<Job>,
-    /// The optimized compiles of pipelines that are already drawn through a quick compile, made when nothing else waits.
+    /// The optimized compiles of pipelines that are already drawn through a quick compile.
+    /// They are made when nothing else waits.
     refines: Vec<Job>,
     stopped: bool,
     /// pipelines compiled since the cache was last kept on disk, and when
@@ -1506,7 +1514,7 @@ fn compile_pipeline(
 pub struct Hardware {
     /// the device, maybe the presenter's too, kept until this lets go.
     _shared: Arc<SharedDevice>,
-    /// the device memory images are taken from.
+    /// The device memory that images are taken from.
     pooled: std::sync::Mutex<Pool>,
     /// whether the presenter shares the device, and shows screens straight
     /// from the images the GPU turns them upright into.
@@ -1552,10 +1560,12 @@ pub struct Hardware {
     /// compare the two.
     generic: bool,
     /// Whether the smaller levels of a texture stay as the GPU drew them.
-    /// Games draw bloom from such levels, and without bloom they are transparent black.
+    /// Games draw bloom from such levels.
+    /// Without bloom, they are transparent black.
     bloom: bool,
-    /// Whether the smaller levels of a texture come from memory, written back first, set by ZAKURO_LEVELS_FROM_MEMORY.
-    /// They are otherwise copied on the GPU from the buffers they were drawn into.
+    /// Whether the smaller levels of a texture come from memory, which is written back first.
+    /// ZAKURO_LEVELS_FROM_MEMORY sets it.
+    /// Otherwise, the levels are copied on the GPU from the buffers that they were drawn into.
     levels_from_memory: bool,
     compiler: Compiler,
     /// whether the device does logic ops.
@@ -1586,7 +1596,7 @@ pub struct Hardware {
     /// the same writing an image, made the first time it is needed.
     upright_image: Option<Compute>,
     samples: Option<Local>,
-    /// The samplers made, by their filtering and the anisotropy they filter with.
+    /// The samplers that are made, by their filtering and the anisotropy that they filter with.
     samplers: QuickMap<(Filtering, u32), vk::Sampler>,
     /// How many samples anisotropic filtering takes along a texture seen at an angle, 1 when it is off.
     anisotropy: u32,
@@ -1973,12 +1983,14 @@ impl Hardware {
         self.scale
     }
 
-    /// Changes the scale while the game runs, and says the one it took. Everything drawn so far is flushed and the images at the old scale are destroyed, so the surfaces are made again at the new one.
+    /// Changes the scale while the game runs, and says the scale that it took.
+    /// Everything drawn so far is flushed, and the images at the old scale are destroyed.
+    /// As a result, the surfaces are made again at the new scale.
     pub fn rescale<M: GpuMemory>(&mut self, memory: &mut M, scale: u32) -> Result<u32, String> {
         if scale.clamp(1, 8).min((self.max_image_size / 1024).max(1)) == self.scale || !self.blits {
             return Ok(self.scale);
         }
-        // The GPU has to be idle before its images are destroyed.
+        // The GPU must be idle before its images are destroyed.
         self.flush(memory)?;
         unsafe { self.device.device_wait_idle().map_err(vk_error("wait for the GPU"))? };
         for copy in std::mem::take(&mut self.copies).into_values().chain(std::mem::take(&mut self.twin_copies).into_values()) {
@@ -2065,7 +2077,9 @@ impl Hardware {
         Ok((memory, types[index].property_flags))
     }
 
-    /// Memory for an image from the pool, with a new block when none has room. None when the image is too large or the pool cannot grow, and the caller allocates on its own.
+    /// Memory for an image from the pool, with a new block when no block has room.
+    /// It is none when the image is too large or the pool cannot grow.
+    /// The caller then allocates on its own.
     fn from_pool(&self, requirements: vk::MemoryRequirements) -> Option<(vk::DeviceMemory, Slot)> {
         if requirements.size > POOL_LARGEST {
             return None;
@@ -2907,7 +2921,8 @@ impl Hardware {
         self.blit_with(index, up, false, vk::Filter::NEAREST);
     }
 
-    /// Scales a surface between its image at the resolution of the console and its image at the scale, up or down, with the given filter. When twin is set and the surface has one, the twin image is used.
+    /// Scales a surface between its image at the resolution of the console and its image at the scale, up or down, with the given filter.
+    /// When twin is set and the surface has one, the twin image is used.
     fn blit_with(&mut self, index: usize, up: bool, twin: bool, filter: vk::Filter) {
         let s = &self.surfaces[index];
         let Some(native) = &s.native else { return };
@@ -3230,7 +3245,8 @@ impl Hardware {
     /// function and the like. a program still being translated does not
     /// have its interpreted pipeline asked for, it would not be used for
     /// long.
-    /// There is none while even the generic pipeline is being compiled, and the draw is then skipped.
+    /// There is none while even the generic pipeline is still in compilation.
+    /// The draw is then skipped.
     fn pipeline_for(&mut self, key: PipelineKey, translating: bool) -> Result<Option<vk::Pipeline>, String> {
         let vertex = match key.vertex {
             VertexStage::Placed => VertexStage::Placed,
@@ -3439,12 +3455,15 @@ impl Hardware {
         self.bloom = on;
     }
 
-    /// Whether the bloom is drawn, see set_bloom.
+    /// Whether the bloom is drawn.
+    /// The function set_bloom sets it.
     pub(crate) fn blooms(&self) -> bool {
         self.bloom
     }
 
-    /// Filters textures seen at an angle with up to this many samples, 1 for none, as far as the device goes, and says how many.
+    /// Filters textures seen at an angle with up to this many samples, where 1 means none.
+    /// The number goes only as far as the device allows.
+    /// It says how many samples it takes.
     /// The samplers made before stay for the draws that already use them.
     pub(crate) fn set_anisotropy(&mut self, samples: u32) -> u32 {
         self.anisotropy = samples.clamp(1, self.max_anisotropy);
@@ -3704,7 +3723,7 @@ impl Hardware {
             }
             Made::Compiled(key, Ok(pipeline), false) => {
                 if let Some(quick) = self.pipelines.insert(key, pipeline) {
-                    // Frames still on the GPU may draw through the quick build, so it is destroyed with the rest at the end.
+                    // Frames still on the GPU can draw through the quick build, so it is destroyed with the rest at the end.
                     self.retired.push(quick);
                     self.last_pipeline = None;
                 }
@@ -3944,7 +3963,7 @@ impl Hardware {
         let real = pass != Pass::Twin;
         let twin = twinned && pass != Pass::Twinned;
 
-        // Whether the texture of each unit is a picture, which the shader is told in the third word of the unit.
+        // This tells whether the texture of each unit is a picture. The shader gets this in the third word of the unit.
         let mut pictured = [false; 3];
         let mut views = [self.blank.view; 3];
         let mut twin_views = [self.blank.view; 3];
@@ -4404,7 +4423,8 @@ impl Hardware {
         Ok(())
     }
 
-    /// A texture copy of whole rows of tiles, out of a surface the GPU holds, done on the GPU. False when no surface holds the input as whole rows of tiles.
+    /// A texture copy of whole rows of tiles, out of a surface that the GPU holds, done on the GPU.
+    /// It is false when no surface holds the input as whole rows of tiles.
     pub(crate) fn texture_copy<M: GpuMemory>(&mut self, memory: &mut M, input: u32, output: u32, size: u32) -> Result<bool, String> {
         let end = input as u64 + size as u64;
         // A row of tiles is 8 rows of texels.
@@ -4446,7 +4466,10 @@ impl Hardware {
         self.display_transfer(memory, &transfer)
     }
 
-    /// A texture copy that reads a run of bytes of every row of tiles and skips a gap, which cuts columns out of a surface, done on the GPU. The size is the bytes in all the runs. False when no surface fits.
+    /// A texture copy that reads a run of bytes of every row of tiles and skips a gap, done on the GPU.
+    /// This cuts columns out of a surface.
+    /// The size is the bytes in all the runs.
+    /// It is false when no surface fits.
     pub(crate) fn texture_copy_columns<M: GpuMemory>(
         &mut self,
         memory: &mut M,
@@ -4473,7 +4496,7 @@ impl Hardware {
         let Some((Kind::Color(format), width)) = found else {
             return Ok(false);
         };
-        // The columns a run covers, in texels, and the rows of all the runs, 8 to a row of tiles.
+        // These are the columns that a run covers, in texels, and the rows of all the runs, 8 to a row of tiles.
         let (columns, rows) = (run / (format.bytes_per_pixel() as u32 * 8), size / run * 8);
         let output_height = self
             .surfaces
@@ -4508,7 +4531,8 @@ impl Hardware {
         self.transfer(memory, transfer, false)
     }
 
-    /// The transfer behind a display transfer and the texture copies. At console is set for a texture copy, which is done at the resolution of the console when the surfaces have images for it.
+    /// The transfer behind a display transfer and the texture copies.
+    /// The flag `at_console` is set for a texture copy, which is done at the resolution of the console when the surfaces have images for it.
     fn transfer<M: GpuMemory>(&mut self, memory: &mut M, transfer: &Transfer, at_console: bool) -> Result<bool, String> {
         let t = transfer;
         let input_kind = Kind::Color(t.input_format);
@@ -4534,7 +4558,7 @@ impl Hardware {
             let offset = t.input.checked_sub(s.addr).filter(|offset| offset % step_bytes == 0)? / step_bytes * step;
             (offset + rows <= s.height).then_some(offset)
         };
-        // The head is the rows the input has before the first row of a surface, which another surface holds. It has to be whole rows of the surface and the transfer cannot flip.
+        // The head is the rows that the input has before the first row of a surface, which another surface holds. It must be whole rows of the surface, and the transfer cannot flip.
         let head_in = |s: &Surface| {
             let head = s.addr.checked_sub(t.input).filter(|gap| *gap > 0 && gap % step_bytes == 0)? / step_bytes * step;
             (!t.flip && head < rows && head % t.scale.1 == 0 && rows - head <= s.height).then_some(head)
@@ -4547,7 +4571,7 @@ impl Hardware {
             .filter_map(|s| Some((s, row_in(s)?)))
             .max_by_key(|&(s, row)| newest(s, (row, row + rows)))
             .map(|(s, row)| (s.addr, (s.width, s.height), row, 0));
-        // Used when no surface holds the input from its first row, so one that starts after it is read with the head from another.
+        // This is used when no surface holds the input from its first row, so a surface that starts after that row is read with the head from another surface.
         let after_head = || {
             self.surfaces
                 .iter()
@@ -4574,7 +4598,7 @@ impl Hardware {
         self.begin()?;
         // a flush looking one of them up drops what the other had checked
         let (lead, source, target) = loop {
-            // The surface that holds the head, when there is one.
+            // This is the surface that holds the head, when there is one.
             let lead = match head {
                 0 => None,
                 _ => Some(self.surface(memory, t.input, (t.input_width, head), input_kind, tiled)?),
@@ -4597,7 +4621,7 @@ impl Hardware {
         // drawn scaled, every size and row is that many times more, and the
         // pixels averaged stay as many
         let n = if native { 1 } else { self.scale as i32 };
-        // The constants of the transfer shader for one part of the copy, the rows from one surface. Skipped is the rows of the output above the part.
+        // These are the constants of the transfer shader for one part of the copy, which is the rows from one surface. The value `skipped` is the rows of the output above the part.
         let part = |copied: u32, skipped: u32, from: u32, height: u32| -> [i32; 11] {
             [
                 t.copy.0 as i32 * n,
@@ -4613,7 +4637,7 @@ impl Hardware {
                 height as i32 * n,
             ]
         };
-        // The head in rows of the output. The surface of the head fills the first of them, and the main surface the rest.
+        // This is the head in rows of the output. The surface of the head fills the first of them, and the main surface the rest.
         let led = head / t.scale.1;
         let mut parts = vec![(source, part(t.copy.1 - led, led, row, input_size.1), t.copy.1 - led)];
         if let Some(lead) = lead {
@@ -4665,7 +4689,10 @@ impl Hardware {
         Ok(true)
     }
 
-    /// Does the parts of a transfer at the resolution of the console. The sources are scaled down, the shader runs on each part, and the target is scaled back up with a linear filter.
+    /// Does the parts of a transfer at the resolution of the console.
+    /// The sources are scaled down.
+    /// The shader runs on each part.
+    /// The target is scaled back up with a linear filter.
     fn native_transfer(&mut self, parts: &[(usize, [i32; 11], u32)], target: usize, width: u32, twin: bool) -> Result<(), String> {
         for &(from, ..) in parts {
             self.blit_with(from, false, twin, vk::Filter::NEAREST);
@@ -4759,7 +4786,8 @@ impl Hardware {
         self.texture_source(texture).is_some_and(|(index, row, lead)| lead == 0 && row + texture.height <= self.surfaces[index].height)
     }
 
-    /// The surface and the row that a smaller level of a texture is drawn in, when the GPU holds it whole. The levels follow each other in memory, each a quarter of the one before.
+    /// The surface and the row that a smaller level of a texture is drawn in, when the GPU holds it whole.
+    /// The levels follow each other in memory, each a quarter of the one before.
     fn level_source(&self, texture: &DrawnTexture, level: u32) -> Option<(usize, u32)> {
         let bytes = Kind::Color(texture.format).bytes();
         let offset: u32 = (0..level).map(|smaller| (texture.width >> smaller) * (texture.height >> smaller) * bytes).sum();
@@ -4841,7 +4869,7 @@ impl Hardware {
         // A copy is kept per number of levels, since the same buffer can be read with and without smaller levels.
         let levels = bound.levels.max(1);
         let key = (*texture, levels);
-        // The texels of memory are needed for a lead, for rows past the surface and for the smaller levels, so the texture has to come with all its levels.
+        // The texels of memory are needed for a lead, for rows past the surface and for the smaller levels, so the texture must come with all its levels.
         let memory = if lead + rows < texture.height || lead > 0 || levels > 1 {
             let texels: u32 = (0..levels).map(|level| (texture.width >> level) * (texture.height >> level)).sum();
             if bound.texels.len() != texels as usize {
@@ -4988,12 +5016,13 @@ impl Hardware {
         self.barrier();
         let range = vk::ImageSubresourceRange::default().aspect_mask(vk::ImageAspectFlags::COLOR).base_mip_level(1).level_count(levels - 1).layer_count(1);
         let clear = vk::ClearColorValue { float32: [0.0; 4] };
-        // SAFETY: recording, outside rendering, on a copy made for transfers in the general layout, with the levels it has
+        // SAFETY: This records outside rendering, on a copy that is made for transfers in the general layout, with the levels that the copy has.
         unsafe { self.device.cmd_clear_color_image(self.commands, image, vk::ImageLayout::GENERAL, &clear, &[range]) };
         self.unfenced = true;
     }
 
-    /// Copies a smaller level of a texture out of the surface it was drawn in. The level goes through an image at the resolution of the console and is scaled up into its level of the copy.
+    /// Copies a smaller level of a texture out of the surface that it was drawn in.
+    /// The level goes through an image at the resolution of the console and is scaled up into its level of the copy.
     fn copy_level(&mut self, key: &(DrawnTexture, u32), twin: bool, level: u32, (index, row): (usize, u32)) -> Result<(), String> {
         let texture = key.0;
         let (n, slot) = (self.scale, level as usize - 1);
@@ -5442,7 +5471,8 @@ impl Hardware {
         Ok(picture(&self.surfaces, index).and_then(crop))
     }
 
-    /// The newest picture of a screen at the resolution of the console, upright and RGBA. None unless a surface holds exactly the whole screen and has been captured.
+    /// The newest picture of a screen at the resolution of the console, upright and RGBA.
+    /// It is none unless a surface holds exactly the whole screen and the surface was captured.
     pub(crate) fn native_picture(&mut self, screen: ScreenRef) -> Option<Vec<u8>> {
         let (row_pixels, rows) = screen.size;
         if screen.rows != (0, rows) || screen.columns != row_pixels {
@@ -5466,7 +5496,8 @@ impl Hardware {
         Some(out)
     }
 
-    /// Reads the picture a finished batch left in a capture buffer of a surface, the one at the resolution of the console when native is set and the one for the screen otherwise.
+    /// Reads the picture that a finished batch left in a capture buffer of a surface.
+    /// When native is set, it reads the buffer at the resolution of the console, and otherwise the buffer for the screen.
     fn read_picture(&mut self, index: usize, native: bool) -> Result<(), String> {
         let surface = &mut self.surfaces[index];
         let Some(capture) = (if native { surface.capture.as_mut() } else { surface.screen.as_mut() }) else { return Ok(()) };

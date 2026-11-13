@@ -1,7 +1,9 @@
 
 //! Builds the feet for one body model.
-//! The legs of the body are measured, a foot is shaped for each leg, and the texture coordinates of the feet are taken from the texture of the body.
-//! The bones, the vertices and the triangles of the feet are then written into a copy of the CGFX file of the model.
+//! This module measures the legs of the body.
+//! It shapes a foot for each leg.
+//! It takes the texture coordinates of the feet from the texture of the body.
+//! Then it writes the bones, the vertices and the triangles of the feet into a copy of the CGFX file of the model.
 //! In the coordinates of the model, y is up, z runs from the back to the front, and x is sideways.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -49,7 +51,8 @@ fn bounds(points: impl Iterator<Item = V3>) -> (V3, V3) {
     })
 }
 
-/// Returns the median of the values. The values are sorted in place.
+/// Returns the median of the values.
+/// It sorts the values in place.
 fn median(values: &mut [f64]) -> f64 {
     values.sort_by(f64::total_cmp);
     let n = values.len();
@@ -57,7 +60,7 @@ fn median(values: &mut [f64]) -> f64 {
 }
 
 /// Returns a percentile of the values, from 0 to 100, with a linear blend between the two nearest values.
-/// The values are sorted in place.
+/// It sorts the values in place.
 fn percentile(values: &mut [f64], q: f64) -> f64 {
     values.sort_by(f64::total_cmp);
     let at = (values.len() - 1) as f64 * q / 100.0;
@@ -84,7 +87,7 @@ const OWN: f64 = 0.85;
 const END: f64 = 0.12;
 /// The share of the height of the ankle above which vertices of the leg count for the front and the back of the shin.
 const SHOWN: f64 = 0.85;
-/// The widest the foot may be, as a share of the height of the knee.
+/// The widest that the foot can be, as a share of the height of the knee.
 const WIDEST: f64 = 0.21;
 /// The most that a texture coordinate is moved by the random jitter, in texels.
 const NOISE: f64 = 1.5;
@@ -107,12 +110,14 @@ pub struct Style {
     pub name: &'static str,
     /// The sections from the heel to the front of the shin.
     /// Each section is the place along the part, the width, the top, the sole, the bottom and the shoulder.
-    /// The place is a share of the length of the part, the width is a share of the half width of the shin, and the three heights are shares of the height of the ankle.
+    /// The place is a share of the length of the part.
+    /// The width is a share of the half width of the shin.
+    /// The three heights are shares of the height of the ankle.
     /// The shoulder is the share of the width that is left at the top.
     behind: &'static [[f64; 6]],
     /// The sections from the front of the shin to the toe, in the same form as the sections behind.
     ahead: &'static [[f64; 6]],
-    /// The angle in degrees up to which neighbouring faces are shaded as one smooth surface.
+    /// The angle in degrees up to which neighboring faces are shaded as one smooth surface.
     smooth: f64,
 }
 
@@ -144,7 +149,8 @@ const SABATONS: [&str; 13] = ["karm", "gene", "kgre", "kgri", "kpal", "kdar", "k
 const SANDALS: [&str; 5] = ["dmag", "sorc", "lagz", "baba", "swd2"];
 
 /// Picks the style of the feet from the path of a body model.
-/// The class of the body is the third part of the name, as in `b/uBody_M_kgre_9.m.lz`, and every other class gets shoes.
+/// The class of the body is the third part of the name, as in `b/uBody_M_kgre_9.m.lz`.
+/// Every other class gets shoes.
 pub fn style_of(path: &str) -> &'static Style {
     let class = path.split('_').nth(2).unwrap_or("");
     let name = if SABATONS.contains(&class) {
@@ -180,7 +186,7 @@ impl Noise {
 
     /// Returns the next number, from minus `NOISE` to `NOISE`.
     fn next(&mut self) -> f64 {
-        // One step of the xorshift64 generator.
+        // This is one step of the xorshift64 generator.
         let mut s = self.0;
         s ^= s << 13;
         s ^= s >> 7;
@@ -228,7 +234,8 @@ fn skin(c: [f64; 3]) -> bool {
 }
 
 /// Returns the position of the candidate with the lowest key.
-/// Each item is a key with a column and a row, and ties are broken by the column and then by the row, so that the choice is always the same.
+/// Each item is a key with a column and a row.
+/// Ties are broken by the column and then by the row, so that the choice is always the same.
 fn least(keys: impl Iterator<Item = (f64, usize, usize)>) -> Option<(usize, usize)> {
     keys.min_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2))).map(|(_, x, y)| (x, y))
 }
@@ -299,10 +306,12 @@ impl<'a> Texels<'a> {
     }
 
     /// Finds a plain rectangle of the texture that lies fully inside the mask.
-    /// The sizes are tried in order. For each size, every position is measured and `pick` chooses one of them, and the first size with a pick wins.
+    /// It tries the sizes in order.
+    /// For each size, it measures every position, and `pick` chooses one of them.
+    /// The first size with a pick wins.
     fn plain(&self, sizes: &[(usize, usize)], pick: &dyn Fn(&[Found], (usize, usize)) -> Option<(usize, usize)>) -> Result<Rect, String> {
         let wide = self.tex.width;
-        // The rows and the columns that the mask covers, as a first and a last.
+        // These are the rows and the columns that the mask covers, as a first and a last.
         let (mut rows, mut columns) = ((usize::MAX, 0), (usize::MAX, 0));
         for (i, _) in self.mask.iter().enumerate().filter(|(_, &m)| m) {
             let (x, y) = (i % wide, i / wide);
@@ -351,7 +360,8 @@ impl<'a> Texels<'a> {
 }
 
 /// Makes a pick for `Texels::plain` that looks for a rectangle of the given color.
-/// Among the rectangles within 16 of the color it takes the plainest. When there is none, it takes the one with the lowest mix of distance and spread.
+/// Among the rectangles within 16 of the color, it takes the plainest.
+/// When there is none, it takes the one with the lowest mix of distance and spread.
 fn near(colour: [f64; 3]) -> impl Fn(&[Found], (usize, usize)) -> Option<(usize, usize)> {
     move |found, _| {
         let close: Vec<_> = found.iter().filter(|f| farthest(f.colour, colour) < 16.0).map(|f| (f.spread, f.x, f.y)).collect();
@@ -477,7 +487,7 @@ impl Edge {
 /// Fills a triangle into a mask of texels, with the same rounding rules as the polygon fill of the Pillow library.
 /// The points are in texels, and the parts of the triangle outside the mask are cut off.
 fn fill(mask: &mut [bool], wide: usize, high: usize, points: [(f64, f64); 3]) {
-    // The rounding of the left and the right end of a span differs, so that the edges of neighbouring triangles do not overlap.
+    // The rounding of the left and the right end of a span differs, so that the edges of neighboring triangles do not overlap.
     let round_up = |v: f32| {
         let v = v as f64;
         (if v >= 0.0 { (v + 0.5).floor() } else { -(v.abs() + 0.5).floor() }) as i64
@@ -568,7 +578,8 @@ impl Body<'_> {
     }
 
     /// Measures one leg of the body.
-    /// The shin is cut at several heights to find its center, its width and its depth, and the ankle is placed near the lowest cut.
+    /// It cuts the shin at several heights to find its center, its width and its depth.
+    /// It places the ankle near the lowest cut.
     fn frame(&self, leg: char) -> Result<Frame, String> {
         let bones = self.joints(&[format!("{leg}_leg2"), format!("{leg}_leg3")]);
         let n = self.pos.len();
@@ -592,7 +603,7 @@ impl Body<'_> {
             }
         }
         let tris: Vec<[usize; 3]> = self.triangles.iter().copied().filter(|t| t.iter().all(|&i| on_leg[i])).collect();
-        // The points where the edges of the triangles of the leg cross a horizontal plane at height y.
+        // These are the points where the edges of the triangles of the leg cross a horizontal plane at height y.
         let crossings = |y: f64| {
             let mut found = Vec::new();
             for (i, j) in [(0, 1), (1, 2), (2, 0)] {
@@ -605,7 +616,7 @@ impl Body<'_> {
             }
             found
         };
-        // Seven cuts that are evenly spaced from the bottom to the top. Cuts with fewer than four crossings are dropped.
+        // Seven cuts are evenly spaced from the bottom to the top. Cuts with fewer than four crossings are dropped.
         let sections = |bottom: f64, top: f64| -> Vec<Vec<V3>> {
             (0..7).map(|k| if k == 6 { top } else { bottom + (top - bottom) / 6.0 * k as f64 }).map(crossings).filter(|cut| cut.len() >= 4).collect()
         };
@@ -626,7 +637,7 @@ impl Body<'_> {
         // The ankle sits at 90 percent of the height of the lowest cut, or of the highest cut for a robe.
         let heights = cuts.iter().map(|cut| cut[0][1]);
         let ankle = 0.9 * if robed { heights.fold(f64::NEG_INFINITY, f64::max) } else { heights.fold(f64::INFINITY, f64::min) };
-        // The back and the front of the shin reach to the 5th and the 95th percentile of the z of the leg vertices above the ankle, when the cuts are narrower.
+        // When the cuts are narrower, the back and the front of the shin reach to the 5th and the 95th percentile of the z of the leg vertices above the ankle.
         let mut shown: Vec<f64> =
             (0..n).filter(|&i| on_leg[i] && self.pos[i][1] > SHOWN * ankle && self.pos[i][1] < hi).map(|i| self.pos[i][2]).collect();
         let (back, front) = match shown.len() >= 4 {
@@ -650,7 +661,8 @@ impl Body<'_> {
     }
 
     /// Chooses the rectangles of the texture that give the feet their colors.
-    /// One rectangle is for the upper of the foot and one is for the sole, and both are looked for among the texels of the shins.
+    /// One rectangle is for the upper of the foot, and one is for the sole.
+    /// It looks for both among the texels of the shins.
     fn materials(&self, tex: &Image, frames: &[Frame; 2], style: &Style) -> Result<Patch, String> {
         let uv = self.uv.as_ref().ok_or("no texture coordinates")?;
         let (wide, high) = (tex.width, tex.height);
@@ -719,7 +731,10 @@ impl Body<'_> {
     }
 
     /// Builds the foot for one leg.
-    /// The foot is a row of rings that are placed along z, and the rings are joined by quads. The texture coordinates come from the patch, or from the boot of the body when there is no texture.
+    /// The foot is a row of rings that are placed along z.
+    /// Quads join the rings.
+    /// The texture coordinates come from the patch.
+    /// When there is no texture, they come from the boot of the body.
     fn foot(&self, frame: &Frame, style: &Style, patch: Option<&Patch>) -> Result<Foot, String> {
         let Frame { cx, cz, half, depth, ankle, height, back, .. } = *frame;
         // The places of the heel, the front of the shin and the toe, relative to the center of the shin.
@@ -805,7 +820,8 @@ struct FootBounds {
 
 /// Builds the faces of a foot from its rings.
 /// Each face is a quad of four point indices with a material and a way to find its outward side.
-/// Neighbouring rings are joined by six quads, and the two end rings are closed by two quads each.
+/// Six quads join neighboring rings.
+/// Two quads close each of the two end rings.
 fn foot_faces(points: &[V3], rings: usize) -> Vec<([usize; 4], Material, Outward)> {
     let n = RING_POINTS;
     let mut faces: Vec<([usize; 4], Material, Outward)> = Vec::new();
@@ -882,7 +898,8 @@ fn smoothed_vertices(points: &[V3], tris: &[[usize; 3]], made_of: &[Material], n
 }
 
 /// Gives the vertices of a foot texture coordinates inside the rectangle of their material.
-/// Each vertex is projected flat along the axis that its normal points to most, and the result is jittered a little so that the plain rectangle does not look flat.
+/// It projects each vertex flat along the axis that its normal points to most.
+/// It jitters the result a little so that the plain rectangle does not look flat.
 fn patch_uvs(patch: &Patch, verts: &[V3], normals: &[V3], materials: &[Material], bounds: &FootBounds, middle: V3) -> Vec<[f64; 2]> {
     let FootBounds { outward, length, width, tall } = *bounds;
     let mut noise = Noise::new();
@@ -949,7 +966,8 @@ fn pad(raw: &mut Vec<u8>, n: usize) {
 }
 
 /// Builds a model with feet from a model of a body, which is the unpacked CGFX file.
-/// The path of the model picks the style of the feet, and the texture of the body is used for their colors when it is given.
+/// The path of the model picks the style of the feet.
+/// When the texture of the body is given, the feet take their colors from it.
 /// It returns the bytes of the new file and the name of the style.
 pub fn build(path: &str, model: &[u8], texture: Option<&Image>) -> Result<(Vec<u8>, &'static str), String> {
     let b = Blob(model);
@@ -1084,7 +1102,7 @@ fn tucked_leg_ends(body: &Body, frames: &[Frame; 2], vertex_count: usize) -> BTr
         for &i in &low {
             let q = pos[i];
             let angle = ((q[2] - e_mid[2]) / e_size[2]).atan2((q[0] - e_mid[0]) / e_size[0]);
-            // The distance between two angles, which wraps around at a full turn.
+            // This is the distance between two angles, which wraps around at a full turn.
             let off = |a: f64| {
                 let d = a - angle;
                 d.sin().atan2(d.cos()).abs()
@@ -1142,8 +1160,9 @@ fn write_moved_vertices(raw: &mut [u8], v: &model::Vertices, position: Attr, nor
     touching
 }
 
-/// Gives each tucked vertex the texture coordinates of its nearest neighbour that was not tucked.
-/// This keeps the texture of the leg from stretching over the moved vertices. A neighbour that is too far away is not used.
+/// Gives each tucked vertex the texture coordinates of its nearest neighbor that was not tucked.
+/// This keeps the texture of the leg from stretching over the moved vertices.
+/// A neighbor that is too far away is not used.
 fn copy_end_uvs(raw: &mut [u8], v: &model::Vertices, frames: &[Frame; 2], ends: &BTreeSet<usize>, touching: &[[usize; 3]], after: &[V3]) -> Result<(), String> {
     let Some(uv) = v.attrs.get(&model::UV) else {
         return Ok(());
@@ -1152,7 +1171,7 @@ fn copy_end_uvs(raw: &mut [u8], v: &model::Vertices, frames: &[Frame; 2], ends: 
     for frame in frames {
         let reach = 0.3 * frame.depth.max(2.0 * frame.half);
         for &i in ends.iter().filter(|&&i| frame.on_leg[i]) {
-            // The neighbours are the other corners of the triangles at the vertex. The nearest one in x and z is found, and the first of equal ones is kept.
+            // The neighbors are the other corners of the triangles at the vertex. The nearest one in x and z is found, and the first of equal ones is kept.
             let above: BTreeSet<usize> = touching.iter().filter(|t| t.contains(&i)).flatten().copied().filter(|j| !ends.contains(j)).collect();
             let flat = |j: usize| (after[j][0] - after[i][0]).powi(2) + (after[j][2] - after[i][2]).powi(2);
             let Some(j) = above.iter().copied().fold(None, |best: Option<usize>, j| match best {
@@ -1172,7 +1191,9 @@ fn copy_end_uvs(raw: &mut [u8], v: &model::Vertices, frames: &[Frame; 2], ends: 
 }
 
 /// Adds a bone for each foot to the skeleton, named `l_shoe` and `r_shoe`.
-/// Each record is a copy of the record of the shin that is attached to the shin. The names, the records and a new dictionary are appended to the file, and the pointers of the skeleton are patched.
+/// Each record is a copy of the record of the shin, and the new bone is attached to that shin.
+/// It appends the names, the records and a new dictionary to the file.
+/// It patches the pointers of the skeleton.
 /// It returns the indices of the two new bones.
 fn add_foot_bones(raw: &mut Vec<u8>, b: &Blob, skeleton: usize, body: &Body, shins: [i64; 2], feet: &[Foot; 2]) -> Result<[u32; 2], String> {
     let old_dict = b.to(skeleton + 0x1C)?;
@@ -1254,7 +1275,8 @@ fn foot_geometry(feet: &[Foot; 2], v: &model::Vertices, [position, normal, uv]: 
 
 /// Appends the feet to the shape as a new part.
 /// The vertex buffer is copied to the end of the file with the new vertices behind the old ones, and the indices of the feet are written after it.
-/// The new part is a copy of the first part with a palette of the two foot bones, and the list of parts of the shape is rewritten with the new part last.
+/// The new part is a copy of the first part with a palette of the two foot bones.
+/// The list of parts of the shape is rewritten with the new part last.
 fn append_feet_mesh(raw: &mut Vec<u8>, b: &Blob, v: &model::Vertices, shape: usize, foot_bones: [u32; 2], new_vertices: &[u8], new_indices: &[usize]) -> Result<(), String> {
     pad(raw, 0x80);
     let vertex_at = raw.len();
@@ -1321,7 +1343,8 @@ fn write_file_sizes(raw: &mut [u8], b: &Blob) -> Result<(), String> {
 }
 
 /// Decodes the color texture of a body from its unpacked texture file.
-/// The texture that is named with the ending `_c0` is taken, or the first texture when there is none. It returns nothing when the file can not be read or its format is not ETC1.
+/// The texture that is named with the ending `_c0` is taken, or the first texture when there is none.
+/// It returns nothing when the file cannot be read or its format is not ETC1.
 pub fn colour_texture(file: &[u8]) -> Option<Image> {
     let b = Blob(file);
     if file.get(0..4) != Some(b"CGFX") {
@@ -1383,7 +1406,7 @@ mod tests {
         assert_eq!(style_of("b/uBody_M_mymM_0.m.lz").name, "shoe");
     }
 
-    /// The percentile blends between neighbouring values, and the median of an odd count is the middle value.
+    /// The percentile blends between neighboring values, and the median of an odd count is the middle value.
     #[test]
     fn percentiles_go_between_values() {
         assert_eq!(percentile(&mut [4.0, 1.0, 3.0, 2.0], 50.0), 2.5);

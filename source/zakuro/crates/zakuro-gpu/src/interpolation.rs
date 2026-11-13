@@ -10,7 +10,8 @@
 //! thirtieth of a second moves things.
 //! Small draws, such as sprites, numbers and particles, mostly move by their vertices instead.
 //! A title writes those vertices anew every frame, often into another buffer each time.
-//! Their vertices are kept, and the draw in between blends them halfway too.
+//! Their vertices are kept.
+//! The draw in between blends them halfway too.
 
 use std::collections::{HashMap, HashSet};
 
@@ -23,7 +24,7 @@ pub(crate) type Uniforms = [Vec4; FLOAT_UNIFORMS];
 /// The shader inputs of each vertex of a draw, in the order that the draw takes them.
 pub(crate) type Inputs = Vec<[Vec4; INPUT_REGISTERS]>;
 
-/// The most vertices a draw may have for its vertices to be kept and blended in between.
+/// The most vertices that a draw can have for its vertices to be kept and blended in between.
 pub(crate) const KEPT_VERTICES: u32 = 1024;
 
 /// What the draw in between draws differently from the draw of the title.
@@ -34,9 +35,11 @@ pub(crate) struct Between {
     pub(crate) inputs: Option<Inputs>,
 }
 
-/// How much a component may differ from its expected move before it counts as a jump.
+/// How much a component can differ from its expected move before it counts as a jump.
 const JUMP: f32 = 1.0;
-/// The size above which a component is taken as a translation, which never counts as a jump. Rotation components stay within it.
+/// The size above which a component counts as a translation.
+/// A translation never counts as a jump.
+/// Rotation components stay within this size.
 const TURN: f32 = 1.5;
 
 /// whether a component a texture's coordinates may read steps from one
@@ -47,7 +50,8 @@ fn steps(before: f32, now: f32) -> bool {
     round(before) && round(now)
 }
 
-/// Whether a component steps between round values from standing still, or back the way it came. Such a step is a switch, so it is drawn as it is and never halfway.
+/// Whether a component steps between round values from standing still, or back the way it came.
+/// Such a step is a switch, so it is drawn as it is and never halfway.
 fn toggles(before: f32, now: f32, moved_before: f32) -> bool {
     steps(before, now) && (moved_before == 0.0 || now - before == -moved_before)
 }
@@ -66,7 +70,8 @@ const RESTLESS: u8 = 4;
 /// for one it had not, how many frames on a jump still counts as one more
 /// of its jumps, see RESTLESS, and which of them a draw of the next frame
 /// took for its own.
-/// For small draws, the lists also hold the vertex arrays that each draw read, see arrays, and its vertices, which are empty for the other draws.
+/// For small draws, the lists also hold the vertex arrays that each draw read, see arrays, and the vertices of the draw.
+/// For the other draws, the vertices are empty.
 #[derive(Default)]
 struct Drawn {
     uniforms: Vec<Uniforms>,
@@ -377,7 +382,7 @@ fn arrays(registers: &[u32]) -> u64 {
 /// what a draw draws, the same from frame to frame for a model drawn the
 /// same way, its programs, how its vertex arrays are laid out and the buffers it draws into
 /// and its first texture.
-/// Where the arrays start is left out, see arrays.
+/// The key leaves out where the arrays start, see arrays.
 fn key(registers: &[u32], vertex: &ShaderUnit, geometry: Option<&ShaderUnit>) -> u64 {
     // from an odd start, so that words of zero still count
     let mut hash = mix(mix(0x9E37_79B9_7F4A_7C15, vertex.fingerprint()), vertex.entry_point as u64);
@@ -637,7 +642,7 @@ mod tests {
     /// Its vertices go halfway, but for the inputs that the texture coordinates read.
     #[test]
     fn vertices_written_anew_move_halfway() {
-        // o0 = c0 . v0, o2 = v1, with o0 the position and o2 a texture's coordinates.
+        // o0 = c0 . v0, o2 = v1, with o0 the position and o2 the coordinates of a texture.
         let mut unit = ShaderUnit::new();
         unit.program[0] = (0x02 << 26) | (0x20 << 12);
         unit.program[1] = (0x13 << 26) | (0x02 << 21) | (0x01 << 12);

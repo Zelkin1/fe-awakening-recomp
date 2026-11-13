@@ -67,14 +67,16 @@ options:
                                    code around
   --mute                           play no sound
   --layout <stacked|side-by-side|large-top|top|bottom>
-                                   how the screens are arranged (F9 goes
-                                   round them, F10 flips to the other
-                                   screen when one shows alone)
-  --top-shape <console|16:9|21:9>  the top screen's shape, wider than the
-                                   console's only with a widescreen code
-  --enhance <name>[,<name>...]     turns on the game's enhancements of
-                                   those names, the ones the Cheats window
-                                   lists for it
+                                   the arrangement of the screens (F9 goes
+                                   to the next arrangement, F10 changes to
+                                   the other screen when only one screen
+                                   shows)
+  --top-shape <console|16:9|21:9>  the shape of the top screen (a shape
+                                   wider than that of the console needs a
+                                   widescreen code)
+  --enhance <name>[,<name>...]     turn on the enhancements of the game
+                                   with these names (the names that the
+                                   Cheats window shows for the game)
   --data <dir>                     where saves live (default: the system's
                                    place for data, ~/.local/share/zakuro or
                                    %APPDATA%\\zakuro)

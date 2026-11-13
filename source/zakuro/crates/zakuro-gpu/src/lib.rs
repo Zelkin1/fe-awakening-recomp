@@ -581,7 +581,9 @@ impl Gpu {
 
         #[cfg(feature = "vulkan")]
         if let Some(hardware) = self.resources.hardware.as_mut() {
-            // A copy that stays on the GPU is tried first. A side without gaps is unbroken, and only an unbroken output is supported, with an input that is either unbroken or has columns.
+            // A copy that stays on the GPU is tried first.
+            // A side without gaps is unbroken.
+            // Only an unbroken output is supported, with an input that is either unbroken or has columns.
             let unbroken = |width: u32, skip: u32| width == 0 || skip == 0;
             let copied = match (unbroken(input_width, input_skip), unbroken(output_width, output_skip)) {
                 (true, true) => Some(hardware.texture_copy(memory, input, output, size)),
@@ -721,8 +723,8 @@ impl Gpu {
     }
 
     /// Draws the bloom that games make from smaller levels of a texture drawn by the GPU, or leaves it out.
-    /// Without it those levels are transparent black, and the picture keeps its sharp first level.
-    /// Only the host's GPU draws such bloom apart, so this does nothing in software.
+    /// Without it, those levels are transparent black, and the picture keeps its sharp first level.
+    /// Only the GPU of the host draws such bloom apart, so this does nothing in software.
     pub fn set_bloom(&mut self, on: bool) {
         #[cfg(feature = "vulkan")]
         if let Some(hardware) = self.resources.hardware.as_mut() {
@@ -741,8 +743,8 @@ impl Gpu {
         true
     }
 
-    /// Filters textures seen at an angle with up to this many samples, 1 for none, and says how many the host's GPU takes.
-    /// Only the host's GPU filters anisotropically, so this does nothing in software.
+    /// Filters textures seen at an angle with up to this many samples, 1 for none, and says how many the GPU of the host takes.
+    /// Only the GPU of the host filters anisotropically, so this does nothing in software.
     pub fn set_anisotropy(&mut self, samples: u32) -> u32 {
         #[cfg(feature = "vulkan")]
         if let Some(hardware) = self.resources.hardware.as_mut() {
@@ -889,7 +891,8 @@ impl Gpu {
         1
     }
 
-    /// Changes the multiple of the resolution of the console the GPU draws at, once the game runs, and gives the multiple it took. Without a GPU that scales, it stays 1.
+    /// Changes the multiple of the resolution of the console that the GPU draws at, once the game runs, and gives the multiple that it took.
+    /// Without a GPU that scales, it stays 1.
     pub fn set_resolution<M: GpuMemory>(&mut self, memory: &mut M, scale: u32) -> u32 {
         #[cfg(feature = "vulkan")]
         if let Some(hardware) = self.resources.hardware.as_mut() {
@@ -1606,7 +1609,9 @@ fn external_index(gsp_offset: u32) -> Option<usize> {
     Some(byte_offset as usize / 4)
 }
 
-/// Appends the float uniforms of a draw to a file, for debugging. ZAKURO_DUMP_UNIFORMS holds a vertex count, a colon and a path, and only the draws with that many vertices are written.
+/// Appends the float uniforms of a draw to a file, for debugging.
+/// ZAKURO_DUMP_UNIFORMS holds a vertex count, a colon and a path.
+/// Only the draws with that many vertices are written.
 fn dump_uniforms(vertex_count: u32, draw: u64, uniforms: &[shader::Vec4]) {
     static WANTED: std::sync::OnceLock<Option<(u32, std::path::PathBuf)>> = std::sync::OnceLock::new();
     let wanted = WANTED.get_or_init(|| {

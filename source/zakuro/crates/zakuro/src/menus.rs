@@ -25,7 +25,7 @@ pub enum Action {
     Recompile(usize),
     /// Install the mod at this index.
     /// The choice tells whether the optional part of the mod, such as the AI cleanup, is wanted.
-    /// No choice means the player has not been asked yet.
+    /// No choice means that nobody asked the player yet.
     InstallMod(usize, Option<bool>),
     /// Remove the files of the mod at this index.
     UninstallMod(usize),
@@ -300,7 +300,7 @@ impl Menus {
                 |ui| match &self.update {
                     Some(UpdateButton::Available) => {
                         if theme::band_button(ui, "Update Launcher", true)
-                            .on_hover_text("Download the latest launcher from GitHub, put it in place of this one and restart. Your saves, settings and the game you built stay as they are.")
+                            .on_hover_text("Download the latest launcher from GitHub, replace this launcher with it, and restart. Your saves, your settings and the game that you built do not change.")
                             .clicked()
                         {
                             actions.push(Action::Update);
@@ -340,7 +340,7 @@ impl Menus {
                     theme::frame().show(ui, |ui| {
                         theme::header(ui, "Welcome", None);
                         theme::menu_body(ui, |ui| {
-                            ui.label("Choose the game's file to see it here.");
+                            ui.label("Choose the file of the game to see the game here.");
                             ui.add_space(8.0);
                             theme::commands(ui, |ui| {
                                 if theme::command(ui, "\u{1F4C2}", "Select game files", true).clicked() {
@@ -363,7 +363,7 @@ impl Menus {
                 return;
             }
             if library.games.is_empty() {
-                theme::on_backdrop(ui, "No .3ds, .cci, .cxi or .cia files in that folder.");
+                theme::on_backdrop(ui, "That folder has no .3ds, .cci, .cxi or .cia files.");
                 ui.add_space(8.0);
                 ui.set_max_width(320.0);
                 theme::commands(ui, |ui| {
@@ -424,7 +424,7 @@ impl Menus {
                     }
                     ui.add_space(20.0);
                     ui.vertical(|ui| {
-                        // A file that can't be played keeps the commands to choose another one and to reach the settings.
+                        // A file that cannot be played keeps the commands to choose another one and to reach the settings.
                         if let Some(problem) = &game.problem {
                             ui.label(RichText::new(problem).size(15.0).color(theme::TAG_PROBLEM));
                             ui.add_space(8.0);
@@ -469,9 +469,9 @@ impl Menus {
                         ui.add_space(10.0);
                         theme::commands(ui, |ui| {
                             if !job.is_some_and(|job| !job.stage().finished()) {
-                                let compiler = "It takes 10 to 20 minutes and needs a C compiler, gcc or clang, or Zig, which Zakuro offers to download when the computer has neither.";
+                                let compiler = "It takes 10 to 20 minutes. It needs a C compiler: gcc, clang or Zig. If the computer has none of them, Zakuro offers to download Zig.";
                                 let label = if game.recompiled { "Recompile again" } else { "Recompile" };
-                                let hover = format!("Turn the game's code into native code with 3dsrecomp, which makes it run faster. {compiler} The mods are in Settings, Mods.");
+                                let hover = format!("Turn the code of the game into native code with 3dsrecomp. Native code runs faster. {compiler} The mods are in Settings, Mods.");
                                 if theme::command(ui, "\u{2692}", label, true).on_hover_text(hover).clicked() {
                                     actions.push(Action::Recompile(index));
                                 }
@@ -635,8 +635,8 @@ impl Menus {
         // A confirmation modal for the choice of the menu that needs one.
         if let Some(confirm) = self.confirm {
             let (title, text, icon, label, action, slot) = match confirm {
-                Confirm::Reset => ("Reset the game?".to_owned(), "It starts over, and what wasn't saved is lost.".to_owned(), "\u{27F3}", "Reset", Action::Reset, None),
-                Confirm::Quit => ("Quit?".to_owned(), "The game closes, and what wasn't saved is lost.".to_owned(), "\u{1F6AA}", "Quit", Action::Quit, None),
+                Confirm::Reset => ("Reset the game?".to_owned(), "The game starts over. You lose what you did not save.".to_owned(), "\u{27F3}", "Reset", Action::Reset, None),
+                Confirm::Quit => ("Quit?".to_owned(), "The game closes. You lose what you did not save.".to_owned(), "\u{1F6AA}", "Quit", Action::Quit, None),
                 Confirm::Save(slot) => (
                     format!("Save to slot {slot}?"),
                     String::new(),
@@ -716,7 +716,7 @@ impl Menus {
                             if theme::command(ui, "\u{2714}", "Add", !held && !code.trim().is_empty()).clicked() {
                                 actions.push(Action::AddCheat(std::mem::take(name), std::mem::take(code)));
                             }
-                            if theme::command(ui, "\u{27F3}", "Reload", !held).on_hover_text("Read the codes again from their file, after changing it.").clicked() {
+                            if theme::command(ui, "\u{27F3}", "Reload", !held).on_hover_text("Read the codes again from their file. Use this after you change the file.").clicked() {
                                 actions.push(Action::ReloadCheats);
                             }
                             if theme::command(ui, "\u{1F4C2}", "Open the cheats folder", true).clicked() {
@@ -961,7 +961,7 @@ impl Menus {
                 }
             });
         });
-        theme::hint(ui, "The circle pad is mapped to the left stick, and the Home button opens the in-game menu.");
+        theme::hint(ui, "The left stick works as the circle pad. The Home button opens the in-game menu.");
         ui.add_space(8.0);
         theme::commands(ui, |ui| {
             if theme::command(ui, "\u{27F2}", "Default controller", true).clicked() {
@@ -1056,7 +1056,7 @@ impl Menus {
             theme::menu_body(ui, |ui| {
                 ui.label(RichText::new(need.why).size(15.0));
                 ui.add_space(4.0);
-                let source = if downloaded { format!("The {} uses {}, already downloaded.", need.name, need.what) } else { format!("The {} needs {}: {size}, downloaded once from the pages of their authors.", need.name, need.what) };
+                let source = if downloaded { format!("The {} uses {}, which Zakuro already downloaded.", need.name, need.what) } else { format!("The {} needs {}. Zakuro downloads {size} one time, from the pages of their authors.", need.name, need.what) };
                 theme::hint(ui, &source);
                 theme::hint(ui, &format!("Without the {}, the {} mod draws over the UI as the game stores it.", need.name, step.label));
                 ui.add_space(6.0);
@@ -1142,7 +1142,7 @@ fn system_tab(ui: &mut egui::Ui, settings: &mut Settings, actions: &mut Vec<Acti
             };
         });
     });
-    theme::hint(ui, "The game is Fire Emblem Awakening's file (.3ds or .cci). The DLC is its DLC file (.cia), if you have one; the game runs with it from the next time it starts.");
+    theme::hint(ui, "Game is the file of Fire Emblem Awakening (.3ds or .cci). DLC is the DLC file of the game (.cia), if you have one. The game uses the DLC from the next time that it starts.");
     ui.add_space(8.0);
     theme::commands(ui, |ui| {
         theme::row(ui, |ui| {
@@ -1152,11 +1152,11 @@ fn system_tab(ui: &mut egui::Ui, settings: &mut Settings, actions: &mut Vec<Acti
                 }
             })
             .response
-            .on_hover_text("This is the console's system language. Fire Emblem Awakening shows its text in this language.");
+            .on_hover_text("This is the system language of the console. Fire Emblem Awakening shows its text in this language.");
         });
         theme::row(ui, |ui| {
             ui.checkbox(&mut settings.show_console, "Show the console")
-                .on_hover_text("Shows a window with Zakuro's log, which helps when reporting a problem. Closing that window closes Zakuro too.");
+                .on_hover_text("Shows a window with the log of Zakuro. The log helps when you report a problem. If you close that window, Zakuro also closes.");
         });
     });
     theme::hint(ui, "A new language takes effect after a reset, or the next time the game starts.");
@@ -1200,7 +1200,7 @@ fn cheat_lists(ui: &mut egui::Ui, cheats: &[(String, bool, String, bool, Option<
     }
     theme::section(ui, "Codes");
     if !cheats.iter().any(|cheat| !cheat.3) {
-        theme::hint(ui, "No codes yet. Add one below, or put the cheat file Citra or Azahar has for this game in the cheats folder.");
+        theme::hint(ui, "There are no codes yet. Add one below, or put the cheat file that Citra or Azahar has for this game in the cheats folder.");
     } else {
         egui::ScrollArea::vertical().id_salt("codes").max_height(260.0).show(ui, |ui| {
             theme::commands(ui, |ui| {
@@ -1214,14 +1214,14 @@ fn cheat_lists(ui: &mut egui::Ui, cheats: &[(String, bool, String, bool, Option<
 }
 
 /// The Graphics tab of the settings.
-/// Original mode switches off the options that would change the picture of the console.
+/// Original mode switches off the options that change the picture of the console.
 fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     let mut original = settings.original;
     theme::commands(ui, |ui| {
         theme::row(ui, |ui| {
             if ui
                 .checkbox(&mut original, "Original mode")
-                .on_hover_text("Plays the game as the console does: both screens, the top one 5:3, at the console's resolution with no smoothing and no frame interpolation, without mods, codes, enhancements or anything added over the game's screens. Your own choices come back when you turn it off.")
+                .on_hover_text("Plays the game as the console does. It shows both screens, with the top screen at 5:3. It uses the resolution of the console, with no smoothing and no frame interpolation. It turns off mods, codes, enhancements and anything added over the screens of the game. When you turn it off, your own choices come back.")
                 .changed()
             {
                 settings.set_original(original);
@@ -1247,11 +1247,11 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         });
         theme::row(ui, |ui| {
             ui.add_enabled(free, egui::Slider::new(&mut settings.resolution, 1..=8).text("Resolution").suffix("x"))
-                .on_hover_text("Sets how many times the console's resolution the 3D is drawn at. Higher values look sharper but use much more GPU power.");
+                .on_hover_text("Sets the resolution of the 3D as a multiple of the console resolution. Higher values look sharper but use much more GPU power.");
         });
         theme::row(ui, |ui| {
             ui.add_enabled(free, egui::Checkbox::new(&mut settings.texture_packs, "Texture packs"))
-                .on_hover_text("Uses a texture pack made for Fire Emblem Awakening on Citra or Azahar. Put the pack in the textures folder inside the game's mods folder.");
+                .on_hover_text("Uses a texture pack made for Fire Emblem Awakening on Citra or Azahar. Put the pack in the textures folder inside the mods folder of the game.");
         });
         theme::row(ui, |ui| {
             ui.add_enabled_ui(free, |ui| {
@@ -1268,11 +1268,11 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
         });
         theme::row(ui, |ui| {
             ui.add_enabled(free, egui::Checkbox::new(&mut settings.bloom, "Bloom"))
-                .on_hover_text("Draws the soft glow the game adds around bright parts of the 3D scenes. Turning it off gives a slightly sharper and darker picture.");
+                .on_hover_text("Draws the soft glow that the game adds around bright parts of the 3D scenes. When it is off, the picture is slightly sharper and darker.");
         });
         theme::row(ui, |ui| {
             ui.add_enabled(free && interpolates, egui::Checkbox::new(&mut settings.frame_interpolation, "Frame interpolation"))
-                .on_hover_text("Adds a generated frame between each pair of frames, so the battles and cutscenes, which run at 30 frames per second, are shown at 60. This adds one frame of delay. It requires the Vulkan presenter.");
+                .on_hover_text("Adds a generated frame between each pair of frames. The battles and cutscenes run at 30 frames per second, and this shows them at 60. This adds one frame of delay. It requires the Vulkan presenter.");
         });
         theme::row(ui, |ui| {
             ui.add_enabled_ui(free, |ui| {
@@ -1284,15 +1284,15 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
             })
             .inner
             .response
-            .on_hover_text("With the top screen alone, what shows over a battle: the game's own panels from the bottom screen, the same information in the style of Fire Emblem: Three Houses, or nothing at all.");
+            .on_hover_text("Sets what shows over a battle when the top screen is alone. The choices are the panels of the game from the bottom screen, the same information in the style of Fire Emblem: Three Houses, or nothing at all.");
         });
         theme::row(ui, |ui| {
             ui.checkbox(&mut settings.fullscreen, "Start games in fullscreen")
-                .on_hover_text("Goes fullscreen when a game starts. F11 or Fullscreen in the menu switches back and forth while playing.");
+                .on_hover_text("Goes fullscreen when a game starts. While you play, F11 or Fullscreen in the menu switches between fullscreen and a window.");
         });
         theme::row(ui, |ui| {
             ui.checkbox(&mut settings.show_fps, "Show the frame rate")
-                .on_hover_text("Shows the frame rate in a corner of the screen: the frames the game draws per second, then the frames shown per second.");
+                .on_hover_text("Shows the frame rate in a corner of the screen. The first number is the frames that the game draws per second. The second number is the frames shown per second.");
         });
     });
     ui.add_space(8.0);
@@ -1314,7 +1314,7 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
                         }
                     })
                     .response
-                    .on_hover_text("Sets how the screens look when scaled up: smooth, sharp with soft edges, or sharp square pixels.");
+                    .on_hover_text("Sets how the screens look when they are scaled up. The choices are smooth, sharp with soft edges, or sharp square pixels.");
             });
             theme::row(ui, |ui| {
                 egui::ComboBox::from_label("Top screen shape")
@@ -1325,7 +1325,7 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
                         }
                     })
                     .response
-                    .on_hover_text("Shows the top screen wider than on the console. Use 16:9 with the game's 16:9 mod turned on in Cheats, otherwise the picture is stretched.");
+                    .on_hover_text("Shows the top screen wider than on the console. If you use 16:9, turn on the 16:9 mod of the game in Cheats. If the mod is off, the picture is stretched.");
             });
         });
     });
@@ -1342,11 +1342,11 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
                     }
                 })
                 .response
-                .on_hover_text("Shows the top screen in 3D. Red and cyan is for anaglyph glasses, side by side is for 3D TVs and headsets, and alternate rows is for passive 3D monitors. When off, the game is drawn flat.");
+                .on_hover_text("Shows the top screen in 3D. Red and cyan is for anaglyph glasses. Side by side is for 3D TVs and headsets. Alternate rows is for passive 3D monitors. When 3D is off, the game is drawn flat.");
         });
         theme::row(ui, |ui| {
             ui.add_enabled(stereo, egui::Slider::new(&mut settings.depth_3d, 0..=100).text("Depth").suffix("%"))
-                .on_hover_text("Works like the console's 3D slider and sets how deep the 3D looks.");
+                .on_hover_text("Works like the 3D slider of the console. It sets how deep the 3D looks.");
         });
         theme::row(ui, |ui| {
             ui.add_enabled(stereo, egui::Checkbox::new(&mut settings.swap_eyes, "Swap eyes"))
@@ -1355,7 +1355,7 @@ fn graphics_tab(ui: &mut egui::Ui, settings: &mut Settings) {
     });
     theme::hint(
         ui,
-        "Press F9 while playing to switch between screen layouts, and F10 to switch between the top and bottom screen alone. When the top screen is shown alone, the key set in Keybinds shows the bottom screen in the middle of it, and you can use the mouse on it. The game's buttons wait until the same key, or the game's B button, closes it.",
+        "While you play, press F9 to switch between screen layouts. Press F10 to switch between the top screen alone and the bottom screen alone. When the top screen is shown alone, the key set in Keybinds shows the bottom screen in the middle of it. You can use the mouse on it. The buttons of the game wait until the same key or the B button of the game closes it.",
     );
     theme::hint(ui, "Resolution changes apply right away. A change of presenter applies the next time Zakuro starts.");
 }
@@ -1389,7 +1389,7 @@ fn mods_tab(ui: &mut egui::Ui, mods: &[ModSwitch], actions: &mut Vec<Action>) {
                         if ui.button("Rebuild mod").on_hover_text(format!("Build the {} mod again from your copy of the game.", switch.label)).clicked() {
                             actions.push(Action::InstallMod(index, None));
                         }
-                        if ui.button("Uninstall").on_hover_text(format!("Remove the {} mod's files. Install it again any time.", switch.label)).clicked() {
+                        if ui.button("Uninstall").on_hover_text(format!("Remove the files of the {} mod. You can install it again at any time.", switch.label)).clicked() {
                             actions.push(Action::UninstallMod(index));
                         }
                     });
@@ -1410,7 +1410,7 @@ fn mods_tab(ui: &mut egui::Ui, mods: &[ModSwitch], actions: &mut Vec<Action>) {
         ui.add_space(6.0);
         theme::commands(ui, |ui| {
             if theme::command(ui, "\u{1F4C2}", "Open mods folder", true)
-                .on_hover_text("Open the game's mods folder. Files put in its romfs folder replace the game's, the way Luma3DS and Citra take mods, and a texture pack made for Citra or Azahar goes in its textures folder.")
+                .on_hover_text("Open the mods folder of the game. Files in its romfs folder replace the files of the game, as in Luma3DS and Citra. A texture pack made for Citra or Azahar goes in its textures folder.")
                 .clicked()
             {
                 actions.push(Action::Mods(switch.program_id));
@@ -1467,7 +1467,7 @@ fn progress(ui: &mut egui::Ui, job: &Job, width: f32, height: f32) {
     let text = match &stage {
         Stage::Mods { .. } => "Preparing the mod".to_owned(),
         Stage::Downloading(arrived) => format!("Downloading the compiler, {:.0}%", arrived * 100.0),
-        Stage::Generating => "Converting the game's code to C".to_owned(),
+        Stage::Generating => "Converting the code of the game to C".to_owned(),
         Stage::Compiling { done, total } => format!("Compiling, {done} of {total} files"),
         Stage::Installing => "Installing".to_owned(),
         Stage::Done => "Done".to_owned(),

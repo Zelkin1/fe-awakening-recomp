@@ -42,7 +42,8 @@ struct Queue {
 struct PlayingSound {
     /// The stereo frames of the whole sound.
     frames: Arc<[[f32; 2]]>,
-    /// The place in the frames of the next output sample. The fraction lies between two frames.
+    /// The place in the frames of the next output sample.
+    /// The fraction lies between two frames.
     position: f64,
     /// How many frames the position advances per output sample, which is the rate of the sound divided by the output rate.
     step: f64,
@@ -51,7 +52,7 @@ struct PlayingSound {
 }
 
 impl PlayingSound {
-    /// Returns the next output sample, or nothing when the sound has ended.
+    /// Returns the next output sample, or nothing when the sound ends.
     fn next_frame(&mut self) -> Option<[f32; 2]> {
         let index = self.position as usize;
         if index + 1 >= self.frames.len() {
@@ -66,7 +67,8 @@ impl PlayingSound {
 }
 
 impl Queue {
-    /// The next output sample, which is the sample of the console with the playing sounds of the launcher added. A sound that ended is dropped.
+    /// The next output sample, which is the sample of the console with the playing sounds of the launcher added.
+    /// A sound that ended is dropped.
     fn next(&mut self) -> [f32; 2] {
         let mut out = self.next_console_sample();
         self.sounds.retain_mut(|sound| match sound.next_frame() {
@@ -298,7 +300,8 @@ impl Audio {
         self.volume.set(volume.clamp(0.0, 1.0));
     }
 
-    /// Starts a sound of the launcher on top of the sound of the console, at the current volume. At volume 0 nothing starts.
+    /// Starts a sound of the launcher on top of the sound of the console, at the current volume.
+    /// At volume 0, nothing starts.
     pub fn play(&self, sound: &crate::sounds::Sound) {
         let gain = self.volume.get();
         if gain == 0.0 {

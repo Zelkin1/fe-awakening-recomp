@@ -1,10 +1,12 @@
-//! Tracks which screens of the game are showing, from the markers that the renderer reports each frame.
+//! Tracks which screens of the game are shown.
+//! It uses the markers that the renderer reports each frame.
 //!
 //! It also follows whether a unit is selected on the map, from the button A and the pictures of the game.
 
 use std::collections::BTreeMap;
 
-// The ids of the markers, which `game_ui` ties to draws of the game.
+// The ids of the markers.
+// The module `game_ui` ties these ids to draws of the game.
 /// The cursor over a unit on the map.
 pub const ON_UNIT: u32 = 1;
 /// A conversation.
@@ -44,9 +46,11 @@ const MOST_PICTURES_AT_HALF_RATE: u32 = 10;
 pub(crate) struct Scenes {
     /// The last frame in which each marker was drawn.
     last_drawn: BTreeMap<u32, u64>,
-    /// Whether the battle on the screen has ended, which is the case once the experience gauge is drawn.
+    /// Whether the battle on the screen is over.
+    /// The battle is over once the experience gauge is drawn.
     battle_over: bool,
-    /// The areas of the markers with the frame in which each was seen, kept for a few frames.
+    /// The areas of the markers with the frame in which each was seen.
+    /// They are kept for a few frames.
     spans: Vec<(u32, [f32; 4], u64)>,
     /// The selection of a unit on the map.
     selection: UnitSelection,
@@ -58,7 +62,8 @@ impl Scenes {
         for &id in drawn_markers {
             self.last_drawn.insert(id, frame);
         }
-        // The battle is over once the experience gauge is drawn while the battle is still shown, and stays over until the battle goes away.
+        // The battle is over once the experience gauge is drawn while the battle is still shown.
+        // It stays over until the battle goes away.
         self.battle_over = self.shown(BATTLE, frame) && (self.battle_over || drawn_markers.contains(&EXP));
         self.spans.extend(new_spans.into_iter().map(|(id, span)| (id, span, frame)));
         // Older areas are dropped, as no frame reads them any more.
@@ -72,7 +77,8 @@ impl Scenes {
         self.last_drawn.get(&marker).is_some_and(|&at| frame.saturating_sub(at) <= RECENT_FRAMES)
     }
 
-    /// Whether a battle is on the screen, which is not the case during a conversation or after the battle has ended.
+    /// Whether a battle is on the screen.
+    /// No battle is on the screen during a conversation or after the battle is over.
     pub(crate) fn battle_shows(&self, frame: u64) -> bool {
         self.shown(BATTLE, frame) && !self.shown(TALKING, frame) && !self.battle_over
     }
@@ -105,7 +111,7 @@ enum SelectionState {
     NotSelected,
     /// A unit is selected and the cursor is on a unit.
     OnUnit,
-    /// A unit is selected and the cursor has moved off the units.
+    /// A unit is selected and the cursor moved off the units.
     CursorAway,
 }
 
@@ -116,7 +122,8 @@ struct UnitSelection {
     state: SelectionState,
     /// Whether the button A was held in the previous frame, to find the frame in which it is pressed.
     a_was_held: bool,
-    /// One bit per frame, the lowest for the latest, set when the game produced a new picture in that frame.
+    /// One bit per frame, with the lowest bit for the latest frame.
+    /// A bit is set when the game produced a new picture in that frame.
     picture_history: u32,
     /// The number of pictures of the game at the previous frame.
     last_pictures_from_game: u64,
@@ -130,7 +137,8 @@ impl UnitSelection {
         let new_picture = pictures_from_game > self.last_pictures_from_game;
         self.picture_history = (self.picture_history << 1) | new_picture as u32;
         self.last_pictures_from_game = pictures_from_game;
-        // A game that makes a new picture in only some of the last 16 frames runs at half rate, as in a battle, and no unit is selected then.
+        // A game that makes a new picture in only some of the last 16 frames runs at half rate, as in a battle.
+        // No unit is selected then.
         let half_rate = (self.picture_history & PICTURE_HISTORY_MASK).count_ones() <= MOST_PICTURES_AT_HALF_RATE;
         self.state = match self.state {
             _ if half_rate => SelectionState::NotSelected,
@@ -156,7 +164,8 @@ mod tests {
         }
     }
 
-    /// A selection starts with the button A on a unit, and ends when the cursor comes back to a unit after it was away.
+    /// A selection starts with the button A on a unit.
+    /// It ends when the cursor comes back to a unit after it was away.
     #[test]
     fn a_selection_lasts_until_the_cursor_comes_back_to_a_unit() {
         let mut selection = UnitSelection::default();

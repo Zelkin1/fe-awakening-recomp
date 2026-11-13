@@ -2,22 +2,23 @@
 
 | Component | Where | License | Use |
 |---|---|---|---|
-| [Zakuro](https://github.com/fearkov/zakuro) | `zakuro/` (a clone), changed by `patches/zakuro-local-changes.patch` | MIT, `zakuro/LICENSE` | The runtime the game runs in |
+| [Zakuro](https://github.com/fearkov/zakuro) | `zakuro/` (a clone), changed by `patches/zakuro-local-changes.patch` | MIT, `zakuro/LICENSE` | The runtime that the game runs in |
 | [3dsrecomp](https://github.com/fearkov/3dsrecomp) | `3dsrecomp/` (a clone), changed by `patches/3dsrecomp-*.patch` | MIT, as its `Cargo.toml` declares (the repository has no license file) | The recompiler |
 | Rust toolchain (rustup) | `tools/rust/` | MIT or Apache-2.0 | Builds Zakuro and 3dsrecomp; downloaded, not part of the project |
 | Python with NumPy and Pillow | installed separately | BSD-3-Clause (NumPy), MIT-CMU (Pillow) | The scripts in `tools/` |
-| Open fonts: Alegreya Sans Bold and ExtraBold | downloaded from the [Google Fonts repository](https://github.com/google/fonts) when the HD text mod is installed, not part of the project | SIL Open Font License 1.1, below | The fonts the HD text mod draws the game's text with |
-| [Real-ESRGAN ncnn Vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan) | downloaded from its author's release when the HD text mod is installed, not part of the project | MIT, built on Tencent's ncnn (BSD-3-Clause) | Runs the AI model of the HD text mod's cleanup |
-| [1x BCGone Smooth](https://openmodeldb.info/models/1x-BCGone-Smooth) by Mutin Choler | downloaded from its author's link when the HD text mod is installed, and converted to ncnn on the player's computer; not part of the project | WTFPL | The AI model that removes the blocks of the game's texture compression |
+| Open fonts: Alegreya Sans Bold and ExtraBold | downloaded from the [Google Fonts repository](https://github.com/google/fonts) when you install the HD text mod, not part of the project | SIL Open Font License 1.1, below | The fonts that the HD text mod draws the text of the game with |
+| [Real-ESRGAN ncnn Vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan) | downloaded from the release of its author when you install the HD text mod, not part of the project | MIT, built on ncnn by Tencent (BSD-3-Clause) | Runs the AI model of the cleanup in the HD text mod |
+| [1x BCGone Smooth](https://openmodeldb.info/models/1x-BCGone-Smooth) by Mutin Choler | downloaded from the link of its author when you install the HD text mod, and converted to ncnn on the computer of the player, not part of the project | WTFPL | The AI model that removes the blocks that the texture compression of the game leaves |
 
-The crates Zakuro and 3dsrecomp depend on keep their own licenses, listed in
-their `Cargo.lock` files.
+The crates that Zakuro and 3dsrecomp depend on keep their own licenses. Their
+`Cargo.lock` files list them.
 
 ## Zakuro and 3dsrecomp
 
-The patches carry portions of Zakuro's and 3dsrecomp's code. They are shared,
-if at all, under this notice, Zakuro's license file as it reads; 3dsrecomp
-declares the same license without a file of its own:
+The patches carry parts of the code of Zakuro and 3dsrecomp. If the project
+shares these parts, it shares them under this notice, which is the license
+file of Zakuro as it reads. 3dsrecomp declares the same license without a
+file of its own:
 
 ```
 MIT License
@@ -46,7 +47,7 @@ SOFTWARE.
 ## Open font
 
 The HD text mod downloads this font unchanged from the Google Fonts repository
-and draws with it. Its notice and license:
+and draws with it. These are its notice and its license:
 
 ```
 Alegreya Sans Bold and ExtraBold (AlegreyaSans-Bold.ttf, AlegreyaSans-ExtraBold.ttf)

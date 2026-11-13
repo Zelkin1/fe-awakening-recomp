@@ -20,7 +20,7 @@ pub struct Enhancement {
     pub note: String,
     /// The place the code comes from, named in its credit.
     pub source: String,
-    /// The lines of the code, which may hold the placeholders `{x/100}` and `{100/x}` for the value of the setting.
+    /// The lines of the code, which can hold the placeholders `{x/100}` and `{100/x}` for the value of the setting.
     pub lines: Vec<String>,
     /// The number that a player can change, when the enhancement has one.
     pub setting: Option<Setting>,
@@ -37,7 +37,8 @@ pub struct Setting {
     pub max: u16,
     /// The value used until the player picks another one.
     pub default: u16,
-    /// The unit shown after the value, such as a percent sign. It can be empty.
+    /// The unit shown after the value, such as a percent sign.
+    /// It can be empty.
     pub unit: String,
 }
 
@@ -112,7 +113,8 @@ pub fn for_title(program_id: u64, build: &str) -> Vec<Enhancement> {
 }
 
 /// The enhancements of the game as cheats of their own, the ones named in `on` turned on.
-/// The values of the settings come from `values` by the name of the enhancement, and these cheats go nowhere near the cheat file of the player.
+/// The values of the settings come from `values` by the name of the enhancement.
+/// These cheats go nowhere near the cheat file of the player.
 pub fn cheats(program_id: u64, build: &str, on: &[String], values: &BTreeMap<String, u16>) -> Vec<Cheat> {
     for_title(program_id, build).into_iter().map(|enhancement| cheat_for(enhancement, on, values)).collect()
 }

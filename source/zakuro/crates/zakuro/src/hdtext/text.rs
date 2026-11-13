@@ -55,7 +55,7 @@ impl Face {
     }
 
     /// The scale for `ab_glyph`, which sizes the height of the font and not the em.
-    /// It is corrected so that the em has the size of the face.
+    /// This function corrects it so that the em has the size of the face.
     fn scale(&self) -> PxScale {
         let units = self.font.units_per_em().unwrap_or(1000.0);
         PxScale::from(self.em * self.font.height_unscaled() / units)
@@ -68,7 +68,8 @@ impl Face {
         id.0 != 0 && self.font.outline(id).is_some()
     }
 
-    /// Returns the glyph of a character, taking the lining figures into account for the digits.
+    /// Returns the glyph of a character.
+    /// For the digits, it takes the lining figures into account.
     fn id(&self, c: char) -> GlyphId {
         match (self.figures, c.to_digit(10)) {
             (Some(first), Some(digit)) => GlyphId(first + digit as u16),
@@ -82,7 +83,8 @@ impl Face {
     }
 
     /// Returns the tightened advance of a character and the shift of its left edge.
-    /// Large side bearings are trimmed, which makes the text denser, and spaces are widened a little.
+    /// It trims large side bearings, which makes the text denser.
+    /// It also widens spaces a little.
     pub fn spaced(&self, c: char) -> (f32, f32) {
         let advance = self.advance(c);
         if c.is_whitespace() {
@@ -179,7 +181,8 @@ impl Face {
 }
 
 /// Shears a plane to the right, more towards the top, so that the letters lean forward.
-/// The bottom row stays in place, and fractional shifts are shared between two pixels.
+/// The bottom row stays in place.
+/// Two pixels share each fractional shift.
 fn sheared(p: &Plane, slant: f32) -> Plane {
     let extra = (p.h as f32 * slant).ceil() as usize;
     let mut out = Plane::new(p.w + extra, p.h);

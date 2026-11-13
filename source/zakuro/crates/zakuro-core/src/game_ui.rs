@@ -1,7 +1,9 @@
 //! The description of the screens of Fire Emblem Awakening that the renderer needs.
 //!
-//! It lists the markers that find the draws of the game by their texture and place, and the pieces of the bottom screen that are shown over the top screen.
-//! The numbers are positions in the pictures of the game, which are 320 by 240 pixels for the bottom screen.
+//! It lists the markers that find the draws of the game by their texture and place.
+//! It also lists the pieces of the bottom screen that are shown over the top screen.
+//! The numbers are positions in the pictures of the game.
+//! The picture of the bottom screen is 320 by 240 pixels.
 
 use zakuro_gpu::{Anchor, BannerSide, Banners, Ground, Marker, Piece, Place, Rounded};
 
@@ -59,7 +61,7 @@ const fn marker(id: u32, format: u32, width: u32, height: u32, bottom: bool, pla
     Marker { id, format, width, height, bottom, place }
 }
 
-/// Builds the place of a marker from the ranges that the left, top, width and height of the draw may lie in.
+/// Builds the place of a marker from the ranges that the left, top, width and height of the draw can lie in.
 const fn place(left: [f32; 2], top: [f32; 2], width: [f32; 2], height: [f32; 2]) -> Place {
     Place { left, top, width, height }
 }
@@ -80,7 +82,8 @@ const MARKERS: &[Marker] = &[
     marker(FORECAST, ETC1A4, 256, 512, TOP_SCREEN, place([-0.03, 0.03], [0.03, 0.12], [0.95, 1.05], [0.7, 0.85])),
     marker(BRIEF_FORECAST, ETC1A4, 256, 512, TOP_SCREEN, place([-0.03, 0.03], [0.67, 0.695], [0.95, 1.05], [0.31, 0.335])),
     marker(BATTLE, ETC1A4, 256, 512, BOTTOM_SCREEN, place([-0.1, 0.1], [0.0, 0.14], [0.95, 1.05], [0.5, 0.65])),
-    // The menus of the preparations draw a bar across the top of the screen, which no other scene draws.
+    // The menus of the preparations draw a bar across the top of the screen.
+    // No other scene draws this bar.
     marker(PREPARATIONS, ETC1A4, 256, 512, TOP_SCREEN, place([-0.02, 0.02], [-0.02, 0.02], [0.97, 1.03], [0.12, 0.15])),
     // A duo shows two gauges, one above and one below the place of a single gauge.
     marker(EXP, ETC1A4, 256, 512, TOP_SCREEN, place([0.18, 0.31], [0.33, 0.51], [0.4, 0.6], [0.11, 0.16])),
@@ -90,7 +93,8 @@ const MARKERS: &[Marker] = &[
     marker(TITLE, L8, 512, 32, BOTTOM_SCREEN, place([-0.3, -0.2], [0.83, 0.9], [1.45, 1.55], [0.1, 0.16])),
 ];
 
-/// A rounded rectangle with a shadow, taken from the rectangle in the picture of the bottom screen, with no shift and no outline.
+/// A rounded rectangle with a shadow, with no shift and no outline.
+/// It is taken from the rectangle in the picture of the bottom screen.
 const fn rounded(rect: [u16; 4], corners: [u8; 4]) -> Rounded {
     Rounded { rect, shift: [0, 0], mirror: false, corners, soft: 0, light: false, shade: 255, shadow: true, outline: &[], cut: None }
 }
@@ -105,7 +109,8 @@ const fn button(x: u16, width: u16) -> Rounded {
     Rounded { shadow: false, ..rounded([x, 191, width, 42], [4; 4]) }
 }
 
-/// The prompt and the copyright line of the title screen, shown at the bottom of the top screen.
+/// The prompt and the copyright line of the title screen.
+/// They are shown at the bottom of the top screen.
 const TITLE_PIECES: &[Piece] = &[
     Piece { from: [30, 106, 260, 28], across: Anchor::Middle(0), down: Anchor::End(30), size: 100, shapes: PROMPT, follows: None },
     Piece { from: [12, 212, 296, 26], across: Anchor::Middle(0), down: Anchor::End(0), size: 100, shapes: COPYRIGHT, follows: None },
@@ -115,9 +120,11 @@ const PROMPT: &[Rounded] = &[light([30, 106, 260, 28], [14; 4], 12)];
 /// The shape of the copyright line of the title screen.
 const COPYRIGHT: &[Rounded] = &[light([12, 212, 296, 26], [13; 4], 10)];
 
-/// The name of the place on the world map, shown at the top of the top screen at 70 percent.
+/// The name of the place on the world map.
+/// It is shown at the top of the top screen at 70 percent.
 const WORLD_MAP_PIECES: &[Piece] = &[Piece { from: [2, 0, 316, 43], across: Anchor::Middle(0), down: Anchor::Start(2), size: 70, shapes: PLACE_NAME, follows: None }];
-/// The shapes of the frame of the name of a place, made of a body, two ends and a small piece at the top whose ground is cut away.
+/// The shapes of the frame of the name of a place.
+/// The frame is made of a body, two ends and a small piece at the top whose ground is cut away.
 const PLACE_NAME: &[Rounded] = &[
     Rounded { outline: PLACE_FRAME, ..rounded([15, 10, 290, 28], [1; 4]) },
     Rounded { outline: PLACE_FRAME, ..rounded([8, 14, 10, 20], [6, 0, 6, 0]) },
@@ -127,9 +134,11 @@ const PLACE_NAME: &[Rounded] = &[
 /// The outline of the frame of the name of a place, as points in tenths of a pixel of the picture.
 const PLACE_FRAME: &[[u16; 2]] = &[[174, 100], [3026, 100], [3036, 103], [3046, 115], [3048, 129], [3052, 139], [3066, 143], [3080, 151], [3096, 163], [3102, 171], [3108, 175], [3110, 181], [3116, 187], [3120, 195], [3122, 207], [3126, 211], [3126, 265], [3122, 271], [3116, 291], [3108, 299], [3106, 305], [3102, 307], [3096, 315], [3084, 325], [3054, 339], [3050, 343], [3048, 347], [3048, 359], [3046, 361], [3046, 365], [3038, 373], [3036, 378], [164, 378], [162, 373], [154, 365], [150, 343], [146, 339], [134, 335], [116, 325], [104, 315], [98, 307], [94, 305], [92, 299], [84, 291], [78, 271], [74, 265], [74, 211], [78, 207], [78, 203], [80, 201], [80, 193], [92, 175], [116, 153], [134, 143], [146, 139], [150, 135], [150, 127], [152, 125], [154, 115], [164, 103]];
 
-/// The position in the picture of the left banner at rest, which the left panel follows.
+/// The position in the picture of the left banner at rest.
+/// The left panel follows this position.
 const LEFT_PANEL_REST: [u16; 2] = [24, 4];
-/// The position in the picture of the right banner at rest, which the right panel follows.
+/// The position in the picture of the right banner at rest.
+/// The right panel follows this position.
 const RIGHT_PANEL_REST: [u16; 2] = [184, 4];
 
 /// The stats panel and the two hit point panels of a battle.
@@ -138,7 +147,8 @@ const BATTLE_PANELS: &[Piece] = &[
     Piece { from: [0, 6, 162, 70], across: Anchor::Middle(-88), down: Anchor::End(4), size: 49, shapes: HP_LEFT, follows: Some((LEFT_BANNER, LEFT_PANEL_REST)) },
     Piece { from: [162, 6, 162, 70], across: Anchor::Middle(88), down: Anchor::End(4), size: 49, shapes: HP_RIGHT, follows: Some((RIGHT_BANNER, RIGHT_PANEL_REST)) },
 ];
-/// The shapes of the hit point panel on the left. Rectangles that are one pixel wide are copied side by side to stretch the panel.
+/// The shapes of the hit point panel on the left.
+/// Rectangles that are one pixel wide are copied side by side to stretch the panel.
 const HP_LEFT: &[Rounded] = &[
     Rounded { shift: [4, 0], ..rounded([0, 17, 152, 59], [0; 4]) },
     Rounded { shift: [10, 0], ..rounded([146, 17, 12, 59], [0, 6, 0, 6]) },
@@ -155,7 +165,8 @@ const HP_LEFT: &[Rounded] = &[
     Rounded { shift: [-148, 0], mirror: true, shadow: false, ..rounded([148, 17, 10, 10], [6, 0, 0, 0]) },
     Rounded { shift: [4, 0], ..rounded([24, 6, 112, 22], [8; 4]) },
 ];
-/// The shapes of the hit point panel on the right. Rectangles that are one pixel wide are copied side by side to stretch the panel.
+/// The shapes of the hit point panel on the right.
+/// Rectangles that are one pixel wide are copied side by side to stretch the panel.
 const HP_RIGHT: &[Rounded] = &[
     rounded([168, 17, 152, 59], [0; 4]),
     Rounded { shift: [-6, 0], ..rounded([162, 17, 12, 59], [6, 0, 6, 0]) },
@@ -175,8 +186,10 @@ const HP_RIGHT: &[Rounded] = &[
     rounded([184, 6, 112, 22], [8; 4]),
 ];
 /// The shapes of the stats panel of a battle.
-/// The strip left of the stat labels is mirrored over the shaded strip right of them, which would look like a seam.
-/// The row of the attack is left out, because the badge of a double attack sits there on either side and would be copied or hidden.
+/// The strip left of the stat labels is mirrored over the shaded strip right of them.
+/// Otherwise, the shaded strip looks like a seam.
+/// The row of the attack is left out, because the badge of a double attack sits there on either side.
+/// A copy of that row copies or hides the badge.
 const STATS: &[Rounded] = &[
     rounded([70, 88, 180, 52], [4; 4]),
     Rounded { shift: [39, 0], mirror: true, shadow: false, ..rounded([136, 88, 9, 3], [0; 4]) },

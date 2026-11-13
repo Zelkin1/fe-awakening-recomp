@@ -77,7 +77,9 @@ const MAX_SIZE: u32 = 8192;
 
 
 impl Pack {
-    /// The packs in these folders as one, the first one that opens leading and the others behind it. None when no folder holds a picture.
+    /// The packs in these folders as one.
+    /// The first one that opens leads, and the others are behind it.
+    /// None when no folder holds a picture.
     pub fn open_all(dirs: &[PathBuf]) -> Option<Pack> {
         let mut packs = dirs.iter().filter_map(|dir| Pack::open(dir));
         let mut first = packs.next()?;
@@ -247,7 +249,8 @@ fn readers() -> &'static rayon::ThreadPool {
 #[derive(Debug, PartialEq)]
 struct Config {
     hashing: Hashing,
-    /// Whether pack.json states use_new_hash. When it does not, the hashing is only a guess.
+    /// Whether pack.json states use_new_hash.
+    /// When it does not, the hashing is only a guess.
     stated: bool,
     /// whether the PNGs are stored with their top row first, as dumped,
     /// pack.json's flip_png_files.

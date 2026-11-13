@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use egui::Color32;
 use zakuro_core::services::hid::{InputState, PadState};
 
-/// The kind of scene the game currently shows, as far as the overlays are concerned.
+/// The kind of scene that the game currently shows, as far as the overlays are concerned.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Scene {
     /// Any scene that needs no special handling.
@@ -49,9 +49,10 @@ const BUTTONS_STAY: Duration = Duration::from_secs(3);
 pub(crate) struct ShownButtons {
     /// The pieces of the bottom screen that are drawn as the buttons.
     pub(crate) pieces: &'static [zakuro_gpu::Piece],
-    /// The moment the fade in started, shifted back when the buttons were already partly visible.
+    /// The moment that the fade in started.
+    /// It is shifted back when the buttons were already partly visible.
     since: Instant,
-    /// The moment the fade out starts.
+    /// The moment that the fade out starts.
     until: Instant,
 }
 
@@ -102,7 +103,8 @@ pub(crate) struct PadPointer {
     pub(crate) at: [f32; 2],
     /// Whether the pointer is visible.
     pub(crate) shown: bool,
-    /// The moment of the last steer, used to measure the time between two steers.
+    /// The moment of the last steer.
+    /// It is used to measure the time between two steers.
     last: Option<Instant>,
 }
 
@@ -191,7 +193,7 @@ pub(crate) fn level_up_screen(picture: &[u8]) -> bool {
     if picture.len() < 320 * 240 * 4 {
         return false;
     }
-    // The average brightness of a region of the picture, from 0 to 255.
+    // This gives the average brightness of a region of the picture, from 0 to 255.
     let light = |[left, top, right, bottom]: [usize; 4]| {
         let mut sum = 0;
         for y in top..bottom {
@@ -225,7 +227,7 @@ pub(crate) fn map_screen(picture: &[u8]) -> Option<MapScreen> {
     if picture.len() < 320 * 240 * 4 {
         return None;
     }
-    // The average brightness of a region of the picture, from 0 to 255.
+    // This gives the average brightness of a region of the picture, from 0 to 255.
     let light = |[left, top, right, bottom]: [usize; 4]| {
         let mut sum = 0;
         for y in top..bottom {
@@ -296,7 +298,7 @@ pub fn pieces(ctx: &egui::Context, places: &[zakuro_gpu::PiecePlace], cuts: &[Ve
         let pos = egui::pos2(at.x + (u - left) / width * at.width, at.y + (v - top) / height * at.height) / ppp;
         (pos, egui::pos2(u, v))
     };
-    // The rectangle on the window that encloses all runs of a cut piece.
+    // This is the rectangle on the window that encloses all runs of a cut piece.
     let cut_box = |place: &zakuro_gpu::PiecePlace, runs: &[[u16; 3]]| {
         let (mut low, mut high) = (egui::pos2(f32::MAX, f32::MAX), egui::pos2(f32::MIN, f32::MIN));
         for &[row, from, to] in runs {
@@ -312,7 +314,7 @@ pub fn pieces(ctx: &egui::Context, places: &[zakuro_gpu::PiecePlace], cuts: &[Ve
         egui::Rect::from_min_size(egui::pos2(at.x, at.y) / ppp, egui::vec2(at.width, at.height) / ppp)
     };
     let fade = |value: u8| (value as f32 * opacity.clamp(0.0, 1.0)).round() as u8;
-    // The corner radii of a piece, converted from pixels of the viewport to points.
+    // These are the corner radii of a piece, converted from pixels of the viewport to points.
     let corners = |place: &zakuro_gpu::PiecePlace| {
         let [nw, ne, sw, se] = place.corners.map(|radius| (radius / ppp).round().clamp(0.0, 255.0) as u8);
         egui::CornerRadius { nw, ne, sw, se }
@@ -502,7 +504,7 @@ pub fn banners(ctx: &egui::Context, textures: &mut BannerTextures, read: &crate:
         };
         let shape = |points: &[(f32, f32)], fill: Color32, stroke: (f32, Color32)| egui::Shape::convex_polygon(place(points), fill, egui::Stroke::new(stroke.0 * unit, stroke.1));
         let diamond = |cx: f32, cy: f32, r: f32| [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)];
-        // On the right side the stat columns run in the opposite order, so that the same stat sits next to the middle on both sides.
+        // On the right side, the stat columns run in the opposite order, so that the same stat sits next to the middle on both sides.
         let stat_columns = if right { [(390.0, 530.0), (230.0, 370.0), (70.0, 210.0)] } else { [(70.0, 210.0), (230.0, 370.0), (390.0, 530.0)] };
         let band = [(84.0, 0.0), (516.0, 0.0), (BANNER_TIP, 27.0), (516.0, 54.0), (84.0, 54.0), (60.0, 27.0)];
         let (bar, inside, width, height, gap) = hp_bar(side.ticks.len());
@@ -537,7 +539,7 @@ pub fn banners(ctx: &egui::Context, textures: &mut BannerTextures, read: &crate:
             for tick in 0..all.min(TICKS_A_ROW) {
                 let x0 = 159.0 + tick as f32 * TICK_PITCH;
                 let x1 = x0 + width;
-                // Lit ticks alternate between two shades, and unlit ticks are grey.
+                // Lit ticks alternate between two shades, and unlit ticks are gray.
                 let (body, top) = match tick < lit {
                     true if tick % 2 == 1 => (lighter(fill, 25), lighter(fill, 85)),
                     true => (fill, lighter(fill, 60)),

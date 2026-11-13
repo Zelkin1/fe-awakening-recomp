@@ -28,7 +28,7 @@ fn lz11_unpack(src: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::with_capacity(length);
     let byte = |at: usize| src.get(at).copied().ok_or_else(short);
     while out.len() < length {
-        // One flag byte covers eight items, from the highest bit down. A clear bit is a plain byte, a set bit is a copy.
+        // One flag byte covers eight items, from the highest bit down. A clear bit is a plain byte, and a set bit is a copy.
         let flags = byte(at)?;
         at += 1;
         for bit in 0..8 {
@@ -71,7 +71,7 @@ fn lz11_unpack(src: &[u8]) -> Result<Vec<u8>, String> {
             if disp > out.len() {
                 return Err("an LZ stream reaches before its start".into());
             }
-            // The copy goes byte by byte, so that it may overlap its own output.
+            // The copy goes byte by byte, so that it can overlap its own output.
             for _ in 0..count {
                 out.push(out[out.len() - disp]);
             }

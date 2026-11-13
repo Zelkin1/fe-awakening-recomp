@@ -1,40 +1,40 @@
 # What this project adds to Zakuro and 3dsrecomp
 
-This list separates the project's code from Zakuro's and 3dsrecomp's. Paths start at the two folders the README's build steps make: `zakuro/` (Zakuro at `80d78be`) and `3dsrecomp/` (3dsrecomp at `9db0d8b`), both with the project's patches applied. The parts marked as the feet mod come from `mods/feet/zakuro-feet.patch`; everything else comes from `patches/`. `source/` holds the same files.
+This list separates the code of the project from the code of Zakuro and 3dsrecomp. Paths start at the two folders that the build steps of the README make: `zakuro/` (Zakuro at `80d78be`) and `3dsrecomp/` (3dsrecomp at `9db0d8b`), both with the patches of the project applied. The parts marked as the feet mod come from `mods/feet/zakuro-feet.patch`. Everything else comes from `patches/`. `source/` holds the same files.
 
 ## Files the project adds
 
 | File | Lines | What it holds |
 |---|---|---|
-| `zakuro/crates/zakuro-core/src/game_ui.rs` | 214 | Awakening's screen data: the markers that tell its scenes apart, and the rectangles of the battle panels, battle buttons, FE3H banners, title and world-map pieces. |
-| `zakuro/crates/zakuro-core/src/scenes.rs` | 195 | Scene detection from the markers the GPU sees: which scene shows, the end of a battle, marker positions, and the unit selection. |
-| `zakuro/crates/zakuro/src/banners.rs` | 270 | Reads the text of the FE3H-style banners (names, HP, weapon, stats) off the bottom screen. |
-| `zakuro/crates/zakuro/src/console.rs` | 96 | The optional console window with Zakuro's log (Settings, System). |
-| `zakuro/crates/zakuro/src/downloads.rs` | 259 |  |
-| `zakuro/crates/zakuro/src/hdtext/banners.rs` | 263 | The phase, mission and result banners: lettering fitted with its spacing, glow, outline or stone fill drawn again. |
-| `zakuro/crates/zakuro/src/hdtext/clean.rs` | 511 |  |
-| `zakuro/crates/zakuro/src/hdtext/data.rs` | 481 | The words the redrawn pictures spell, in each language: banners, inventory labels, title screen and main menu. |
-| `zakuro/crates/zakuro/src/hdtext/esrgan.rs` | 406 |  |
-| `zakuro/crates/zakuro/src/hdtext/labels.rs` | 1083 | The inventory's labels: letters taken off their plates, plates and cells evened with their grain given back, words drawn again with shadow, shine or engraving. |
-| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 574 | The HD text mod's build step: runs every redraw over the player's copy and writes the font files and the texture pack. |
+| `zakuro/crates/zakuro-core/src/game_ui.rs` | 227 | The screen data of Awakening. These are the markers that tell its scenes apart, and the rectangles of the battle panels, the battle buttons, the FE3H banners, and the pieces of the title screen and the world map. |
+| `zakuro/crates/zakuro-core/src/scenes.rs` | 204 | Finds the scene from the markers that the GPU sees: which scene shows, the end of a battle, the positions of the markers, and the unit selection. |
+| `zakuro/crates/zakuro/src/banners.rs` | 276 | Reads the text of the FE3H banners (names, HP, weapon, stats) from the bottom screen. |
+| `zakuro/crates/zakuro/src/console.rs` | 100 | The optional console window with the log of Zakuro (Settings, System). |
+| `zakuro/crates/zakuro/src/downloads.rs` | 265 | Downloads the tools and the fonts that the launcher needs. It checks each file against its size and its SHA-256 hash before it uses the file. |
+| `zakuro/crates/zakuro/src/hdtext/banners.rs` | 295 | The phase, mission and result banners. It fits the lettering with its spacing and draws the glow, the outline or the stone fill again. |
+| `zakuro/crates/zakuro/src/hdtext/clean.rs` | 512 | Removes the compression artifacts from the pictures of the game. It runs Real-ESRGAN with a 1x model, keeps the result only where it stays faithful, and adds a light grain to the parchment panels. |
+| `zakuro/crates/zakuro/src/hdtext/data.rs` | 482 | The words that the redrawn pictures spell, in each language: banners, inventory labels, title screen and main menu. |
+| `zakuro/crates/zakuro/src/hdtext/esrgan.rs` | 424 | Converts a PyTorch `.pth` ESRGAN model into ncnn files, with a small pickle reader for the weights. |
+| `zakuro/crates/zakuro/src/hdtext/labels.rs` | 1085 | The labels of the inventory. It takes the letters off their plates, evens the plates and the cells and gives their grain back, and draws the words again with a shadow, a shine or an engraving. |
+| `zakuro/crates/zakuro/src/hdtext/mod.rs` | 586 | The build step of the HD text mod. It runs every redraw over the copy of the player and writes the font files and the texture pack. |
 | `zakuro/crates/zakuro/src/hdtext/ops.rs` | 771 | Image operations for the redraws: planes, masks, blurs, resizing, labelling and distance transforms. |
-| `zakuro/crates/zakuro/src/hdtext/rom.rs` | 161 | Finds textures in the game's files and reads its message files. |
-| `zakuro/crates/zakuro/src/hdtext/sheets.rs` | 386 | Reads and writes the game's font files: each letter drawn at its natural width from an open font, packed into new sheets, with the 4x pictures. |
-| `zakuro/crates/zakuro/src/hdtext/text.rs` | 198 | Draws letters and lines from an open font. |
-| `zakuro/crates/zakuro/src/hdtext/titles.rs` | 230 | Chapter titles: each line fitted to where the original's lettering is, its fill and glow measured and drawn again. |
-| `zakuro/crates/zakuro/src/hdtext/words.rs` | 908 | The title screen's words, its copyright line and the main menu's buttons, drawn again with their icons kept. |
-| `zakuro/crates/zakuro/src/lz.rs` | 182 | LZ11 and LZ13 compression of the game's files, for the mods' build steps. |
-| `zakuro/crates/zakuro/src/overlays.rs` | 751 | The overlays over the top screen: scene state, the battle buttons, the bottom screen over the top one, the battle panels and the FE3H banners. |
-| `zakuro/crates/zakuro/src/sounds.rs` | 390 | Reads the bottom screen's open and close sounds from the game's sound archive. |
-| `zakuro/crates/zakuro/src/theme.rs` | 461 | The launcher's look: colours, fonts, window frames, tabs and buttons. |
-| `zakuro/crates/zakuro/src/update.rs` | 219 | Update Launcher: finds the latest release on GitHub, downloads it and puts it in place of the running launcher. |
-| `zakuro/crates/zakuro-core/src/feet.rs` | 262 | The feet mod's per-frame hook: turns each foot so that it rests flat on the ground. (feet mod) |
-| `zakuro/crates/zakuro/src/feet/foot.rs` | 1392 | Builds the feet for one body model and writes the changed model. (feet mod) |
-| `zakuro/crates/zakuro/src/feet/formats.rs` | 276 | The game's formats the builder reads and writes: CGFX dictionaries and ETC1 textures. (feet mod) |
-| `zakuro/crates/zakuro/src/feet/mod.rs` | 135 | The feet mod's build step: runs the builder over every body model of the game. (feet mod) |
-| `zakuro/crates/zakuro/src/feet/model.rs` | 179 | Reads a CGFX model's skeleton, vertices and submeshes. (feet mod) |
+| `zakuro/crates/zakuro/src/hdtext/rom.rs` | 163 | Finds textures in the files of the game and reads its message files. |
+| `zakuro/crates/zakuro/src/hdtext/sheets.rs` | 400 | Reads and writes the font files of the game. It draws each letter at its natural width from an open font, packs the letters into new sheets, and writes the 4x pictures. |
+| `zakuro/crates/zakuro/src/hdtext/text.rs` | 201 | Draws letters and lines from an open font. |
+| `zakuro/crates/zakuro/src/hdtext/titles.rs` | 246 | Chapter titles. It fits each line to the place of the original lettering, measures its fill and its glow, and draws them again. |
+| `zakuro/crates/zakuro/src/hdtext/words.rs` | 921 | The words of the title screen, its copyright line and the buttons of the main menu, drawn again with their icons kept. |
+| `zakuro/crates/zakuro/src/lz.rs` | 182 | LZ11 and LZ13 compression of the files of the game, for the build steps of the mods. |
+| `zakuro/crates/zakuro/src/overlays.rs` | 753 | The overlays over the top screen: the scene state, the battle buttons, the bottom screen over the top screen, the battle panels and the FE3H banners. |
+| `zakuro/crates/zakuro/src/sounds.rs` | 390 | Reads the sounds that the bottom screen plays when it opens and closes, from the sound archive of the game. |
+| `zakuro/crates/zakuro/src/theme.rs` | 463 | The look of the launcher: colors, fonts, window frames, tabs and buttons. |
+| `zakuro/crates/zakuro/src/update.rs` | 227 | Update Launcher. It finds the latest release on GitHub, downloads it and puts it in place of the running launcher. |
+| `zakuro/crates/zakuro-core/src/feet.rs` | 271 | The hook of the feet mod that runs every frame. It turns each foot so that the foot rests flat on the ground. (feet mod) |
+| `zakuro/crates/zakuro/src/feet/foot.rs` | 1415 | Builds the feet for one body model and writes the changed model. (feet mod) |
+| `zakuro/crates/zakuro/src/feet/formats.rs` | 289 | The formats of the game that the builder reads and writes: CGFX dictionaries and ETC1 textures. (feet mod) |
+| `zakuro/crates/zakuro/src/feet/mod.rs` | 135 | The build step of the feet mod. It runs the builder over every body model of the game. (feet mod) |
+| `zakuro/crates/zakuro/src/feet/model.rs` | 183 | Reads the skeleton, the vertices and the submeshes of a CGFX model. (feet mod) |
 
-## Changes inside Zakuro's files
+## Changes inside the files of Zakuro
 
 ### `zakuro/crates/zakuro-common/src/hash.rs`
 
@@ -971,8 +971,8 @@ Changed:
 
 ## Data and build files
 
-- `zakuro/Cargo.toml`: 3dsrecomp's ABI crate taken from the 3dsrecomp folder beside Zakuro.
+- `zakuro/Cargo.toml`: The ABI crate of 3dsrecomp, taken from the 3dsrecomp folder beside Zakuro.
 - `zakuro/crates/zakuro-core/src/enhancements.txt`: The section for Fire Emblem: Awakening (EUR): 16:9, Smooth map sprites and Faster battles, with the Speed setting.
-- `zakuro/crates/zakuro-gpu/shaders/raster.frag`: Texture pack pictures sampled sharply, blending only across each pixel's edge; `raster.frag.spv` and `raster_depth.frag.spv` are its compiled forms.
-- `zakuro/crates/zakuro/Cargo.toml`: 3dsrecomp taken from the folder beside Zakuro; serde_json for Update Launcher; cityhasher for the names of the HD text's pictures.
+- `zakuro/crates/zakuro-gpu/shaders/raster.frag`: Samples the pictures of texture packs sharply, and blends only across the edge of each pixel. `raster.frag.spv` and `raster_depth.frag.spv` are its compiled forms.
+- `zakuro/crates/zakuro/Cargo.toml`: 3dsrecomp, taken from the folder beside Zakuro. serde_json for Update Launcher. cityhasher for the names of the pictures of the HD text.
 - `3dsrecomp/hints.txt`: The section for Fire Emblem: Awakening: where 3dsrecomp starts functions.

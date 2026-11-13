@@ -29,7 +29,7 @@ pub struct Library {
     /// picks. a jump through a register looks its target up, which is a
     /// search through every function otherwise.
     found: Box<[Found]>,
-    /// The functions of the game that are replaced or wrapped by a hook, by address.
+    /// The functions of the game that a hook replaces or wraps, by address.
     hooks: Vec<(u32, Hook)>,
 }
 
@@ -37,7 +37,7 @@ pub struct Library {
 /// It gets the memory and the registers, and says what to do next.
 pub type Hook = fn(&mut Memory, &mut Context) -> AfterHook;
 
-/// What happens after a hook has run.
+/// What happens after a hook runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AfterHook {
     /// The original function of the game runs next.
@@ -205,11 +205,12 @@ impl Library {
         Library { code, fallbacks: Cell::new(0), found: Library::nothing_found(), hooks: Vec::new() }
     }
 
-    /// Hooks the function at the address, replacing a hook that is already there.
+    /// Hooks the function at the address.
+    /// This replaces a hook that is already there.
     pub fn hook(&mut self, address: u32, hook: Hook) {
         self.hooks.retain(|(at, _)| *at != address);
         self.hooks.push((address, hook));
-        // The cache of looked up code may hold the address, so it is emptied.
+        // The cache of looked up code can hold the address, so it is emptied.
         self.found = Library::nothing_found();
     }
 
