@@ -111,7 +111,7 @@ python tools/licenses.py metadata.json THIRD_PARTY_LICENSES.txt
 
 ## Legal
 
-You need your own dump of the game. The project has no decryption and no
+You need your own legally obtained dump of the game. The project has no decryption and no
 keys, and Zakuro refuses a dump that is still encrypted.
 
 The repository and the launcher contain no code, data or assets from the
