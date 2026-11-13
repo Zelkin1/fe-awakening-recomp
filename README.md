@@ -31,7 +31,7 @@ copy of the game, on your computer.
    offers to download one.
 4. Click Play.
 
-You install the feet and the HD text from Settings, Mods.
+You can install the feet and the HD text from Settings, Mods.
 
 The keyboard, the mouse and most controllers work. The mouse acts as the
 touch screen. Esc opens the menu, with the settings, the cheats and the save
